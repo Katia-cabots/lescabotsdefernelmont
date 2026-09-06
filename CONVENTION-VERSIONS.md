@@ -18,8 +18,8 @@ Chaque zip livré est nommé selon le format :
 
 Le numéro de version actuel est aussi reflété :
 - dans `const VERSION_SITE = '...'` en haut de `assets/app-admin.js` et
-  `assets/app-membre.js` (affiché uniquement dans le bandeau admin
-  d'Hélène) ;
+  `assets/app-membre.js` (affiché dans le coin de l'écran admin, visible
+  par Katia et le Super Admin) ;
 - en commentaire d'en-tête de `firestore.rules`, avec le nom du projet
   Firebase.
 

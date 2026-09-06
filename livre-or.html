@@ -1,0 +1,188 @@
+<!-- © 2026 LES BEAUX CABOTS SRL. Tous droits réservés. Ce code ne peut être utilisé, copié ou modifié sans autorisation écrite. Voir LICENSE.txt. Contenu sous la responsabilité de Katia Renard. -->
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Livre d'or — Les Cabots de Fernelmont | Club canin Andenne</title>
+<meta name="description" content="Un petit mot pour le club canin Les Cabots de Fernelmont à Andenne ? Laissez votre message dans notre livre d'or.">
+<link rel="canonical" href="https://katia-cabots.github.io/lescabotsdefernelmont/livre-or.html">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="index.html">
+      <span class="brand-logo"><img src="assets/logo.png" alt="Logo Les Cabots de Fernelmont"></span>
+      <span class="brand-text">
+        <span class="brand-name">Les Cabots de Fernelmont</span>
+        <span class="brand-tagline">Club canin — Andenne</span>
+      </span>
+    </a>
+    <button class="nav-toggle" aria-expanded="false" aria-controls="main-nav" aria-label="Ouvrir le menu"><span class="bars"></span></button>
+    <nav class="main-nav" id="main-nav" aria-label="Navigation principale">
+      <ul>
+        <li><a href="index.html">Accueil</a></li>
+        <li><a href="club.html">Le Club</a></li>
+        <li><a href="activites.html">Activités</a></li>
+        <li><a href="katia.html">Katia</a></li>
+        <li><a href="infos-canines.html">Infos canines</a></li>
+        <li><a href="livre-or.html" class="active">Livre d'or</a></li>
+        <li><a href="contact.html">Nous contacter</a></li>
+        <li><a href="connexion.html">Connexion</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<section class="page-hero">
+  <div class="container">
+    <span class="eyebrow">Livre d'or</span>
+    <h1>Un petit mot pour le club ?</h1>
+    <p>Un souvenir, un merci, une anecdote avec votre compagnon... laissez-nous un message !</p>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="contact-form-card">
+      <h2>Laisser un message</h2>
+      <p>Votre message sera visible ici après une petite vérification par Katia.</p>
+      <form id="formLivreOr">
+        <div class="cf-grid">
+          <div class="cf-field"><label>Nom *</label><input type="text" id="lo-nom" required></div>
+          <div class="cf-field"><label>Prénom *</label><input type="text" id="lo-prenom" required></div>
+          <div class="cf-field cf-full"><label>Votre message</label><textarea id="lo-message" placeholder="Écrivez ici votre petit mot..."></textarea></div>
+        </div>
+        <p class="cf-note">* Champs obligatoires</p>
+        <button type="submit" class="btn btn-primary" id="lo-submit">Envoyer mon message</button>
+        <p class="cf-statut" id="lo-statut"></p>
+      </form>
+    </div>
+
+    <div class="contact-form-card" style="margin-top:28px;">
+      <h2>Ils nous ont laissé un mot</h2>
+      <div id="lo-liste">
+        <p style="color:var(--slate);">Chargement...</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script type="module">
+  import { db, collection, addDoc, getDocs, query, where, serverTimestamp } from "./assets/firebase-config.js";
+  import { VERSION_SITE } from "./assets/version.js";
+  document.getElementById('versionPublic') && (document.getElementById('versionPublic').textContent = VERSION_SITE);
+
+  function echapper(str) {
+    if (!str) return '';
+    return str.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  async function chargerLivreOr() {
+    const wrap = document.getElementById('lo-liste');
+    try {
+      const snap = await getDocs(query(collection(db, 'livre_or'), where('approuve', '==', true)));
+      const messages = [];
+      snap.forEach(d => messages.push(d.data()));
+      messages.sort((a, b) => (b.dateEnvoi?.seconds || 0) - (a.dateEnvoi?.seconds || 0));
+
+      if (messages.length === 0) {
+        wrap.innerHTML = '<p style="color:var(--slate);">Soyez le premier à laisser un mot !</p>';
+        return;
+      }
+      wrap.innerHTML = messages.map(m => `
+        <div style="border-top:1px solid #E3E7EB; padding:14px 0;">
+          <strong style="color:var(--navy-dark);">${echapper(m.prenom)} ${echapper(m.nom)}</strong>
+          ${m.message ? `<p style="margin:6px 0 0; color:var(--ink); white-space:pre-wrap;">${echapper(m.message)}</p>` : ''}
+        </div>`).join('');
+    } catch (e) {
+      wrap.innerHTML = '<p style="color:var(--slate);">Impossible de charger les messages pour le moment.</p>';
+    }
+  }
+  chargerLivreOr();
+
+  document.getElementById('formLivreOr').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const statutEl = document.getElementById('lo-statut');
+    const btn = document.getElementById('lo-submit');
+    const nom = document.getElementById('lo-nom').value.trim();
+    const prenom = document.getElementById('lo-prenom').value.trim();
+    const message = document.getElementById('lo-message').value.trim();
+
+    if (!nom || !prenom) {
+      statutEl.className = 'cf-statut err';
+      statutEl.textContent = 'Le nom et le prénom sont obligatoires.';
+      return;
+    }
+
+    btn.disabled = true;
+    statutEl.className = 'cf-statut';
+    statutEl.textContent = 'Envoi en cours...';
+    try {
+      await addDoc(collection(db, 'livre_or'), {
+        nom, prenom, message, approuve: false, dateEnvoi: serverTimestamp()
+      });
+      document.getElementById('formLivreOr').reset();
+      statutEl.classList.add('ok');
+      statutEl.textContent = 'Merci pour votre message ! Il apparaîtra ici dès sa validation par Katia.';
+    } catch (err) {
+      statutEl.classList.add('err');
+      statutEl.textContent = "Une erreur est survenue, merci de réessayer plus tard.";
+    }
+    btn.disabled = false;
+  });
+</script>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div>
+        <h4>Les Cabots de Fernelmont</h4>
+        <p>Club canin proposant des cours d'éducation canine à Andenne, animés par Katia.</p>
+      </div>
+      <div>
+        <h4>Navigation</h4>
+        <ul>
+          <li><a href="index.html">Accueil</a></li>
+          <li><a href="club.html">Le Club</a></li>
+          <li><a href="activites.html">Activités</a></li>
+          <li><a href="katia.html">Katia</a></li>
+        <li><a href="infos-canines.html">Infos canines</a></li>
+          <li><a href="livre-or.html">Livre d'or</a></li>
+        <li><a href="contact.html">Nous contacter</a></li>
+        <li><a href="connexion.html">Connexion</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Contact</h4>
+        <ul>
+          <li><a href="tel:+32494051796">0032 494 05 17 96</a></li>
+          <li><a href="mailto:cabotsdefernelmont@gmail.com">cabotsdefernelmont@gmail.com</a></li>
+          <li>Rue Grande 26, 4219 Wasseiges</li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 LES BEAUX CABOTS SRL — Tous droits réservés<br>Contenu sous la responsabilité de Katia Renard</span>
+      <span><a href="confidentialite.html">Confidentialité (RGPD)</a> &middot; <a href="cgv.html">CGV</a></span>
+      <span>TVA BE 0729.593.814</span>
+      <span>Version <span id="versionPublic"></span></span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  const toggle = document.querySelector('.nav-toggle');
+  const nav = document.getElementById('main-nav');
+  toggle.addEventListener('click', () => {
+    const isOpen = nav.classList.toggle('open');
+    toggle.setAttribute('aria-expanded', isOpen);
+  });
+</script>
+</body>
+</html>

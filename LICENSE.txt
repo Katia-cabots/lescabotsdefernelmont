@@ -1,22 +1,22 @@
 Les Cabots de Fernelmont — Site web et module de gestion
-Copyright © 2026 Hélène Laruelle. Tous droits réservés.
+Copyright © 2026 LES BEAUX CABOTS SRL. Tous droits réservés.
 
 ------------------------------------------------------------------------
 
 PROPRIÉTÉ DU CODE
 Le code source de ce site (fichiers HTML, CSS, JavaScript, et tout autre
 fichier de ce dépôt), sa structure, son architecture technique et son
-design ont été conçus et développés par Hélène Laruelle pour le compte
-du club canin "Les Cabots de Fernelmont" (LES BEAUX CABOTS SRL).
+design sont la propriété de LES BEAUX CABOTS SRL, exploitant le club
+canin "Les Cabots de Fernelmont".
 
-Sauf autorisation écrite préalable et explicite d'Hélène Laruelle,
-toute personne autre qu'elle-même n'est PAS autorisée à :
+Sauf autorisation écrite préalable et explicite de LES BEAUX CABOTS SRL,
+toute personne n'est PAS autorisée à :
   - copier, réutiliser, redistribuer ou publier tout ou partie de ce
     code source, sur ce projet ou tout autre projet ;
   - modifier, adapter ou créer une œuvre dérivée de ce code source ;
   - déployer ce code, ou une version modifiée de celui-ci, sur un
     autre site, domaine ou hébergement que celui autorisé par
-    Hélène Laruelle.
+    LES BEAUX CABOTS SRL.
 
 Le seul fait de pouvoir consulter, télécharger ou cloner ce dépôt
 (par exemple parce qu'il est hébergé sur une plateforme publique) ne
@@ -28,11 +28,9 @@ Le contenu affiché sur ce site (textes, informations sur le club, ses
 activités, ses tarifs, ses conditions, et toute donnée relative aux
 membres et à leurs animaux) relève de la seule responsabilité de
 Katia Renard, en sa qualité de gérante du club "Les Cabots de
-Fernelmont" (LES BEAUX CABOTS SRL). Hélène Laruelle, en tant que
-développeuse du site, n'est pas responsable de l'exactitude, de la
-mise à jour, ou de la conformité légale de ce contenu.
+Fernelmont" (LES BEAUX CABOTS SRL).
 
 CONTACT
 Pour toute demande d'autorisation d'utilisation, de modification, ou
 toute question relative aux droits sur ce code, contactez
-Hélène Laruelle.
+Katia Renard (LES BEAUX CABOTS SRL).

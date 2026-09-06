@@ -1,4 +1,4 @@
-// Projet Firebase : cabots-de-fernelmont-901ee — Site "Les Cabots de Fernelmont" — V01-021
+// Projet Firebase : cabots-de-fernelmont-901ee — Site "Les Cabots de Fernelmont" — V01-026
 // Convention de versionnage des livraisons : VJJ-NNN (JJ = numéro du jour de
 // travail sur ce site, pas la date calendaire ; NNN = numéro de livraison
 // dans cette journée de travail, repart à 001 à chaque nouveau jour de
@@ -22,7 +22,8 @@ service cloud.firestore {
                   'cotisationRenouvellement','abonnementRenouvellement','dernierBlogVu',
                   'trouveVia','trouveViaDetail','conducteurNom','conducteurGsm','conducteurEmail',
                   'reglementApprouve','reglementApprouveLe','reglementVersionApprouvee',
-                  'enqueteRenseignementsSoumise','motDePasseInitial','derniereConnexion','derniereActivite']);
+                  'enqueteRenseignementsSoumise','motDePasseInitial','derniereConnexion','derniereActivite',
+                  'dateDernierChangementMdp']);
     }
 
     match /membres/{uid} {
@@ -228,6 +229,18 @@ service cloud.firestore {
         request.resource.data.demande is string && request.resource.data.demande.size() > 0 &&
         request.resource.data.lu == false;
       allow read, update, delete: if estAdmin();
+    }
+    match /livre_or/{id} {
+      // Formulaire public "Livre d'or" — n'importe quel visiteur peut
+      // laisser un message (nom/prénom obligatoires), mais il ne devient
+      // visible publiquement qu'une fois approuvé par l'admin. L'admin
+      // seul voit aussi les messages en attente.
+      allow read: if resource.data.approuve == true || estAdmin();
+      allow create: if request.resource.data.keys().hasOnly(['nom', 'prenom', 'message', 'approuve', 'dateEnvoi']) &&
+        request.resource.data.nom is string && request.resource.data.nom.size() > 0 &&
+        request.resource.data.prenom is string && request.resource.data.prenom.size() > 0 &&
+        request.resource.data.approuve == false;
+      allow update, delete: if estAdmin();
     }
   }
 }
