@@ -732,6 +732,14 @@ blockquote.pull-quote {
   color: rgba(255,255,255,0.88);
   margin: 0 0 14px;
 }
+.boutique-promo .bp-note {
+  font-size: 0.85rem;
+  font-style: italic;
+  color: var(--brass-light);
+  border-top: 1px solid rgba(255,255,255,0.18);
+  padding-top: 12px;
+  margin: -4px 0 16px;
+}
 .boutique-promo .btn {
   background: var(--brass);
   color: var(--white);
@@ -744,3 +752,35 @@ blockquote.pull-quote {
   max-width: 100%;
   margin: 0;
 }
+
+/* Section "Nos marques" (Arion / Trixie) — page d'accueil */
+.marques-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 28px;
+}
+@media (max-width: 700px) {
+  .marques-grid { grid-template-columns: 1fr; }
+}
+.marque-card {
+  background: var(--white);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  padding: 26px;
+  text-align: center;
+}
+.marque-card .marque-logo {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+.marque-card .marque-logo img {
+  max-height: 100%;
+  max-width: 180px;
+  object-fit: contain;
+}
+.marque-card h3 { font-size: 1.1rem; margin-bottom: 8px; color: var(--navy-dark); }
+.marque-card p { font-size: 0.9rem; color: var(--slate); margin: 0; }
