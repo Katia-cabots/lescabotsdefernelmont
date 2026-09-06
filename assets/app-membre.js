@@ -1,6 +1,6 @@
-// © 2026 Hélène Laruelle. Tous droits réservés.
+// © 2026 LES BEAUX CABOTS SRL. Tous droits réservés.
 // Ce code ne peut être utilisé, copié ou modifié sans autorisation
-// écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt.
+// écrite — voir LICENSE.txt à la racine du dépôt.
 // Contenu du site sous la responsabilité de Katia Renard (LES BEAUX CABOTS SRL).
 
 import {
@@ -53,6 +53,13 @@ onAuthStateChanged(auth, async (user) => {
   document.getElementById('btnFermerPremiereConnexion')?.addEventListener('click', () => {
     document.getElementById('blocPremiereConnexion').classList.add('hidden');
   });
+
+  // Changement de mot de passe trimestriel obligatoire (1er janvier, avril,
+  // juillet, octobre) — pour tous les membres, sans exception.
+  const derniereMajMdp = membreData.dateDernierChangementMdp ? new Date(membreData.dateDernierChangementMdp) : null;
+  if (!derniereMajMdp || derniereMajMdp < dateLimiteMdpActuelle()) {
+    ouvrirModalMdpObligatoireMembre();
+  }
 
   // Dernière activité : mise à jour à chaque ouverture de page (pas
   // seulement à la connexion), y compris quand la session était déjà
@@ -142,27 +149,44 @@ document.getElementById('chatInputMembre').addEventListener('keydown', (e) => {
 
 document.getElementById('logoutBtn').addEventListener('click', () => signOut(auth).then(() => window.location.href = 'connexion.html'));
 
-document.getElementById('btnChangerMdpMembre').addEventListener('click', async () => {
-  const statutEl = document.getElementById('mp-mdpStatut');
-  const mdpActuel = document.getElementById('mp-mdpActuel').value;
-  const mdpNouveau = document.getElementById('mp-mdpNouveau').value;
-  const mdpConfirmer = document.getElementById('mp-mdpConfirmer').value;
+const REGEX_MOT_DE_PASSE = /^[A-Za-z0-9]+$/;
+function motDePasseValide(valeur) { return REGEX_MOT_DE_PASSE.test(valeur || ''); }
+const MESSAGE_MDP_INVALIDE = "Le mot de passe ne peut contenir que des lettres et des chiffres (pas de caractère spécial, espace ou accent).";
+
+// Trimestre en cours : le 1er janvier, avril, juillet et octobre. Si le mot
+// de passe n'a jamais été changé depuis la dernière de ces dates, un
+// changement est imposé à la connexion (voir onAuthStateChanged plus haut).
+function dateLimiteMdpActuelle() {
+  const maintenant = new Date();
+  const annee = maintenant.getFullYear();
+  const bornes = [new Date(annee, 0, 1), new Date(annee, 3, 1), new Date(annee, 6, 1), new Date(annee, 9, 1)];
+  let derniere = new Date(annee - 1, 9, 1);
+  for (const b of bornes) { if (b <= maintenant) derniere = b; }
+  return derniere;
+}
+
+async function executerChangementMdpMembre(mdpActuel, mdpNouveau, mdpConfirmer, statutEl) {
   statutEl.style.color = 'var(--slate)';
 
   if (!mdpActuel || !mdpNouveau || !mdpConfirmer) {
     statutEl.style.color = '#B3432B';
     statutEl.textContent = 'Merci de remplir les 3 champs.';
-    return;
+    return false;
   }
   if (mdpNouveau.length < 6) {
     statutEl.style.color = '#B3432B';
     statutEl.textContent = 'Le nouveau mot de passe doit faire au moins 6 caractères.';
-    return;
+    return false;
+  }
+  if (!motDePasseValide(mdpNouveau)) {
+    statutEl.style.color = '#B3432B';
+    statutEl.textContent = MESSAGE_MDP_INVALIDE;
+    return false;
   }
   if (mdpNouveau !== mdpConfirmer) {
     statutEl.style.color = '#B3432B';
     statutEl.textContent = 'Les deux nouveaux mots de passe ne correspondent pas.';
-    return;
+    return false;
   }
 
   statutEl.style.color = 'var(--slate)';
@@ -174,19 +198,70 @@ document.getElementById('btnChangerMdpMembre').addEventListener('click', async (
     await reauthenticateWithCredential(auth.currentUser, credential);
     await updatePassword(auth.currentUser, mdpNouveau);
     // Garde le mot de passe visible par l'admin ("Mots de passe") à jour,
-    // pour qu'elle puisse continuer à dépanner en cas d'oubli.
-    await updateDoc(doc(db, 'membres', membreUid), { motDePasseInitial: mdpNouveau });
-
-    document.getElementById('mp-mdpActuel').value = '';
-    document.getElementById('mp-mdpNouveau').value = '';
-    document.getElementById('mp-mdpConfirmer').value = '';
+    // pour qu'elle puisse continuer à dépanner en cas d'oubli, et note la
+    // date pour le changement trimestriel obligatoire.
+    await updateDoc(doc(db, 'membres', membreUid), {
+      motDePasseInitial: mdpNouveau, dateDernierChangementMdp: new Date().toISOString()
+    });
+    membreData.dateDernierChangementMdp = new Date().toISOString();
     statutEl.style.color = '#2F6B4F';
     statutEl.textContent = 'Mot de passe changé avec succès ✓ Utilisez-le à votre prochaine connexion.';
+    return true;
   } catch (err) {
     statutEl.style.color = '#B3432B';
     statutEl.textContent = err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password'
       ? 'Le mot de passe actuel saisi est incorrect.'
       : 'Erreur : ' + (err.code || err.message || err);
+    return false;
+  }
+}
+
+function ouvrirModalMdpObligatoireMembre() {
+  const html = `
+    <div class="modal-overlay" id="modalOverlayMdpOblige">
+      <div class="modal-box">
+        <h3>🔒 Changement de mot de passe requis</h3>
+        <p style="color:var(--ink);">Pour la sécurité de tous, le club impose de changer son mot de passe chaque trimestre (1er janvier, 1er avril, 1er juillet, 1er octobre). Merci de définir un nouveau mot de passe pour continuer.</p>
+        <ol style="font-size:0.88rem; color:var(--slate); padding-left:20px; margin-bottom:14px;">
+          <li>Entrez votre mot de passe actuel</li>
+          <li>Choisissez un nouveau mot de passe (lettres/chiffres, min. 6 caractères)</li>
+          <li>Confirmez-le puis cliquez sur "Changer mon mot de passe"</li>
+        </ol>
+        <div class="field"><label>Mot de passe actuel</label><input type="password" id="mdpo-actuel" autocomplete="current-password"></div>
+        <div class="form-grid">
+          <div class="field"><label>Nouveau mot de passe</label><input type="password" id="mdpo-nouveau" autocomplete="new-password"></div>
+          <div class="field"><label>Confirmer</label><input type="password" id="mdpo-confirmer" autocomplete="new-password"></div>
+        </div>
+        <button class="btn-sm primary" id="mdpo-save">Changer mon mot de passe</button>
+        <p id="mdpo-statut" style="font-size:0.85rem; margin-top:8px;"></p>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+
+  document.getElementById('mdpo-save').addEventListener('click', async () => {
+    const statutEl = document.getElementById('mdpo-statut');
+    const ok = await executerChangementMdpMembre(
+      document.getElementById('mdpo-actuel').value,
+      document.getElementById('mdpo-nouveau').value,
+      document.getElementById('mdpo-confirmer').value,
+      statutEl
+    );
+    if (ok) setTimeout(() => document.getElementById('modalOverlayMdpOblige')?.remove(), 1200);
+  });
+}
+
+document.getElementById('btnChangerMdpMembre').addEventListener('click', async () => {
+  const statutEl = document.getElementById('mp-mdpStatut');
+  const ok = await executerChangementMdpMembre(
+    document.getElementById('mp-mdpActuel').value,
+    document.getElementById('mp-mdpNouveau').value,
+    document.getElementById('mp-mdpConfirmer').value,
+    statutEl
+  );
+  if (ok) {
+    document.getElementById('mp-mdpActuel').value = '';
+    document.getElementById('mp-mdpNouveau').value = '';
+    document.getElementById('mp-mdpConfirmer').value = '';
   }
 });
 

@@ -1,6 +1,6 @@
-// © 2026 Hélène Laruelle. Tous droits réservés.
+// © 2026 LES BEAUX CABOTS SRL. Tous droits réservés.
 // Ce code ne peut être utilisé, copié ou modifié sans autorisation
-// écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt.
+// écrite — voir LICENSE.txt à la racine du dépôt.
 // Contenu du site sous la responsabilité de Katia Renard (LES BEAUX CABOTS SRL).
 
 import {
@@ -54,14 +54,21 @@ onAuthStateChanged(auth, async (user) => {
   }
   document.getElementById('adminNom').textContent = mDoc.data().nomMaitre || 'Katia';
 
+  // Changement de mot de passe trimestriel obligatoire (1er janvier, avril,
+  // juillet, octobre) — pour Katia ET le Super Admin, sans exception.
+  const derniereMajMdp = mDoc.data().dateDernierChangementMdp ? new Date(mDoc.data().dateDernierChangementMdp) : null;
+  if (!derniereMajMdp || derniereMajMdp < dateLimiteMdpActuelle()) {
+    ouvrirModalMonCompte(true);
+  }
+
   // Dernière activité : mise à jour à chaque ouverture de page admin,
   // même quand la session était déjà ouverte depuis avant.
   updateDoc(doc(db, 'membres', user.uid), { derniereActivite: new Date().toISOString() }).catch(() => {});
 
   // Numéro de version : visible pour tous les comptes admin (Katia ET
-  // Hélène). L'onglet "Mots de passe" reste réservé exclusivement à
-  // Hélène. La fraise 🍓 reste réservée à Katia (Admin) uniquement — donc
-  // masquée pour Hélène. Aucun autre changement pour le compte Admin.
+  // Super Admin). L'onglet "Mots de passe" reste réservé exclusivement au
+  // Super Admin. La fraise 🍓 reste réservée à Katia (Admin) uniquement — donc
+  // masquée pour le Super Admin. Aucun autre changement pour le compte Admin.
   document.getElementById('versionTagCoin').textContent = VERSION_SITE;
   if (user.email === identifiantVersEmail('HeleneL')) {
     document.getElementById('tabMotsDePasseBtn').classList.remove('hidden');
@@ -91,6 +98,7 @@ onAuthStateChanged(auth, async (user) => {
   chargerCeSoir();
   chargerDemandesAnnulation();
   chargerDemandesInfo();
+  chargerLivreOrAdmin();
   afficherMeteoDuJour();
   chargerRdv();
   chargerArticles();
@@ -3851,22 +3859,32 @@ async function chargerEnquetesAnonymesAdmin() {
 // ==========================================================================
 
 // Admin change SON PROPRE mot de passe (nécessite de retaper l'actuel).
-document.getElementById('btnMonCompte').addEventListener('click', () => {
+function ouvrirModalMonCompte(oblige) {
   const html = `
-    <div class="modal-overlay" id="modalOverlay">
+    <div class="modal-overlay" id="modalOverlay${oblige ? 'MdpOblige' : ''}">
       <div class="modal-box">
-        <h3>🔑 Mon compte — changer mon mot de passe</h3>
+        <h3>🔒 ${oblige ? 'Changement de mot de passe requis' : 'Mon compte — changer mon mot de passe'}</h3>
+        ${oblige ? `<p style="color:var(--ink);">Pour la sécurité de tous, le club impose de changer son mot de passe chaque trimestre (1er janvier, 1er avril, 1er juillet, 1er octobre). Merci de définir un nouveau mot de passe pour continuer.</p>
+        <ol style="font-size:0.88rem; color:var(--slate); padding-left:20px; margin-bottom:14px;">
+          <li>Entrez votre mot de passe actuel</li>
+          <li>Choisissez un nouveau mot de passe (lettres/chiffres, min. 6 caractères)</li>
+          <li>Confirmez-le puis cliquez sur "Changer mon mot de passe"</li>
+        </ol>` : ''}
         <div class="field"><label>Mot de passe actuel</label><input type="password" id="cpt-mdpActuel"></div>
         <div class="field"><label>Nouveau mot de passe (min. 6 caractères)</label><input type="password" id="cpt-mdpNouveau"></div>
         <div class="field"><label>Confirmer le nouveau mot de passe</label><input type="password" id="cpt-mdpConfirme"></div>
         <div class="modal-actions">
-          <button class="btn-sm" onclick="window.fermerModal()">Annuler</button>
+          ${oblige ? '' : '<button class="btn-sm" onclick="window.fermerModal()">Annuler</button>'}
           <button class="btn-sm primary" id="cpt-mdp-save">Changer mon mot de passe</button>
         </div>
         <p id="cpt-mdp-statut" style="font-size:0.85rem; color:var(--slate); margin-top:8px;"></p>
       </div>
     </div>`;
-  document.getElementById('modalZone').innerHTML = html;
+  if (oblige) {
+    document.body.insertAdjacentHTML('beforeend', html);
+  } else {
+    document.getElementById('modalZone').innerHTML = html;
+  }
 
   document.getElementById('cpt-mdp-save').addEventListener('click', async () => {
     const statutEl = document.getElementById('cpt-mdp-statut');
@@ -3884,16 +3902,37 @@ document.getElementById('btnMonCompte').addEventListener('click', () => {
       const credential = EmailAuthProvider.credential(auth.currentUser.email, actuel);
       await reauthenticateWithCredential(auth.currentUser, credential);
       await updatePassword(auth.currentUser, nouveau);
-      await updateDoc(doc(db, 'membres', auth.currentUser.uid), { motDePasseInitial: nouveau });
+      await updateDoc(doc(db, 'membres', auth.currentUser.uid), {
+        motDePasseInitial: nouveau, dateDernierChangementMdp: new Date().toISOString()
+      });
       statutEl.textContent = 'Mot de passe changé avec succès ✓';
-      setTimeout(() => { window.fermerModal(); chargerMotsDePasseAdmin(); }, 1500);
+      setTimeout(() => {
+        if (oblige) { document.getElementById('modalOverlayMdpOblige').remove(); }
+        else { window.fermerModal(); }
+        chargerMotsDePasseAdmin();
+      }, 1200);
     } catch (err) {
       statutEl.textContent = err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential'
         ? 'Mot de passe actuel incorrect.'
         : 'Erreur : ' + err.message;
     }
   });
-});
+}
+
+document.getElementById('btnMonCompte').addEventListener('click', () => ouvrirModalMonCompte(false));
+
+// Trimestre en cours : le 1er janvier, avril, juillet et octobre. Si le
+// mot de passe n'a jamais été changé depuis la dernière de ces dates,
+// un changement est imposé à la connexion (voir plus bas dans
+// onAuthStateChanged).
+function dateLimiteMdpActuelle() {
+  const maintenant = new Date();
+  const annee = maintenant.getFullYear();
+  const bornes = [new Date(annee, 0, 1), new Date(annee, 3, 1), new Date(annee, 6, 1), new Date(annee, 9, 1)];
+  let derniere = new Date(annee - 1, 9, 1);
+  for (const b of bornes) { if (b <= maintenant) derniere = b; }
+  return derniere;
+}
 
 // Admin change le mot de passe RÉEL d'un membre (pas juste le champ
 // "référence") — utilise une session Firebase secondaire pour se connecter
@@ -3932,7 +3971,7 @@ window.changerMotDePasseMembre = (membreId, identifiant, motDePasseActuel) => {
       await setPersistence(secondaryAuth, inMemoryPersistence);
       await signInSecondary(secondaryAuth, email, motDePasseActuel);
       await updatePasswordSecondary(secondaryAuth.currentUser, nouveau);
-      await updateDoc(doc(db, 'membres', membreId), { motDePasseInitial: nouveau });
+      await updateDoc(doc(db, 'membres', membreId), { motDePasseInitial: nouveau, dateDernierChangementMdp: new Date().toISOString() });
       await signOutSecondary(secondaryAuth);
       await deleteApp(secondaryApp);
       statutEl.textContent = 'Mot de passe changé avec succès ✓';
@@ -3954,7 +3993,7 @@ window.changerMotDePasseMembre = (membreId, identifiant, motDePasseActuel) => {
 };
 
 // ==========================================================================
-// MOTS DE PASSE — onglet exclusif à Hélène (voir la détection à la
+// MOTS DE PASSE — onglet exclusif au Super Admin (voir la détection à la
 // connexion). Vue consolidée de tous les membres avec leur identifiant et
 // leur vrai mot de passe de connexion actuel (toujours synchronisé, aucun
 // self-service de mot de passe n'existe côté membre — la seule façon dont
@@ -3965,7 +4004,7 @@ window.changerMotDePasseMembre = (membreId, identifiant, motDePasseActuel) => {
 // Sitting/Boutique) pour tous les membres déjà existants (chantier refonte
 // membres). Écrase la valeur actuelle de accesCours/accesDogSitting/
 // accesBoutique pour CHAQUE membre (role: 'membre'), y compris archivés —
-// action volontaire à la demande d'Hélène, pas une simple réparation de
+// action volontaire à la demande du Super Admin, pas une simple réparation de
 // champ manquant. Sans effet sur les nouveaux membres créés après coup
 // (ceux-ci démarrent avec les 3 accès décochés par défaut).
 // ==========================================================================
@@ -4203,6 +4242,16 @@ document.getElementById('btnExporterOdooNC').addEventListener('click', async () 
 // ==========================================================================
 let currentDemandesInfo = [];
 
+// Point rouge sur l'onglet "Membres" : combine plusieurs sources
+// indépendantes (demandes d'info + livre d'or) sans que l'une n'efface
+// le signal de l'autre, même si leurs chargements se terminent dans un
+// ordre imprévisible.
+let etatsPointRougeMembres = { demandesInfo: false, livreOr: false };
+function majPointRougeMembres() {
+  const actif = etatsPointRougeMembres.demandesInfo || etatsPointRougeMembres.livreOr;
+  document.getElementById('tabMembresBtn')?.classList.toggle('has-unread', actif);
+}
+
 async function chargerDemandesInfo() {
   const wrap = document.getElementById('listeDemandesInfo');
   if (!wrap) return;
@@ -4213,7 +4262,8 @@ async function chargerDemandesInfo() {
   demandes.sort((a, b) => (b.dateEnvoi?.seconds || 0) - (a.dateEnvoi?.seconds || 0));
 
   const nbNonLues = demandes.filter(d => !d.lu).length;
-  document.getElementById('tabMembresBtn')?.classList.toggle('has-unread', nbNonLues > 0);
+  etatsPointRougeMembres.demandesInfo = nbNonLues > 0;
+  majPointRougeMembres();
   document.getElementById('titreDemandesInfo')?.classList.toggle('has-unread', nbNonLues > 0);
 
   if (demandes.length === 0) {
@@ -4258,6 +4308,59 @@ window.convertirDemandeEnMembre = (id) => {
   const demande = currentDemandesInfo.find(d => d.id === id);
   if (!demande) return;
   ouvrirModalMembre(null, demande);
+};
+
+async function chargerLivreOrAdmin() {
+  const wrap = document.getElementById('listeLivreOr');
+  if (!wrap) return;
+  const snap = await getDocs(collection(db, 'livre_or'));
+  const messages = [];
+  snap.forEach(d => messages.push({ id: d.id, ...d.data() }));
+  messages.sort((a, b) => (b.dateEnvoi?.seconds || 0) - (a.dateEnvoi?.seconds || 0));
+
+  const nbEnAttente = messages.filter(m => !m.approuve).length;
+  etatsPointRougeMembres.livreOr = nbEnAttente > 0;
+  majPointRougeMembres();
+  document.getElementById('titreLivreOr')?.classList.toggle('has-unread', nbEnAttente > 0);
+
+  if (messages.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucun message pour l\'instant.</div>';
+    return;
+  }
+
+  wrap.innerHTML = messages.map(m => {
+    const dateLabel = m.dateEnvoi?.seconds
+      ? new Date(m.dateEnvoi.seconds * 1000).toLocaleString('fr-BE', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : '';
+    return `
+    <div class="data-row" style="${!m.approuve ? 'background:#FBEFDA;' : ''}">
+      <div class="data-main">
+        <div class="data-title">${!m.approuve ? '<span class="badge badge-danger">En attente</span> ' : '<span class="badge badge-ok">Publié</span> '}${escapeHtml(m.prenom || '')} ${escapeHtml(m.nom || '')}</div>
+        ${m.message ? `<div class="data-sub" style="white-space:pre-wrap;">${escapeHtml(m.message)}</div>` : ''}
+        <div class="data-sub" style="font-style:italic;">${dateLabel}</div>
+      </div>
+      <div class="data-actions">
+        ${!m.approuve ? `<button class="btn-sm primary" onclick="window.approuverMessageLivreOr('${m.id}')">Publier</button>` : `<button class="btn-sm" onclick="window.retirerMessageLivreOr('${m.id}')">Retirer</button>`}
+        <button class="btn-sm danger" onclick="window.supprimerMessageLivreOr('${m.id}')">Supprimer</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+window.approuverMessageLivreOr = async (id) => {
+  await updateDoc(doc(db, 'livre_or', id), { approuve: true });
+  chargerLivreOrAdmin();
+};
+
+window.retirerMessageLivreOr = async (id) => {
+  await updateDoc(doc(db, 'livre_or', id), { approuve: false });
+  chargerLivreOrAdmin();
+};
+
+window.supprimerMessageLivreOr = async (id) => {
+  if (!confirm('Supprimer ce message définitivement ?')) return;
+  await deleteDoc(doc(db, 'livre_or', id));
+  chargerLivreOrAdmin();
 };
 
 async function chargerDemandesAnnulation() {

@@ -1,4 +1,4 @@
-/* © 2026 Hélène Laruelle. Tous droits réservés. Voir LICENSE.txt. */
+/* © 2026 LES BEAUX CABOTS SRL. Tous droits réservés. Voir LICENSE.txt. */
 
 /* ==========================================================================
    Les Cabots de Fernelmont — Charte graphique
@@ -635,28 +635,6 @@ blockquote.pull-quote {
 .cta-band h2 { margin-bottom: 10px; }
 .cta-band p { max-width: 56ch; margin: 0 auto 26px; color: var(--slate); }
 
-/* Badge discret "Site développé par Hélène Laruelle" — bas droite, sur
-   toutes les pages publiques. Doré, cohérent avec l'accent "brass" du
-   site. Semi-transparent au repos, net au survol. */
-.badge-helene {
-  position: fixed;
-  bottom: 16px;
-  right: 16px;
-  width: 46px;
-  height: auto;
-  opacity: 0.55;
-  transition: opacity 0.25s ease, transform 0.25s ease;
-  z-index: 40;
-  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.15));
-}
-.badge-helene:hover {
-  opacity: 0.95;
-  transform: scale(1.08);
-}
-@media (max-width: 600px) {
-  .badge-helene { width: 36px; bottom: 12px; right: 12px; }
-}
-
 /* Formulaire public "Demande d'information" (page Nous contacter) */
 .contact-form-card {
   background: var(--white);
@@ -721,3 +699,48 @@ blockquote.pull-quote {
 }
 .cf-statut.ok { color: #2F6B4F; }
 .cf-statut.err { color: #B3432B; }
+
+/* Bannière promo boutique (revendeur Arion / Trixie) — page de connexion
+   et pages publiques. */
+.boutique-promo {
+  max-width: 480px;
+  margin: 22px auto 0;
+  background: linear-gradient(135deg, var(--navy) 0%, var(--navy-dark) 100%);
+  color: var(--white);
+  border-radius: var(--radius);
+  padding: 22px 26px;
+  text-align: center;
+  box-shadow: var(--shadow-card);
+}
+.boutique-promo .bp-eyebrow {
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brass-light);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.boutique-promo h3 {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  margin: 0 0 8px;
+  color: var(--white);
+}
+.boutique-promo p {
+  font-size: 0.9rem;
+  color: rgba(255,255,255,0.88);
+  margin: 0 0 14px;
+}
+.boutique-promo .btn {
+  background: var(--brass);
+  color: var(--white);
+  border: none;
+}
+.boutique-promo .btn:hover { background: var(--brass-light); }
+
+/* Version pleine largeur pour insertion entre sections de contenu public. */
+.boutique-promo.boutique-promo-large {
+  max-width: 100%;
+  margin: 0;
+}
