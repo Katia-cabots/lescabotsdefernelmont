@@ -56,8 +56,10 @@
 .login-wrap {
   min-height: 100vh;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 22px;
   padding: 24px;
   background: linear-gradient(160deg, var(--navy) 0%, var(--navy-dark) 100%);
 }
