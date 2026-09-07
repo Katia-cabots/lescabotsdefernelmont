@@ -147,6 +147,7 @@
         <h2>Messages</h2>
         <button class="btn-sm primary" id="btnMessageGroupe">Écrire à un groupe / tous</button>
       </div>
+      <button class="btn-sm" id="btnSupprimerMessagePartout" style="margin-bottom:14px;">🗑️ Supprimer un message envoyé à tout le monde</button>
       <input type="text" id="rechercheMessage" placeholder="🔍 Rechercher un membre..." style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #D4DAE0; border-radius:6px; margin-bottom:14px; font-size:0.95rem;">
       <div class="data-list" id="listeConversations"><div class="empty-state">...</div></div>
     </div>
@@ -290,6 +291,14 @@
       <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Onglet visible uniquement pour toi.</p>
       <button class="btn-sm primary" id="btnMigrationAcces">Activer les 3 accès (Cours/Dog Sitting/Boutique) pour tous les membres existants</button>
       <p id="migrationAccesResultat" style="font-size:0.85rem; color:var(--slate); margin-top:10px;"></p>
+      <hr style="margin:18px 0; border:none; border-top:1px solid #E3E7EB;">
+      <label style="font-size:0.9rem; font-weight:600; color:var(--navy-dark); display:block; margin-bottom:6px;">Nettoyer les présences d'avant une date (ex: avant le lancement du site)</label>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:10px;">Supprime toutes les présences/absences enregistrées avant cette date. Si l'une d'elles avait déjà été décomptée d'un abonnement, le cours est automatiquement recrédité au membre concerné.</p>
+      <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+        <div class="field" style="margin:0;"><label>Supprimer avant le</label><input type="date" id="nettoyagePresencesDate" value="2026-09-04"></div>
+        <button class="btn-sm danger" id="btnNettoyerPresences">Nettoyer</button>
+      </div>
+      <p id="nettoyagePresencesResultat" style="font-size:0.85rem; color:var(--slate); margin-top:10px;"></p>
     </div>
     <div class="app-panel">
       <h2>🔑 Mots de passe — tous les membres</h2>
