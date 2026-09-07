@@ -1,4 +1,4 @@
-// Projet Firebase : cabots-de-fernelmont-901ee — Site "Les Cabots de Fernelmont" — V01-026
+// Projet Firebase : cabots-de-fernelmont-901ee — Site "Les Cabots de Fernelmont" — V01-034
 // Convention de versionnage des livraisons : VJJ-NNN (JJ = numéro du jour de
 // travail sur ce site, pas la date calendaire ; NNN = numéro de livraison
 // dans cette journée de travail, repart à 001 à chaque nouveau jour de
@@ -99,7 +99,7 @@ service cloud.firestore {
     match /conversations/{uid} {
       allow read, write: if estConnecte() && (request.auth.uid == uid || estAdmin());
       match /messages/{msgId} {
-        allow read, create, update: if estConnecte() && (request.auth.uid == uid || estAdmin());
+        allow read, create, update, delete: if estConnecte() && (request.auth.uid == uid || estAdmin());
       }
     }
 
