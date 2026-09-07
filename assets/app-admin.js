@@ -6,7 +6,7 @@
 import {
   auth, db, onAuthStateChanged, signOut,
   doc, getDoc, getDocAvecReessai, setDoc, updateDoc, deleteDoc,
-  collection, addDoc, getDocs, query, where,
+  collection, collectionGroup, addDoc, getDocs, query, where,
   serverTimestamp, identifiantVersEmail
 } from "./firebase-config.js";
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
@@ -1799,7 +1799,7 @@ window.ouvrirConversation = async (uid) => {
       <div class="modal-box" style="max-width:520px;">
         <h3>${escapeHtml(membre?.nomMaitre || '')}${membre && nomsChiensActifs(membre) ? ' — ' + escapeHtml(nomsChiensActifs(membre)) : ''}</h3>
         <div class="chat-thread" id="chatThread">
-          ${msgs.map(m => bulleMessage(m, 'admin')).join('') || '<div class="empty-state">Aucun message.</div>'}
+          ${msgs.map(m => bulleMessage(m, 'admin', uid)).join('') || '<div class="empty-state">Aucun message.</div>'}
         </div>
         <div class="chat-input-row">
           <input type="text" id="chatInputAdmin" placeholder="Écrire un message...">
@@ -1854,6 +1854,43 @@ document.getElementById('btnMessageGroupe').addEventListener('click', () => {
   ouvrirModalMessageGroupe();
 });
 
+document.getElementById('btnSupprimerMessagePartout').addEventListener('click', () => {
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box">
+        <h3>🗑️ Supprimer un message envoyé à tout le monde</h3>
+        <p style="font-size:0.85rem; color:var(--slate);">Colle ici exactement le texte du message à retirer (copie-le depuis une conversation). Il sera recherché puis supprimé dans TOUTES les conversations où il apparaît — pratique pour un message groupé envoyé par erreur.</p>
+        <div class="field"><label>Texte exact du message</label><textarea id="smp-texte" rows="3" style="resize:vertical;"></textarea></div>
+        <button class="btn-sm" id="smp-chercher">Chercher les messages correspondants</button>
+        <div id="smp-resultat" style="margin-top:12px;"></div>
+        <div class="modal-actions"><button class="btn-sm" onclick="window.fermerModal()">Fermer</button></div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+
+  document.getElementById('smp-chercher').addEventListener('click', async () => {
+    const texte = document.getElementById('smp-texte').value.trim();
+    const resultatEl = document.getElementById('smp-resultat');
+    if (!texte) { resultatEl.innerHTML = '<p style="color:var(--slate); font-size:0.85rem;">Colle d\'abord le texte du message.</p>'; return; }
+    resultatEl.innerHTML = '<p style="color:var(--slate); font-size:0.85rem;">Recherche en cours...</p>';
+
+    const snap = await getDocs(query(collectionGroup(db, 'messages'), where('texte', '==', texte)));
+    if (snap.empty) {
+      resultatEl.innerHTML = '<p style="color:var(--slate); font-size:0.85rem;">Aucun message correspondant trouvé.</p>';
+      return;
+    }
+    resultatEl.innerHTML = `
+      <p style="font-size:0.9rem; color:var(--ink);"><strong>${snap.size}</strong> message(s) trouvé(s) avec ce texte exact.</p>
+      <button class="btn-sm danger" id="smp-supprimer">Supprimer ces ${snap.size} message(s) partout</button>`;
+    document.getElementById('smp-supprimer').addEventListener('click', async () => {
+      if (!confirm(`Supprimer définitivement ces ${snap.size} message(s), chez tous les membres concernés ?`)) return;
+      await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
+      resultatEl.innerHTML = `<p style="color:#2F6B4F; font-size:0.9rem;">✓ ${snap.size} message(s) supprimé(s).</p>`;
+      chargerConversations();
+    });
+  });
+});
+
 function ouvrirModalMessageGroupe(texteInitial = '') {
   const html = `
     <div class="modal-overlay" id="modalOverlay">
@@ -1883,16 +1920,26 @@ function ouvrirModalMessageGroupe(texteInitial = '') {
   });
 }
 
-function bulleMessage(m, pointDeVue) {
+function bulleMessage(m, pointDeVue, uid) {
   const estMoi = m.expediteur === pointDeVue;
   const heure = m.dateEnvoi ? new Date(m.dateEnvoi).toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' }) : '';
   const coche = estMoi ? `<span class="chat-check ${m.lu ? 'lu' : ''}">${m.lu ? '✓✓' : '✓'}</span>` : '';
+  const btnSupprimer = (pointDeVue === 'admin' && uid && m.id)
+    ? `<button class="chat-delete" title="Supprimer ce message" onclick="window.supprimerMessageConversation('${uid}','${m.id}')">✕</button>`
+    : '';
   return `
     <div class="chat-bubble ${estMoi ? 'moi' : 'autre'}">
+      ${btnSupprimer}
       ${escapeHtml(m.texte)}
       <div class="chat-meta">${heure} ${coche}</div>
     </div>`;
 }
+
+window.supprimerMessageConversation = async (uid, msgId) => {
+  if (!confirm('Supprimer ce message ? Cette action est irréversible.')) return;
+  await deleteDoc(doc(db, 'conversations', uid, 'messages', msgId));
+  window.ouvrirConversation(uid);
+};
 
 // ==========================================================================
 // BLOG (articles publics)
@@ -4025,6 +4072,42 @@ document.getElementById('btnMigrationAcces')?.addEventListener('click', async ()
     chargerMembres();
   } catch (err) {
     zone.textContent = 'Erreur pendant la migration : ' + err.message;
+  }
+  btn.disabled = false;
+});
+
+document.getElementById('btnNettoyerPresences')?.addEventListener('click', async () => {
+  const dateLimite = document.getElementById('nettoyagePresencesDate').value;
+  const zone = document.getElementById('nettoyagePresencesResultat');
+  if (!dateLimite) { zone.textContent = 'Choisis une date.'; return; }
+  if (!confirm(`Supprimer toutes les présences/absences enregistrées avant le ${new Date(dateLimite + 'T00:00:00').toLocaleDateString('fr-BE')} ? Les cours déjà décomptés seront recrédités automatiquement.`)) return;
+
+  const btn = document.getElementById('btnNettoyerPresences');
+  btn.disabled = true;
+  zone.textContent = 'Nettoyage en cours...';
+  try {
+    const snap = await getDocs(query(collection(db, 'presences'), where('dateISO', '<', dateLimite)));
+    let supprimees = 0;
+    let recreditees = 0;
+    const soldesAjustes = {};
+    for (const d of snap.docs) {
+      const p = d.data();
+      if (p.compteAbonnement === true && p.uid) {
+        soldesAjustes[p.uid] = (soldesAjustes[p.uid] || 0) + 1;
+      }
+      await deleteDoc(doc(db, 'presences', d.id));
+      supprimees++;
+    }
+    for (const uid of Object.keys(soldesAjustes)) {
+      const membre = currentMembres.find(m => m.id === uid) || currentMembresArchives.find(m => m.id === uid);
+      const solde = (membre ? (membre.coursRestants ?? 0) : 0) + soldesAjustes[uid];
+      await updateDoc(doc(db, 'membres', uid), { coursRestants: solde });
+      recreditees++;
+    }
+    zone.textContent = `Terminé : ${supprimees} présence(s) supprimée(s), ${recreditees} membre(s) recrédité(s) d'un ou plusieurs cours.`;
+    chargerMembres();
+  } catch (err) {
+    zone.textContent = 'Erreur pendant le nettoyage : ' + err.message;
   }
   btn.disabled = false;
 });

@@ -19,7 +19,7 @@ import {
 import {
   getFirestore,
   doc, getDoc, getDocFromServer, setDoc, updateDoc, deleteDoc,
-  collection, addDoc, getDocs, query, where, orderBy,
+  collection, collectionGroup, addDoc, getDocs, query, where, orderBy,
   serverTimestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
@@ -40,7 +40,7 @@ export {
   signInWithEmailAndPassword, signOut, onAuthStateChanged,
   updatePassword, reauthenticateWithCredential, EmailAuthProvider,
   doc, getDoc, getDocFromServer, setDoc, updateDoc, deleteDoc,
-  collection, addDoc, getDocs, query, where, orderBy,
+  collection, collectionGroup, addDoc, getDocs, query, where, orderBy,
   serverTimestamp, onSnapshot
 };
 
