@@ -5,7 +5,7 @@
 
 import {
   auth, db, onAuthStateChanged, signOut,
-  doc, getDoc, getDocAvecReessai, setDoc, updateDoc, deleteDoc,
+  doc, getDoc, getDocAvecReessai, setDoc, updateDoc, deleteDoc, increment,
   collection, collectionGroup, addDoc, getDocs, query, where,
   serverTimestamp, identifiantVersEmail
 } from "./firebase-config.js";
@@ -1071,12 +1071,11 @@ window.editerPresenceAdmin = (presenceId, membreId, statutActuel) => {
     const decompteApres = presenceEstDecomptee(nouveauStatut);
 
     if (decompteAvant !== decompteApres) {
-      const membre = currentMembres.find(m => m.id === membreId) || currentMembresArchives.find(m => m.id === membreId);
-      const solde = membre ? (membre.coursRestants ?? 0) : 0;
-      // Repasse en "décompté" → -1 cours. Repasse en "non décompté" → +1 cours (remboursé).
-      const nouveauSolde = Math.max(0, solde + (decompteApres ? -1 : 1));
-      await updateDoc(doc(db, 'membres', membreId), { coursRestants: nouveauSolde });
-      if (membre) membre.coursRestants = nouveauSolde;
+      // Repasse en "décompté" → -1 cours. Repasse en "non décompté" → +1 cours
+      // (remboursé). Incrément atomique Firestore : jamais de risque de valeur
+      // périmée, même si un autre traitement (ex: décompte automatique) touche
+      // ce même membre au même moment.
+      await updateDoc(doc(db, 'membres', membreId), { coursRestants: increment(decompteApres ? -1 : 1) });
     }
 
     await updateDoc(doc(db, 'presences', presenceId), {
@@ -1095,10 +1094,7 @@ window.supprimerPresenceAdmin = async (presenceId, membreId) => {
   if (!confirm('Supprimer cette entrée de l\'historique de présence ? Si elle était décomptée, le cours sera recrédité à l\'abonnement.')) return;
   const presSnap = await getDoc(doc(db, 'presences', presenceId));
   if (presSnap.exists() && presSnap.data().compteAbonnement === true) {
-    const membre = currentMembres.find(m => m.id === membreId) || currentMembresArchives.find(m => m.id === membreId);
-    const nouveauSolde = (membre ? (membre.coursRestants ?? 0) : 0) + 1;
-    await updateDoc(doc(db, 'membres', membreId), { coursRestants: nouveauSolde });
-    if (membre) membre.coursRestants = nouveauSolde;
+    await updateDoc(doc(db, 'membres', membreId), { coursRestants: increment(1) });
   }
   await deleteDoc(doc(db, 'presences', presenceId));
   chargerHistoriquePresencesAdmin(membreId);
@@ -2276,17 +2272,20 @@ async function corrigerAbsencesAvantInscription() {
 
   for (const p of aCorriger) {
     if (p.compteAbonnement) {
-      const membre = currentMembres.find(m => m.id === p.uid);
-      if (membre) {
-        const soldeRembourse = (membre.coursRestants ?? 0) + 1;
-        await updateDoc(doc(db, 'membres', p.uid), { coursRestants: soldeRembourse });
-        membre.coursRestants = soldeRembourse;
-      }
+      await updateDoc(doc(db, 'membres', p.uid), { coursRestants: increment(1) });
     }
     await deleteDoc(doc(db, 'presences', p.id));
   }
   renderMembres();
 }
+
+// Date de lancement réel du site — jamais de décompte automatique
+// rétroactif avant cette date, même si un membre a une dateInscription
+// antérieure (import fait avant l'ouverture réelle aux membres). Sans ce
+// garde-fou, la génération rétroactive (60 jours en arrière) recréait sans
+// fin de fausses absences pour des cours d'avant le lancement, y compris
+// après leur suppression manuelle.
+const DATE_LANCEMENT_SITE = '2026-09-04';
 
 async function detecterAbsencesNonRepondues() {
   const presSnap = await getDocs(collection(db, 'presences'));
@@ -2307,6 +2306,7 @@ async function detecterAbsencesNonRepondues() {
     const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i);
     const jour = JOURS[d.getDay()];
     const dateISO = dateISOLocale(d);
+    if (dateISO < DATE_LANCEMENT_SITE) continue; // jamais avant le vrai lancement du site
 
     currentGroupes.filter(g => g.jour === jour).forEach(g => {
       if (annulesCles.has(`${g.id}_${dateISO}`)) return; // cours annulé, pas de décompte
@@ -2355,12 +2355,7 @@ async function traiterAbsencesAutomatiques() {
   if (aTraiter.length === 0) return;
 
   for (const p of aTraiter) {
-    const membre = currentMembres.find(m => m.id === p.uid);
-    if (membre) {
-      const nouveauSolde = Math.max(0, (membre.coursRestants ?? 0) - 1);
-      await updateDoc(doc(db, 'membres', p.uid), { coursRestants: nouveauSolde });
-      membre.coursRestants = nouveauSolde;
-    }
+    await updateDoc(doc(db, 'membres', p.uid), { coursRestants: increment(-1) }).catch(() => {});
     await updateDoc(doc(db, 'presences', p.id), { compteAbonnement: true });
   }
   renderMembres();
@@ -4084,27 +4079,32 @@ document.getElementById('btnNettoyerPresences')?.addEventListener('click', async
 
   const btn = document.getElementById('btnNettoyerPresences');
   btn.disabled = true;
-  zone.textContent = 'Nettoyage en cours...';
+  zone.textContent = 'Synchronisation des décomptes en cours...';
   try {
+    // Traite d'abord tout décompte automatique en attente, pour que
+    // "compteAbonnement" reflète bien la réalité de CHAQUE présence avant
+    // qu'on décide s'il faut la recréditer ou non (évite un recrédit
+    // manqué si un décompte se produisait juste au même moment).
+    await traiterAbsencesAutomatiques();
+
+    zone.textContent = 'Nettoyage en cours...';
     const snap = await getDocs(query(collection(db, 'presences'), where('dateISO', '<', dateLimite)));
     let supprimees = 0;
-    let recreditees = 0;
-    const soldesAjustes = {};
+    const aRecrediter = {};
     for (const d of snap.docs) {
       const p = d.data();
       if (p.compteAbonnement === true && p.uid) {
-        soldesAjustes[p.uid] = (soldesAjustes[p.uid] || 0) + 1;
+        aRecrediter[p.uid] = (aRecrediter[p.uid] || 0) + 1;
       }
       await deleteDoc(doc(db, 'presences', d.id));
       supprimees++;
     }
-    for (const uid of Object.keys(soldesAjustes)) {
-      const membre = currentMembres.find(m => m.id === uid) || currentMembresArchives.find(m => m.id === uid);
-      const solde = (membre ? (membre.coursRestants ?? 0) : 0) + soldesAjustes[uid];
-      await updateDoc(doc(db, 'membres', uid), { coursRestants: solde });
-      recreditees++;
+    // Incrément atomique Firestore par membre : jamais de valeur périmée,
+    // même si plusieurs présences du même membre sont recréditées d'un coup.
+    for (const uid of Object.keys(aRecrediter)) {
+      await updateDoc(doc(db, 'membres', uid), { coursRestants: increment(aRecrediter[uid]) });
     }
-    zone.textContent = `Terminé : ${supprimees} présence(s) supprimée(s), ${recreditees} membre(s) recrédité(s) d'un ou plusieurs cours.`;
+    zone.textContent = `Terminé : ${supprimees} présence(s) supprimée(s), ${Object.keys(aRecrediter).length} membre(s) recrédité(s) d'un ou plusieurs cours.`;
     chargerMembres();
   } catch (err) {
     zone.textContent = 'Erreur pendant le nettoyage : ' + err.message;

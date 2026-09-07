@@ -18,7 +18,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import {
   getFirestore,
-  doc, getDoc, getDocFromServer, setDoc, updateDoc, deleteDoc,
+  doc, getDoc, getDocFromServer, setDoc, updateDoc, deleteDoc, increment,
   collection, collectionGroup, addDoc, getDocs, query, where, orderBy,
   serverTimestamp, onSnapshot
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
@@ -39,7 +39,7 @@ export const db = getFirestore(app);
 export {
   signInWithEmailAndPassword, signOut, onAuthStateChanged,
   updatePassword, reauthenticateWithCredential, EmailAuthProvider,
-  doc, getDoc, getDocFromServer, setDoc, updateDoc, deleteDoc,
+  doc, getDoc, getDocFromServer, setDoc, updateDoc, deleteDoc, increment,
   collection, collectionGroup, addDoc, getDocs, query, where, orderBy,
   serverTimestamp, onSnapshot
 };
