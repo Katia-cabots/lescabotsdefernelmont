@@ -202,11 +202,12 @@ nav.main-nav {
   margin-left: auto;
 }
 
-/* Seuil relevé à 900px (au lieu de 760px) : avec l'ajout de nouvelles pages
-   au menu (Livre d'or, Partenaires...), la barre de navigation risquait de
-   passer sur 2 lignes avant de basculer en menu hamburger sur les écrans
-   moyens (tablette, petit ordinateur portable). */
-@media (max-width: 900px) {
+/* Seuil relevé à 1100px : avec 9 liens dans le menu (Livre d'or et
+   Partenaires ajoutés), il restait une zone de largeur intermédiaire où
+   8 liens tenaient sur la ligne mais le 9e ("Connexion") retombait seul
+   à la ligne suivante. Un seuil plus généreux bascule en hamburger avant
+   que ce retour à la ligne inégal puisse se produire. */
+@media (max-width: 1100px) {
   .header-inner { flex-wrap: wrap; }
   nav.main-nav { margin-left: 0; }
   .nav-toggle { display: flex; }
