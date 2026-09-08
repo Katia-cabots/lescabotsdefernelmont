@@ -840,6 +840,13 @@ blockquote.pull-quote {
 .partenaire-row-body { flex: 1; min-width: 0; }
 .partenaire-row-body h3 { font-size: 1.05rem; color: var(--navy-dark); margin: 0 0 4px; }
 .partenaire-apercu { font-size: 0.92rem; color: var(--ink); margin: 0; }
+.partenaire-lien-plus {
+  display: inline-block;
+  font-size: 0.82rem;
+  color: var(--brass);
+  font-weight: 600;
+  margin-top: 6px;
+}
 .partenaire-row-detail {
   display: none;
   margin-top: 12px;
