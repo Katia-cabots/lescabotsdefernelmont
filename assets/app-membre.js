@@ -1075,18 +1075,21 @@ async function chargerHistoriquePaiementsMembre() {
 // VACCINS — échéances calculées à 1 an après la dernière date indiquée
 // ==========================================================================
 const LABELS_VACCINS_MEMBRE = { leptospirose: 'Leptospirose', parvovirose: 'Parvovirose', touxChenils: 'Toux du chenil', rage: 'Rage' };
+const DUREE_VALIDITE_ANNEES_VACCINS_MEMBRE = { rage: 3 };
+const FENETRE_RAPPEL_JOURS_VACCINS_MEMBRE = { rage: 90 };
 
 function alerteVaccinsChien(chien) {
   const aujourdhui = new Date(); aujourdhui.setHours(0,0,0,0);
-  const dans30Jours = new Date(aujourdhui); dans30Jours.setDate(aujourdhui.getDate() + 30);
   const v = chien.vaccins || {};
   const alertes = [];
   Object.keys(LABELS_VACCINS_MEMBRE).forEach(cle => {
     const date = v[cle]?.date;
     if (!date) return;
     const echeance = new Date(date + 'T00:00:00');
-    echeance.setFullYear(echeance.getFullYear() + 1);
-    if (echeance <= dans30Jours) {
+    echeance.setFullYear(echeance.getFullYear() + (DUREE_VALIDITE_ANNEES_VACCINS_MEMBRE[cle] || 1));
+    const fenetreRappelJours = FENETRE_RAPPEL_JOURS_VACCINS_MEMBRE[cle] || 30;
+    const dateRappel = new Date(aujourdhui); dateRappel.setDate(aujourdhui.getDate() + fenetreRappelJours);
+    if (echeance <= dateRappel) {
       const enRetard = echeance < aujourdhui;
       alertes.push(`${LABELS_VACCINS_MEMBRE[cle]}${enRetard ? ' en retard' : ' à renouveler bientôt'}`);
     }

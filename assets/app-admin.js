@@ -1342,6 +1342,24 @@ window.annulerCours = (groupeId, dateISO) => {
       motif, annulePar: 'admin', dateAnnulation: serverTimestamp()
     });
     await deleteDoc(doc(db, 'confirmations', `${groupeId}_${dateISO}`)).catch(() => {});
+
+    // Prévient par message chaque membre qui avait confirmé sa présence à
+    // ce cours précis — avec le point rouge habituel sur son onglet Messages.
+    const groupe = currentGroupes.find(g => g.id === groupeId);
+    const dateLabel = new Date(dateISO + 'T00:00:00').toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' });
+    const presSnap = await getDocs(query(collection(db, 'presences'),
+      where('groupeId', '==', groupeId), where('dateISO', '==', dateISO), where('statut', '==', 'present')));
+    const texteAuto = `🚫 Cours annulé : votre cours du ${dateLabel} (${groupe ? groupe.nom : ''}) est annulé — motif : ${motif}.`;
+    await Promise.all(presSnap.docs.map(async (d) => {
+      const uid = d.data().uid;
+      await addDoc(collection(db, 'conversations', uid, 'messages'), {
+        texte: texteAuto, expediteur: 'admin', dateEnvoi: new Date().toISOString(), lu: false
+      });
+      await setDoc(doc(db, 'conversations', uid), {
+        dernierMessage: texteAuto, dateDernierMessage: new Date().toISOString(), nonLuMembre: true
+      }, { merge: true });
+    }));
+
     document.getElementById('modalOverlayMotif').remove();
     chargerCeSoir();
   });
@@ -1880,7 +1898,11 @@ document.getElementById('btnSupprimerMessagePartout').addEventListener('click', 
       <button class="btn-sm danger" id="smp-supprimer">Supprimer ces ${snap.size} message(s) partout</button>`;
     document.getElementById('smp-supprimer').addEventListener('click', async () => {
       if (!confirm(`Supprimer définitivement ces ${snap.size} message(s), chez tous les membres concernés ?`)) return;
+      const uidsAffectes = new Set(snap.docs.map(d => d.ref.parent.parent.id));
       await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
+      // Remet à jour l'aperçu "dernier message" de chaque conversation touchée,
+      // sinon la liste continuerait d'afficher un message qui n'existe plus.
+      await Promise.all([...uidsAffectes].map(uid => recalculerDernierMessage(uid)));
       resultatEl.innerHTML = `<p style="color:#2F6B4F; font-size:0.9rem;">✓ ${snap.size} message(s) supprimé(s).</p>`;
       chargerConversations();
     });
@@ -1931,9 +1953,26 @@ function bulleMessage(m, pointDeVue, uid) {
     </div>`;
 }
 
+// Recalcule dernierMessage/dateDernierMessage d'une conversation à partir
+// de ses messages réels — nécessaire après une suppression, sinon l'aperçu
+// dans la liste des conversations continue d'afficher un message qui n'existe
+// plus. Vide proprement si plus aucun message ne reste.
+async function recalculerDernierMessage(uid) {
+  const msgsSnap = await getDocs(collection(db, 'conversations', uid, 'messages'));
+  const msgs = [];
+  msgsSnap.forEach(d => msgs.push(d.data()));
+  msgs.sort((a, b) => (a.dateEnvoi || '').localeCompare(b.dateEnvoi || ''));
+  const dernier = msgs[msgs.length - 1];
+  await setDoc(doc(db, 'conversations', uid), {
+    dernierMessage: dernier ? dernier.texte : '',
+    dateDernierMessage: dernier ? dernier.dateEnvoi : ''
+  }, { merge: true });
+}
+
 window.supprimerMessageConversation = async (uid, msgId) => {
   if (!confirm('Supprimer ce message ? Cette action est irréversible.')) return;
   await deleteDoc(doc(db, 'conversations', uid, 'messages', msgId));
+  await recalculerDernierMessage(uid);
   window.ouvrirConversation(uid);
 };
 
@@ -2362,10 +2401,13 @@ async function traiterAbsencesAutomatiques() {
 }
 
 // ==========================================================================
-// VACCINS — rappel des échéances (30 jours) ou retards, calculées à 1 an
-// après la date de dernière vaccination indiquée.
+// VACCINS — rappel des échéances (30 jours, ou 3 mois pour la rage) ou
+// retards. Validité : 1 an après la dernière date indiquée, sauf la rage
+// qui est valable 3 ans.
 // ==========================================================================
 const LABELS_VACCINS = { leptospirose: 'Leptospirose', parvovirose: 'Parvovirose', touxChenils: 'Toux du chenil', rage: 'Rage' };
+const DUREE_VALIDITE_ANNEES_VACCINS = { rage: 3 };
+const FENETRE_RAPPEL_JOURS_VACCINS = { rage: 90 };
 
 function calculerEcheancesVaccins(chien) {
   const v = chien.vaccins || {};
@@ -2374,8 +2416,8 @@ function calculerEcheancesVaccins(chien) {
     const date = v[cle]?.date;
     if (!date) return;
     const echeance = new Date(date + 'T00:00:00');
-    echeance.setFullYear(echeance.getFullYear() + 1);
-    resultats.push({ vaccin: LABELS_VACCINS[cle], echeance });
+    echeance.setFullYear(echeance.getFullYear() + (DUREE_VALIDITE_ANNEES_VACCINS[cle] || 1));
+    resultats.push({ vaccin: LABELS_VACCINS[cle], echeance, fenetreRappelJours: FENETRE_RAPPEL_JOURS_VACCINS[cle] || 30 });
   });
   return resultats;
 }
@@ -2384,13 +2426,13 @@ async function chargerVaccinsARappeler() {
   const zone = document.getElementById('vaccinsARappeler');
   if (!zone) return;
   const aujourdhui = new Date(); aujourdhui.setHours(0,0,0,0);
-  const dans30Jours = new Date(aujourdhui); dans30Jours.setDate(aujourdhui.getDate() + 30);
 
   const lignes = [];
   currentMembres.forEach(m => {
     (m.chiens || []).filter(c => !c.archive).forEach(c => {
-      calculerEcheancesVaccins(c).forEach(({ vaccin, echeance }) => {
-        if (echeance <= dans30Jours) {
+      calculerEcheancesVaccins(c).forEach(({ vaccin, echeance, fenetreRappelJours }) => {
+        const dateRappel = new Date(aujourdhui); dateRappel.setDate(aujourdhui.getDate() + fenetreRappelJours);
+        if (echeance <= dateRappel) {
           const enRetard = echeance < aujourdhui;
           lignes.push(`${escapeHtml(c.nom)} (${escapeHtml(m.nomMaitre)}) — ${vaccin}${enRetard ? ' en retard' : ' à renouveler bientôt'}`);
         }
