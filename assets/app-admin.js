@@ -246,6 +246,17 @@ function renderGroupes() {
       </div>
     </div>`;
   }).join('');
+
+  const totalInscrits = currentGroupes.reduce((s, g) => s + currentMembres.filter(m => m.groupeId === g.id).length, 0);
+  const totalPlaces = currentGroupes.reduce((s, g) => s + (g.participantsMax || 0), 0);
+  const placesLibres = totalPlaces - totalInscrits;
+  wrap.innerHTML += `
+    <div class="data-row" style="background:var(--paper-warm); font-weight:600;">
+      <div class="data-main">
+        <div class="data-title">Total chiens inscrits : ${totalInscrits}/${totalPlaces}</div>
+        <div class="data-sub" style="font-weight:400;">${placesLibres} place${placesLibres > 1 ? 's' : ''} libre${placesLibres > 1 ? 's' : ''} au total, tous groupes confondus</div>
+      </div>
+    </div>`;
 }
 
 document.getElementById('btnAjouterGroupe').addEventListener('click', () => ouvrirModalGroupe());
