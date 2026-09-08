@@ -50,7 +50,7 @@
 
 <section>
   <div class="container">
-    <div id="pt-liste" class="partenaires-grid">
+    <div id="pt-liste" class="partenaires-liste">
       <p style="color:var(--slate);">Chargement...</p>
     </div>
   </div>
@@ -60,6 +60,13 @@
   import { db, collection, getDocs } from "./assets/firebase-config.js";
   import { VERSION_SITE } from "./assets/version.js";
   document.getElementById('versionPublic') && (document.getElementById('versionPublic').textContent = VERSION_SITE);
+
+  window.toggleDetailPartenaire = (i) => {
+    const detail = document.getElementById(`pt-detail-${i}`);
+    const fleche = document.getElementById(`pt-fleche-${i}`);
+    const ouvert = detail.classList.toggle('ouvert');
+    fleche.classList.toggle('ouvert', ouvert);
+  };
 
   function echapper(str) {
     if (!str) return '';
@@ -78,15 +85,19 @@
         wrap.innerHTML = '<p style="color:var(--slate);">Aucun partenaire à afficher pour l\'instant.</p>';
         return;
       }
-      wrap.innerHTML = partenaires.map(p => `
-        <div class="partenaire-card">
-          ${p.photoURL ? `<div class="partenaire-photo"><img src="${echapper(p.photoURL)}" alt="${echapper(p.nom)}"></div>` : ''}
-          <div class="partenaire-body">
+      wrap.innerHTML = partenaires.map((p, i) => `
+        <div class="partenaire-row" id="pt-row-${i}" onclick="toggleDetailPartenaire(${i})">
+          ${p.photoURL ? `<div class="partenaire-row-photo"><img src="${echapper(p.photoURL)}" alt="${echapper(p.nom)}"></div>` : ''}
+          <div class="partenaire-row-body">
             <h3>${echapper(p.nom)}</h3>
-            ${p.adresse ? `<p class="partenaire-adresse">📍 ${echapper(p.adresse)}</p>` : ''}
-            ${p.description ? `<p class="partenaire-desc">${echapper(p.description)}</p>` : ''}
-            ${p.lien ? `<a class="btn btn-primary" href="${echapper(p.lien)}" target="_blank" rel="noopener">Visiter le site</a>` : ''}
+            ${p.apercu ? `<p class="partenaire-apercu">${echapper(p.apercu)}</p>` : ''}
+            <div class="partenaire-row-detail" id="pt-detail-${i}">
+              ${p.adresse ? `<p class="partenaire-adresse">📍 ${echapper(p.adresse)}</p>` : ''}
+              ${p.description ? `<p class="partenaire-desc">${echapper(p.description)}</p>` : ''}
+              ${p.lien ? `<a class="btn btn-primary" href="${echapper(p.lien)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">Visiter le site</a>` : ''}
+            </div>
           </div>
+          <span class="partenaire-fleche" id="pt-fleche-${i}">▾</span>
         </div>`).join('');
     } catch (e) {
       wrap.innerHTML = '<p style="color:var(--slate);">Impossible de charger les partenaires pour le moment.</p>';
