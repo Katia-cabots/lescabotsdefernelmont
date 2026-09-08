@@ -110,6 +110,7 @@ onAuthStateChanged(auth, async (user) => {
   // Super Admin. La fraise 🍓 reste réservée à Katia (Admin) uniquement — donc
   // masquée pour le Super Admin. Aucun autre changement pour le compte Admin.
   document.getElementById('versionTagCoin').textContent = VERSION_SITE;
+  document.getElementById('versionTag').textContent = VERSION_SITE;
   if (user.email === identifiantVersEmail('HeleneL')) {
     document.getElementById('tabMotsDePasseBtn').classList.remove('hidden');
     document.getElementById('fraiseDiscrete')?.remove();
@@ -162,17 +163,17 @@ onAuthStateChanged(auth, async (user) => {
   chargerBoutiqueAdmin();
   chargerDogSittingAdmin();
   chargerCampagnesAdmin();
-  chargerComptaAdmin();
-  chargerNumerotationCompta();
-  chargerContenuAdmin();
-  chargerRoiAdmin();
-  chargerEnquetesAnonymesAdmin();
+  // Compta et "Contenu du site" ne sont chargés qu'à la première ouverture
+  // de leur onglet (voir plus bas) — évite de relire ces collections
+  // (parfois volumineuses : factures, notes de crédit, réponses au
+  // questionnaire...) à chaque connexion si l'onglet n'est jamais consulté.
   console.log('%c🍓 Un petit jardin secret pour toi, Katia...', 'color:#C0392B; font-size:13px;');
 });
 
 document.getElementById('logoutBtn').addEventListener('click', () => signOut(auth).then(() => window.location.href = 'connexion.html'));
 
 // ---------- Onglets ----------
+const ongletsChargesUneFois = new Set();
 document.querySelectorAll('.tab-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -181,6 +182,19 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     document.getElementById('panel-' + btn.dataset.tab).classList.remove('hidden');
     if (btn.dataset.tab === 'dogsitting' && window.marquerDogSittingVuAdmin) {
       window.marquerDogSittingVuAdmin();
+    }
+    // Chargement paresseux : ces deux onglets ne lisent leurs données
+    // qu'à la première ouverture dans la session, pas à chaque connexion.
+    if (btn.dataset.tab === 'compta' && !ongletsChargesUneFois.has('compta')) {
+      ongletsChargesUneFois.add('compta');
+      chargerComptaAdmin();
+      chargerNumerotationCompta();
+    }
+    if (btn.dataset.tab === 'contenu' && !ongletsChargesUneFois.has('contenu')) {
+      ongletsChargesUneFois.add('contenu');
+      chargerContenuAdmin();
+      chargerRoiAdmin();
+      chargerEnquetesAnonymesAdmin();
     }
   });
 });
@@ -2167,10 +2181,11 @@ function renderPartenairesAdmin() {
   wrap.innerHTML = currentPartenaires.map(p => `
     <div class="data-row">
       <div class="data-row-left">
-        ${p.photoURL ? `<img class="data-thumb" src="${escapeAttr(p.photoURL)}" alt="">` : ''}
+        ${p.photoURL ? `<img class="data-thumb data-thumb-contain" src="${escapeAttr(p.photoURL)}" alt="">` : ''}
         <div class="data-main">
           <div class="data-title">${escapeHtml(p.nom)}</div>
           <div class="data-sub">${escapeHtml(p.adresse || '')}</div>
+          ${p.apercu ? `<div class="data-sub" style="font-style:italic;">${escapeHtml(p.apercu)}</div>` : ''}
           ${p.lien ? `<div class="data-sub">${escapeHtml(p.lien)}</div>` : ''}
         </div>
       </div>
@@ -2202,7 +2217,8 @@ function ouvrirModalPartenaire(partenaire) {
         <h3>${isEdit ? 'Modifier le partenaire' : 'Ajouter un partenaire'}</h3>
         <div class="field"><label>Nom *</label><input id="pt-nom" value="${isEdit ? escapeAttr(partenaire.nom) : ''}" placeholder="ex: Arion, Trixie, Dr Dupont (vétérinaire)..."></div>
         <div class="field"><label>Adresse (optionnel)</label><input id="pt-adresse" value="${isEdit ? escapeAttr(partenaire.adresse || '') : ''}"></div>
-        <div class="field"><label>Texte libre (présentation)</label><textarea id="pt-description" rows="4" spellcheck="true" lang="fr" style="resize:vertical;">${isEdit ? escapeHtml(partenaire.description || '') : ''}</textarea></div>
+        <div class="field"><label>Bref aperçu (1 phrase, visible sans cliquer)</label><input id="pt-apercu" spellcheck="true" lang="fr" value="${isEdit ? escapeAttr(partenaire.apercu || '') : ''}" placeholder="ex: Croquettes premium sans gluten, conçues avec des vétérinaires."></div>
+        <div class="field"><label>Texte libre (présentation complète, visible au clic)</label><textarea id="pt-description" rows="4" spellcheck="true" lang="fr" style="resize:vertical;">${isEdit ? escapeHtml(partenaire.description || '') : ''}</textarea></div>
         <div class="field"><label>Photo (URL, optionnel)</label><input id="pt-photoURL" value="${isEdit ? escapeAttr(partenaire.photoURL || '') : ''}" placeholder="https://exemple.be/photo.jpg"></div>
         <div class="field"><label>Lien internet (optionnel)</label><input id="pt-lien" value="${isEdit ? escapeAttr(partenaire.lien || '') : ''}" placeholder="https://..."></div>
         <div class="modal-actions">
@@ -2219,6 +2235,7 @@ function ouvrirModalPartenaire(partenaire) {
     const data = {
       nom,
       adresse: document.getElementById('pt-adresse').value.trim(),
+      apercu: document.getElementById('pt-apercu').value.trim(),
       description: document.getElementById('pt-description').value.trim(),
       photoURL: document.getElementById('pt-photoURL').value.trim(),
       lien: document.getElementById('pt-lien').value.trim()

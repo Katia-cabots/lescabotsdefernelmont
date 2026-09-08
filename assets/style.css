@@ -807,24 +807,56 @@ blockquote.pull-quote {
 .marque-card h3 { font-size: 1.1rem; margin-bottom: 8px; color: var(--navy-dark); }
 .marque-card p { font-size: 0.9rem; color: var(--slate); margin: 0; }
 
-/* Page publique "Partenaires de confiance" */
-.partenaires-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 24px;
+/* Page publique "Partenaires de confiance" — liste de lignes horizontales,
+   empilées, avec détail dépliable au clic. */
+.partenaires-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
-.partenaire-card {
+.partenaire-row {
   background: var(--white);
   border-radius: var(--radius);
   box-shadow: var(--shadow-soft);
-  overflow: hidden;
+  padding: 18px 20px;
   display: flex;
-  flex-direction: column;
+  align-items: flex-start;
+  gap: 18px;
+  cursor: pointer;
+  transition: box-shadow 0.2s ease;
 }
-.partenaire-photo { width: 100%; aspect-ratio: 16/9; overflow: hidden; background: var(--paper-warm); }
-.partenaire-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.partenaire-body { padding: 20px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
-.partenaire-body h3 { font-size: 1.1rem; color: var(--navy-dark); margin: 0; }
-.partenaire-adresse { font-size: 0.85rem; color: var(--slate); margin: 0; }
-.partenaire-desc { font-size: 0.9rem; color: var(--ink); margin: 0; white-space: pre-wrap; flex: 1; }
-.partenaire-body .btn { align-self: flex-start; margin-top: 6px; }
+.partenaire-row:hover { box-shadow: var(--shadow-card); }
+.partenaire-row-photo {
+  width: 84px;
+  height: 84px;
+  flex: none;
+  padding: 8px;
+  box-sizing: border-box;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--paper-warm);
+}
+.partenaire-row-photo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.partenaire-row-body { flex: 1; min-width: 0; }
+.partenaire-row-body h3 { font-size: 1.05rem; color: var(--navy-dark); margin: 0 0 4px; }
+.partenaire-apercu { font-size: 0.92rem; color: var(--ink); margin: 0; }
+.partenaire-row-detail {
+  display: none;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #E3E7EB;
+}
+.partenaire-row-detail.ouvert { display: block; }
+.partenaire-adresse { font-size: 0.85rem; color: var(--slate); margin: 0 0 8px; }
+.partenaire-desc { font-size: 0.9rem; color: var(--ink); margin: 0 0 10px; white-space: pre-wrap; }
+.partenaire-fleche {
+  flex: none;
+  color: var(--slate-light);
+  font-size: 0.8rem;
+  margin-top: 4px;
+  transition: transform 0.2s ease;
+}
+.partenaire-fleche.ouvert { transform: rotate(180deg); }
+@media (max-width: 560px) {
+  .partenaire-row-photo { width: 60px; height: 60px; }
+}

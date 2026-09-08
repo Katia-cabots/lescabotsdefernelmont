@@ -311,6 +311,12 @@
   background: var(--paper-warm);
   border: 1px solid #E3E7EB;
 }
+/* Variante pour des logos (jamais rognés — toujours vus en entier) */
+.data-thumb-contain {
+  object-fit: contain;
+  padding: 6px;
+  box-sizing: border-box;
+}
 
 .btn-sm {
   padding: 7px 12px;
