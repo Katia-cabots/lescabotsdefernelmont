@@ -64,8 +64,10 @@
   window.toggleDetailPartenaire = (i) => {
     const detail = document.getElementById(`pt-detail-${i}`);
     const fleche = document.getElementById(`pt-fleche-${i}`);
+    const lienPlus = document.getElementById(`pt-plus-${i}`);
     const ouvert = detail.classList.toggle('ouvert');
     fleche.classList.toggle('ouvert', ouvert);
+    if (lienPlus) lienPlus.textContent = ouvert ? 'Réduire' : 'Cliquer ici pour en savoir plus';
   };
 
   function echapper(str) {
@@ -91,6 +93,7 @@
           <div class="partenaire-row-body">
             <h3>${echapper(p.nom)}</h3>
             ${p.apercu ? `<p class="partenaire-apercu">${echapper(p.apercu)}</p>` : ''}
+            <span class="partenaire-lien-plus" id="pt-plus-${i}">Cliquer ici pour en savoir plus</span>
             <div class="partenaire-row-detail" id="pt-detail-${i}">
               ${p.adresse ? `<p class="partenaire-adresse">📍 ${echapper(p.adresse)}</p>` : ''}
               ${p.description ? `<p class="partenaire-desc">${echapper(p.description)}</p>` : ''}
