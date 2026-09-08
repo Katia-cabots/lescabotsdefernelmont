@@ -141,10 +141,22 @@ button:focus-visible {
 nav.main-nav ul {
   list-style: none;
   display: flex;
-  gap: 4px;
+  justify-content: center;
+  gap: 4px 6px;
   margin: 0;
   padding: 0;
   flex-wrap: wrap;
+}
+
+/* Élément invisible pleine largeur qui force le retour à la ligne après le
+   5e lien — 2 lignes fixes de 5 puis 4, centrées, plutôt qu'un retour à la
+   ligne imprévisible qui dépend de la largeur disponible. */
+nav.main-nav .nav-break {
+  flex-basis: 100%;
+  width: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
 }
 
 nav.main-nav a {
@@ -166,7 +178,7 @@ nav.main-nav a.active {
 }
 
 .nav-toggle {
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   width: 40px;
@@ -198,24 +210,29 @@ nav.main-nav a.active {
 .nav-toggle .bars::before { top: -6px; }
 .nav-toggle .bars::after { top: 6px; }
 
-/* Menu hamburger permanent, sur toutes les tailles d'écran : le conteneur
-   du menu est plafonné à 1120px de large (--max-width) quelle que soit la
-   largeur de la fenêtre, et cette largeur ne suffit pas pour le logo + 9
-   liens sur une seule ligne, même sur un très grand écran. Un seuil basé
-   sur la largeur de fenêtre ne peut donc jamais résoudre le retour à la
-   ligne inégal — seul un menu replié en permanence le garantit. */
-.header-inner { flex-wrap: wrap; }
 nav.main-nav {
-  width: 100%;
-  display: none;
-  background: var(--navy-dark);
-  border-radius: var(--radius);
-  margin-top: 12px;
-  padding: 8px;
+  margin-left: auto;
 }
-nav.main-nav.open { display: block; }
-nav.main-nav ul { flex-direction: column; gap: 2px; }
-nav.main-nav a { display: block; }
+
+/* En dessous de 700px (vrai mobile), le menu 2 lignes ne tient plus
+   confortablement : bascule en hamburger classique. Au-dessus, 2 lignes
+   fixes de 5 puis 4 liens, centrées (voir .nav-break dans le HTML). */
+@media (max-width: 700px) {
+  .header-inner { flex-wrap: wrap; }
+  nav.main-nav { margin-left: 0; }
+  .nav-toggle { display: flex; }
+  nav.main-nav {
+    width: 100%;
+    display: none;
+    background: var(--navy-dark);
+    border-radius: var(--radius);
+    margin-top: 12px;
+    padding: 8px;
+  }
+  nav.main-nav.open { display: block; }
+  nav.main-nav ul { flex-direction: column; gap: 2px; }
+  nav.main-nav a { display: block; }
+}
 
 /* ---------- Hero ---------- */
 
