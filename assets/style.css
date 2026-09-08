@@ -202,7 +202,11 @@ nav.main-nav {
   margin-left: auto;
 }
 
-@media (max-width: 760px) {
+/* Seuil relevé à 900px (au lieu de 760px) : avec l'ajout de nouvelles pages
+   au menu (Livre d'or, Partenaires...), la barre de navigation risquait de
+   passer sur 2 lignes avant de basculer en menu hamburger sur les écrans
+   moyens (tablette, petit ordinateur portable). */
+@media (max-width: 900px) {
   .header-inner { flex-wrap: wrap; }
   nav.main-nav { margin-left: 0; }
   .nav-toggle { display: flex; }
@@ -802,3 +806,25 @@ blockquote.pull-quote {
 }
 .marque-card h3 { font-size: 1.1rem; margin-bottom: 8px; color: var(--navy-dark); }
 .marque-card p { font-size: 0.9rem; color: var(--slate); margin: 0; }
+
+/* Page publique "Partenaires de confiance" */
+.partenaires-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 24px;
+}
+.partenaire-card {
+  background: var(--white);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.partenaire-photo { width: 100%; aspect-ratio: 16/9; overflow: hidden; background: var(--paper-warm); }
+.partenaire-photo img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.partenaire-body { padding: 20px; display: flex; flex-direction: column; gap: 8px; flex: 1; }
+.partenaire-body h3 { font-size: 1.1rem; color: var(--navy-dark); margin: 0; }
+.partenaire-adresse { font-size: 0.85rem; color: var(--slate); margin: 0; }
+.partenaire-desc { font-size: 0.9rem; color: var(--ink); margin: 0; white-space: pre-wrap; flex: 1; }
+.partenaire-body .btn { align-self: flex-start; margin-top: 6px; }

@@ -44,6 +44,46 @@ const JOURS_MAJ = { lundi:"Lundi", mardi:"Mardi", mercredi:"Mercredi", jeudi:"Je
 let currentGroupes = [];
 let currentMembres = [];
 
+// ==========================================================================
+// CACHE LOCAL (presences / annulations) — ces deux collections étaient
+// relues intégralement à plusieurs endroits différents à chaque chargement
+// de l'admin (jusqu'à 5-6 fois), ce qui représentait une grosse partie des
+// lectures Firestore facturées. On les lit une seule fois par cycle et on
+// tient le cache à jour en mémoire au fil des écritures ; toute écriture
+// faite ailleurs dans le code doit invalider le cache correspondant.
+// ==========================================================================
+let presencesCache = null;
+async function chargerPresencesCache(forcer = false) {
+  if (presencesCache && !forcer) return presencesCache;
+  const snap = await getDocs(collection(db, 'presences'));
+  presencesCache = [];
+  snap.forEach(d => presencesCache.push({ id: d.id, ...d.data() }));
+  return presencesCache;
+}
+function invaliderCachePresences() { presencesCache = null; }
+
+let annulationsCache = null;
+async function chargerAnnulationsCache(forcer = false) {
+  if (annulationsCache && !forcer) return annulationsCache;
+  const snap = await getDocs(collection(db, 'annulations'));
+  annulationsCache = {};
+  snap.forEach(d => { annulationsCache[d.id] = d.data(); });
+  return annulationsCache;
+}
+function invaliderCacheAnnulations() { annulationsCache = null; }
+
+// precommandes est aussi relue intégralement à 2 endroits différents
+// (badge Boutique + badge par commande groupée) à chaque chargement admin.
+let precommandesCache = null;
+async function chargerPrecommandesCache(forcer = false) {
+  if (precommandesCache && !forcer) return precommandesCache;
+  const snap = await getDocs(collection(db, 'precommandes'));
+  precommandesCache = [];
+  snap.forEach(d => precommandesCache.push({ id: d.id, ...d.data() }));
+  return precommandesCache;
+}
+function invaliderCachePrecommandes() { precommandesCache = null; }
+
 // ---------- Garde d'accès ----------
 onAuthStateChanged(auth, async (user) => {
   if (!user) { window.location.href = 'connexion.html'; return; }
@@ -103,6 +143,7 @@ onAuthStateChanged(auth, async (user) => {
   chargerRdv();
   chargerArticles();
   chargerVideosAdmin();
+  chargerPartenairesAdmin();
 
   // Rattrapage des absences non répondues + décompte : potentiellement long
   // (beaucoup d'écritures la première fois), donc en arrière-plan, sans
@@ -1083,6 +1124,7 @@ window.editerPresenceAdmin = (presenceId, membreId, statutActuel) => {
       compteAbonnement: decompteApres,
       modifieParAdmin: true
     });
+    invaliderCachePresences();
 
     document.getElementById('modalOverlayPresence').remove();
     chargerHistoriquePresencesAdmin(membreId);
@@ -1097,6 +1139,7 @@ window.supprimerPresenceAdmin = async (presenceId, membreId) => {
     await updateDoc(doc(db, 'membres', membreId), { coursRestants: increment(1) });
   }
   await deleteDoc(doc(db, 'presences', presenceId));
+  invaliderCachePresences();
   chargerHistoriquePresencesAdmin(membreId);
   renderMembres();
 };
@@ -1175,18 +1218,15 @@ async function chargerCeSoir() {
     return;
   }
 
-  const annulSnap = await getDocs(collection(db, 'annulations'));
-  const annulations = {};
-  annulSnap.forEach(d => { annulations[d.id] = d.data(); });
+  const annulations = await chargerAnnulationsCache();
 
   const confirmSnap = await getDocs(collection(db, 'confirmations'));
   const confirmations = {};
   confirmSnap.forEach(d => { confirmations[d.id] = d.data(); });
 
-  const presSnap = await getDocs(collection(db, 'presences'));
+  const toutesPresences = await chargerPresencesCache();
   const presencesParCle = {};
-  presSnap.forEach(d => {
-    const p = d.data();
+  toutesPresences.forEach(p => {
     const cle = `${p.groupeId}_${p.dateISO}`;
     if (!presencesParCle[cle]) presencesParCle[cle] = { present: 0, absent: 0 };
     presencesParCle[cle][p.statut === 'present' ? 'present' : 'absent']++;
@@ -1249,6 +1289,7 @@ window.marquerPresenceManuelle = async (groupeId, dateISO, uid, statut) => {
     compteAbonnement: false,
     marqueParAdmin: true
   });
+  invaliderCachePresences();
   await traiterAbsencesAutomatiques(); // décompte l'abonnement immédiatement, comme pour une réponse normale
   window.voirMembresCours(groupeId, dateISO); // rafraîchit la fenêtre avec le nouveau statut
 };
@@ -1351,7 +1392,15 @@ window.annulerCours = (groupeId, dateISO) => {
       where('groupeId', '==', groupeId), where('dateISO', '==', dateISO), where('statut', '==', 'present')));
     const texteAuto = `🚫 Cours annulé : votre cours du ${dateLabel} (${groupe ? groupe.nom : ''}) est annulé — motif : ${motif}.`;
     await Promise.all(presSnap.docs.map(async (d) => {
-      const uid = d.data().uid;
+      const p = d.data();
+      const uid = p.uid;
+      // Si ce cours avait déjà été décompté avant l'annulation, on
+      // rembourse immédiatement — un cours annulé ne doit jamais coûter
+      // un cours d'abonnement à un membre qui avait dit "présent".
+      if (p.compteAbonnement) {
+        await updateDoc(doc(db, 'membres', uid), { coursRestants: increment(1) }).catch(() => {});
+        await updateDoc(d.ref, { compteAbonnement: false });
+      }
       await addDoc(collection(db, 'conversations', uid, 'messages'), {
         texte: texteAuto, expediteur: 'admin', dateEnvoi: new Date().toISOString(), lu: false
       });
@@ -1360,6 +1409,9 @@ window.annulerCours = (groupeId, dateISO) => {
       }, { merge: true });
     }));
 
+    chargerMembres();
+    invaliderCacheAnnulations();
+    invaliderCachePresences();
     document.getElementById('modalOverlayMotif').remove();
     chargerCeSoir();
   });
@@ -1367,6 +1419,7 @@ window.annulerCours = (groupeId, dateISO) => {
 
 window.reactiverCours = async (groupeId, dateISO) => {
   await deleteDoc(doc(db, 'annulations', `${groupeId}_${dateISO}`));
+  invaliderCacheAnnulations();
   chargerCeSoir();
 };
 
@@ -1974,6 +2027,7 @@ window.supprimerMessageConversation = async (uid, msgId) => {
   await deleteDoc(doc(db, 'conversations', uid, 'messages', msgId));
   await recalculerDernierMessage(uid);
   window.ouvrirConversation(uid);
+  chargerConversations();
 };
 
 // ==========================================================================
@@ -2087,6 +2141,95 @@ function ouvrirModalArticle(article) {
     }
     window.fermerModal();
     chargerArticles();
+  });
+}
+
+// ==========================================================================
+// PARTENAIRES DE CONFIANCE — page publique "Partenaires"
+// ==========================================================================
+let currentPartenaires = [];
+
+async function chargerPartenairesAdmin() {
+  const snap = await getDocs(collection(db, 'partenaires'));
+  currentPartenaires = [];
+  snap.forEach(d => currentPartenaires.push({ id: d.id, ...d.data() }));
+  currentPartenaires.sort((a, b) => (a.nom || '').localeCompare(b.nom || '', 'fr'));
+  renderPartenairesAdmin();
+}
+
+function renderPartenairesAdmin() {
+  const wrap = document.getElementById('listePartenaires');
+  if (!wrap) return;
+  if (currentPartenaires.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucun partenaire pour l\'instant.</div>';
+    return;
+  }
+  wrap.innerHTML = currentPartenaires.map(p => `
+    <div class="data-row">
+      <div class="data-row-left">
+        ${p.photoURL ? `<img class="data-thumb" src="${escapeAttr(p.photoURL)}" alt="">` : ''}
+        <div class="data-main">
+          <div class="data-title">${escapeHtml(p.nom)}</div>
+          <div class="data-sub">${escapeHtml(p.adresse || '')}</div>
+          ${p.lien ? `<div class="data-sub">${escapeHtml(p.lien)}</div>` : ''}
+        </div>
+      </div>
+      <div class="data-actions">
+        <button class="btn-sm" onclick="window.editerPartenaire('${p.id}')">Modifier</button>
+        <button class="btn-sm danger" onclick="window.supprimerPartenaire('${p.id}')">Supprimer</button>
+      </div>
+    </div>`).join('');
+}
+
+document.getElementById('btnAjouterPartenaire').addEventListener('click', () => ouvrirModalPartenaire());
+
+window.editerPartenaire = (id) => {
+  const p = currentPartenaires.find(x => x.id === id);
+  if (p) ouvrirModalPartenaire(p);
+};
+
+window.supprimerPartenaire = async (id) => {
+  if (!confirm('Supprimer ce partenaire de la page publique ?')) return;
+  await deleteDoc(doc(db, 'partenaires', id));
+  chargerPartenairesAdmin();
+};
+
+function ouvrirModalPartenaire(partenaire) {
+  const isEdit = !!partenaire;
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box" style="max-width:520px;">
+        <h3>${isEdit ? 'Modifier le partenaire' : 'Ajouter un partenaire'}</h3>
+        <div class="field"><label>Nom *</label><input id="pt-nom" value="${isEdit ? escapeAttr(partenaire.nom) : ''}" placeholder="ex: Arion, Trixie, Dr Dupont (vétérinaire)..."></div>
+        <div class="field"><label>Adresse (optionnel)</label><input id="pt-adresse" value="${isEdit ? escapeAttr(partenaire.adresse || '') : ''}"></div>
+        <div class="field"><label>Texte libre (présentation)</label><textarea id="pt-description" rows="4" spellcheck="true" lang="fr" style="resize:vertical;">${isEdit ? escapeHtml(partenaire.description || '') : ''}</textarea></div>
+        <div class="field"><label>Photo (URL, optionnel)</label><input id="pt-photoURL" value="${isEdit ? escapeAttr(partenaire.photoURL || '') : ''}" placeholder="https://exemple.be/photo.jpg"></div>
+        <div class="field"><label>Lien internet (optionnel)</label><input id="pt-lien" value="${isEdit ? escapeAttr(partenaire.lien || '') : ''}" placeholder="https://..."></div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="window.fermerModal()">Annuler</button>
+          <button class="btn-sm primary" id="pt-save">${isEdit ? 'Enregistrer' : 'Ajouter'}</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+
+  document.getElementById('pt-save').addEventListener('click', async () => {
+    const nom = document.getElementById('pt-nom').value.trim();
+    if (!nom) { alert('Le nom est obligatoire.'); return; }
+    const data = {
+      nom,
+      adresse: document.getElementById('pt-adresse').value.trim(),
+      description: document.getElementById('pt-description').value.trim(),
+      photoURL: document.getElementById('pt-photoURL').value.trim(),
+      lien: document.getElementById('pt-lien').value.trim()
+    };
+    if (isEdit) {
+      await updateDoc(doc(db, 'partenaires', partenaire.id), data);
+    } else {
+      await addDoc(collection(db, 'partenaires'), { ...data, dateCreation: serverTimestamp() });
+    }
+    window.fermerModal();
+    chargerPartenairesAdmin();
   });
 }
 
@@ -2298,14 +2441,13 @@ async function chargerAbonnementsARenouveler() {
 // cours au membre puis supprime l'enregistrement erroné.
 // ==========================================================================
 async function corrigerAbsencesAvantInscription() {
-  const presSnap = await getDocs(query(collection(db, 'presences'), where('statut', '==', 'absent-auto')));
-  const aCorriger = [];
-  presSnap.forEach(d => {
-    const p = d.data();
+  const toutes = await chargerPresencesCache();
+  const aCorriger = toutes.filter(p => {
+    if (p.statut !== 'absent-auto') return false;
     const membre = currentMembres.find(m => m.id === p.uid);
-    if (!membre?.dateInscription?.toDate) return;
+    if (!membre?.dateInscription?.toDate) return false;
     const inscriptionISO = dateISOLocale(membre.dateInscription.toDate());
-    if (p.dateISO < inscriptionISO) aCorriger.push({ id: d.id, ...p });
+    return p.dateISO < inscriptionISO;
   });
   if (aCorriger.length === 0) return;
 
@@ -2315,6 +2457,10 @@ async function corrigerAbsencesAvantInscription() {
     }
     await deleteDoc(doc(db, 'presences', p.id));
   }
+  // Retire du cache en mémoire les entrées supprimées, pour que les étapes
+  // suivantes du même cycle ne les revoient pas sans devoir tout relire.
+  const idsSupprimes = new Set(aCorriger.map(p => p.id));
+  presencesCache = presencesCache.filter(p => !idsSupprimes.has(p.id));
   renderMembres();
 }
 
@@ -2327,16 +2473,12 @@ async function corrigerAbsencesAvantInscription() {
 const DATE_LANCEMENT_SITE = '2026-09-04';
 
 async function detecterAbsencesNonRepondues() {
-  const presSnap = await getDocs(collection(db, 'presences'));
+  const toutes = await chargerPresencesCache();
   const dejaReponduCles = new Set();
-  presSnap.forEach(d => {
-    const p = d.data();
-    dejaReponduCles.add(`${p.groupeId}_${p.dateISO}_${p.uid}`);
-  });
+  toutes.forEach(p => dejaReponduCles.add(`${p.groupeId}_${p.dateISO}_${p.uid}`));
 
-  const annulSnap = await getDocs(collection(db, 'annulations'));
-  const annulesCles = new Set();
-  annulSnap.forEach(d => annulesCles.add(d.id));
+  const annulations = await chargerAnnulationsCache();
+  const annulesCles = new Set(Object.keys(annulations));
 
   const maintenant = new Date();
   const aCreer = [];
@@ -2374,6 +2516,12 @@ async function detecterAbsencesNonRepondues() {
       repondu: new Date().toISOString(), compteAbonnement: false
     })
   ));
+  // Ajoute les nouvelles entrées au cache en mémoire : l'étape suivante du
+  // même cycle (décompte) les traite sans re-télécharger toute la collection.
+  aCreer.forEach(p => presencesCache.push({
+    id: `${p.groupeId}_${p.dateISO}_${p.uid}`, groupeId: p.groupeId, uid: p.uid,
+    dateISO: p.dateISO, statut: 'absent-auto', compteAbonnement: false
+  }));
 }
 
 // ==========================================================================
@@ -2385,17 +2533,25 @@ async function detecterAbsencesNonRepondues() {
 // décomptée qu'une seule fois, indépendamment des autres.
 // ==========================================================================
 async function traiterAbsencesAutomatiques() {
-  const presSnap = await getDocs(query(collection(db, 'presences'), where('statut', 'in', ['present', 'absent-auto'])));
-  const aTraiter = [];
-  presSnap.forEach(d => {
-    const p = d.data();
-    if (!p.compteAbonnement) aTraiter.push({ id: d.id, ...p });
-  });
+  const toutes = await chargerPresencesCache();
+  // Un cours annulé après coup (pluie, chaleur...) ne doit jamais décompter
+  // l'abonnement d'un membre, même s'il avait répondu "présent" avant
+  // l'annulation.
+  const annulations = await chargerAnnulationsCache();
+  const annulesCles = new Set(Object.keys(annulations));
+
+  const aTraiter = toutes.filter(p =>
+    (p.statut === 'present' || p.statut === 'absent-auto') &&
+    !annulesCles.has(`${p.groupeId}_${p.dateISO}`) &&
+    !p.compteAbonnement
+  );
   if (aTraiter.length === 0) return;
 
   for (const p of aTraiter) {
     await updateDoc(doc(db, 'membres', p.uid), { coursRestants: increment(-1) }).catch(() => {});
     await updateDoc(doc(db, 'presences', p.id), { compteAbonnement: true });
+    const entree = presencesCache.find(x => x.id === p.id);
+    if (entree) entree.compteAbonnement = true;
   }
   renderMembres();
 }
@@ -2587,9 +2743,8 @@ async function chargerCommandesAdmin() {
   commandes.sort((a, b) => (b.dateCreation?.toMillis?.() || 0) - (a.dateCreation?.toMillis?.() || 0));
 
   const enAttente = commandes.filter(c => c.statut === 'en_attente').length;
-  const precSnap = await getDocs(collection(db, 'precommandes'));
-  let precommandesNonVues = 0;
-  precSnap.forEach(d => { if (d.data().vu === false) precommandesNonVues++; });
+  const precommandesToutes = await chargerPrecommandesCache();
+  const precommandesNonVues = precommandesToutes.filter(p => p.vu === false).length;
   const tabBtn = document.getElementById('tabBoutiqueBtn');
   if (tabBtn) tabBtn.classList.toggle('has-unread', enAttente > 0 || precommandesNonVues > 0);
 
@@ -3468,9 +3623,9 @@ async function chargerCampagnesAdmin() {
   snap.forEach(d => currentCampagnes.push({ id: d.id, ...d.data() }));
   currentCampagnes.sort((a, b) => (b.dateLimite || '').localeCompare(a.dateLimite || ''));
 
-  const precSnap = await getDocs(collection(db, 'precommandes'));
+  const precommandesToutes = await chargerPrecommandesCache();
   campagnesAvecNouvellesPrecommandes = new Set();
-  precSnap.forEach(d => { if (d.data().vu === false) campagnesAvecNouvellesPrecommandes.add(d.data().campagneId); });
+  precommandesToutes.forEach(p => { if (p.vu === false) campagnesAvecNouvellesPrecommandes.add(p.campagneId); });
 
   renderCampagnesAdmin();
 }
@@ -3597,6 +3752,7 @@ window.voirPrecommandes = async (campagneId) => {
   const aMarquer = precommandes.filter(p => p.vu === false);
   if (aMarquer.length > 0) {
     await Promise.all(aMarquer.map(p => updateDoc(doc(db, 'precommandes', p.id), { vu: true })));
+    invaliderCachePrecommandes();
     chargerCampagnesAdmin();
     chargerCommandesAdmin();
   }
@@ -4147,6 +4303,7 @@ document.getElementById('btnNettoyerPresences')?.addEventListener('click', async
       await updateDoc(doc(db, 'membres', uid), { coursRestants: increment(aRecrediter[uid]) });
     }
     zone.textContent = `Terminé : ${supprimees} présence(s) supprimée(s), ${Object.keys(aRecrediter).length} membre(s) recrédité(s) d'un ou plusieurs cours.`;
+    invaliderCachePresences();
     chargerMembres();
   } catch (err) {
     zone.textContent = 'Erreur pendant le nettoyage : ' + err.message;
@@ -4493,9 +4650,8 @@ async function chargerDemandesAnnulation() {
   const wrap = document.getElementById('listeDemandesAnnulation');
   if (!wrap) return;
 
-  const snap = await getDocs(query(collection(db, 'presences'), where('demandeAnnulationStatut', '==', 'attente')));
-  const demandes = [];
-  snap.forEach(d => demandes.push({ id: d.id, ...d.data() }));
+  const toutes = await chargerPresencesCache();
+  const demandes = toutes.filter(p => p.demandeAnnulationStatut === 'attente');
 
   if (demandes.length === 0) {
     bloc.style.display = 'none';
@@ -4528,12 +4684,10 @@ window.validerAnnulationTardive = async (presenceId) => {
   const presDoc = await getDoc(doc(db, 'presences', presenceId));
   const p = presDoc.data();
 
-  // Si le cours avait déjà été décompté de l'abonnement, on rembourse.
+  // Si le cours avait déjà été décompté de l'abonnement, on rembourse
+  // (incrément atomique Firestore, jamais de valeur périmée).
   if (p.compteAbonnement) {
-    const membre = currentMembres.find(m => m.id === p.uid);
-    if (membre) {
-      await updateDoc(doc(db, 'membres', p.uid), { coursRestants: (membre.coursRestants ?? 0) + 1 });
-    }
+    await updateDoc(doc(db, 'membres', p.uid), { coursRestants: increment(1) });
   }
 
   await updateDoc(doc(db, 'presences', presenceId), {
@@ -4541,6 +4695,7 @@ window.validerAnnulationTardive = async (presenceId) => {
     compteAbonnement: false,
     demandeAnnulationStatut: 'validee'
   });
+  invaliderCachePresences();
 
   chargerMembres();
   chargerDemandesAnnulation();
@@ -4548,5 +4703,6 @@ window.validerAnnulationTardive = async (presenceId) => {
 
 window.refuserAnnulationTardive = async (presenceId) => {
   await updateDoc(doc(db, 'presences', presenceId), { demandeAnnulationStatut: 'refusee' });
+  invaliderCachePresences();
   chargerDemandesAnnulation();
 };
