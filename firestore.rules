@@ -1,4 +1,4 @@
-// Projet Firebase : cabots-de-fernelmont-901ee — Site "Les Cabots de Fernelmont" — V01-034
+// Projet Firebase : cabots-de-fernelmont-901ee — Site "Les Cabots de Fernelmont" — V01-040
 // Convention de versionnage des livraisons : VJJ-NNN (JJ = numéro du jour de
 // travail sur ce site, pas la date calendaire ; NNN = numéro de livraison
 // dans cette journée de travail, repart à 001 à chaque nouveau jour de
@@ -214,6 +214,13 @@ service cloud.firestore {
       allow read: if estAdmin();
       allow create: if estConnecte();
       allow update, delete: if false;
+    }
+
+    match /partenaires/{id} {
+      // Page publique "Partenaires de confiance" — contenu géré uniquement
+      // par l'admin, visible par tous (membres ou non).
+      allow read: if true;
+      allow write: if estAdmin();
     }
 
     match /demandes_info/{id} {

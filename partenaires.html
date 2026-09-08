@@ -4,9 +4,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Activités — Les Cabots de Fernelmont | Obéissance, agility, socialisation</title>
-<meta name="description" content="Découvrez les activités du club canin Les Cabots de Fernelmont à Andenne : obéissance, socialisation, agility, confiance et rapport chien-maître.">
-<link rel="canonical" href="https://katia-cabots.github.io/lescabotsdefernelmont/activites.html">
+<title>Nos partenaires de confiance — Les Cabots de Fernelmont | Club canin Andenne</title>
+<meta name="description" content="Découvrez les partenaires de confiance du club canin Les Cabots de Fernelmont à Andenne : alimentation, accessoires, vétérinaire, ostéopathe et plus.">
+<link rel="canonical" href="https://katia-cabots.github.io/lescabotsdefernelmont/partenaires.html">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
@@ -28,11 +28,11 @@
       <ul>
         <li><a href="index.html">Accueil</a></li>
         <li><a href="club.html">Le Club</a></li>
-        <li><a href="activites.html" class="active">Activités</a></li>
+        <li><a href="activites.html">Activités</a></li>
         <li><a href="katia.html">Katia</a></li>
         <li><a href="infos-canines.html">Infos canines</a></li>
         <li><a href="livre-or.html">Livre d'or</a></li>
-        <li><a href="partenaires.html">Partenaires</a></li>
+        <li><a href="partenaires.html" class="active">Partenaires</a></li>
         <li><a href="contact.html">Nous contacter</a></li>
         <li><a href="connexion.html">Connexion</a></li>
       </ul>
@@ -42,51 +42,58 @@
 
 <section class="page-hero">
   <div class="container">
-    <span class="eyebrow">Nos programmes</span>
-    <h1>Activités</h1>
-    <p class="lead" data-contenu-id="activites_lead">Cinq axes de travail pour progresser avec votre chien, à chaque étape de son développement.</p>
+    <span class="eyebrow">Nos partenaires</span>
+    <h1>Des partenaires de confiance</h1>
+    <p>Katia sélectionne pour vous les professionnels et marques en qui elle a confiance pour le bien-être de votre chien.</p>
   </div>
 </section>
 
 <section>
   <div class="container">
-    <div class="activity-grid">
-      <div class="activity-card" id="activite1-carte">
-        <span class="num"><span class="num-index">01</span> — Éducation</span>
-        <h3 data-contenu-id="activite1_titre">Obéissance</h3>
-        <p data-contenu-id="activite1_texte">Les bases essentielles pour un chien équilibré au quotidien : rappel, marche en laisse, positions et self-control, enseignés avec des méthodes douces.</p>
-      </div>
-      <div class="activity-card" id="activite2-carte">
-        <span class="num"><span class="num-index">02</span> — Sociabilisation</span>
-        <h3 data-contenu-id="activite2_titre">Socialisation</h3>
-        <p data-contenu-id="activite2_texte">Des rencontres encadrées avec d'autres chiens et d'autres maîtres pour apprendre à votre compagnon à évoluer sereinement dans son environnement.</p>
-      </div>
-      <div class="activity-card" id="activite3-carte">
-        <span class="num"><span class="num-index">03</span> — Sport canin</span>
-        <h3 data-contenu-id="activite3_titre">Agility</h3>
-        <p data-contenu-id="activite3_texte">Un parcours d'obstacles ludique qui renforce la complicité entre le chien et son maître, tout en développant agilité et concentration.</p>
-      </div>
-      <div class="activity-card" id="activite4-carte">
-        <span class="num"><span class="num-index">04</span> — Bien-être</span>
-        <h3 data-contenu-id="activite4_titre">Confiance au chien</h3>
-        <p data-contenu-id="activite4_texte">Un travail spécifique pour aider les chiens craintifs ou peu sûrs d'eux à gagner en assurance, à leur rythme et en douceur.</p>
-      </div>
-      <div class="activity-card" id="activite5-carte">
-        <span class="num"><span class="num-index">05</span> — Complicité</span>
-        <h3 data-contenu-id="activite5_titre">Rapport chien-maître</h3>
-        <p data-contenu-id="activite5_texte">Renforcer la communication et la complicité entre vous et votre chien, pour une relation basée sur la confiance mutuelle.</p>
-      </div>
+    <div id="pt-liste" class="partenaires-grid">
+      <p style="color:var(--slate);">Chargement...</p>
     </div>
   </div>
 </section>
 
-<section class="cta-band">
-  <div class="container">
-    <h2>Une question sur nos cours ?</h2>
-    <p>Katia se fera un plaisir de vous renseigner sur le programme le plus adapté à votre chien.</p>
-    <a class="btn btn-primary" href="contact.html">Nous contacter</a>
-  </div>
-</section>
+<script type="module">
+  import { db, collection, getDocs } from "./assets/firebase-config.js";
+  import { VERSION_SITE } from "./assets/version.js";
+  document.getElementById('versionPublic') && (document.getElementById('versionPublic').textContent = VERSION_SITE);
+
+  function echapper(str) {
+    if (!str) return '';
+    return str.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  async function chargerPartenaires() {
+    const wrap = document.getElementById('pt-liste');
+    try {
+      const snap = await getDocs(collection(db, 'partenaires'));
+      const partenaires = [];
+      snap.forEach(d => partenaires.push(d.data()));
+      partenaires.sort((a, b) => (a.nom || '').localeCompare(b.nom || '', 'fr'));
+
+      if (partenaires.length === 0) {
+        wrap.innerHTML = '<p style="color:var(--slate);">Aucun partenaire à afficher pour l\'instant.</p>';
+        return;
+      }
+      wrap.innerHTML = partenaires.map(p => `
+        <div class="partenaire-card">
+          ${p.photoURL ? `<div class="partenaire-photo"><img src="${echapper(p.photoURL)}" alt="${echapper(p.nom)}"></div>` : ''}
+          <div class="partenaire-body">
+            <h3>${echapper(p.nom)}</h3>
+            ${p.adresse ? `<p class="partenaire-adresse">📍 ${echapper(p.adresse)}</p>` : ''}
+            ${p.description ? `<p class="partenaire-desc">${echapper(p.description)}</p>` : ''}
+            ${p.lien ? `<a class="btn btn-primary" href="${echapper(p.lien)}" target="_blank" rel="noopener">Visiter le site</a>` : ''}
+          </div>
+        </div>`).join('');
+    } catch (e) {
+      wrap.innerHTML = '<p style="color:var(--slate);">Impossible de charger les partenaires pour le moment.</p>';
+    }
+  }
+  chargerPartenaires();
+</script>
 
 <footer class="site-footer">
   <div class="container">
@@ -104,7 +111,7 @@
           <li><a href="katia.html">Katia</a></li>
         <li><a href="infos-canines.html">Infos canines</a></li>
           <li><a href="livre-or.html">Livre d'or</a></li>
-        <li><a href="partenaires.html">Partenaires</a></li>
+          <li><a href="partenaires.html">Partenaires</a></li>
         <li><a href="contact.html">Nous contacter</a></li>
         <li><a href="connexion.html">Connexion</a></li>
         </ul>
@@ -135,7 +142,6 @@
     toggle.setAttribute('aria-expanded', isOpen);
   });
 </script>
-<script type="module" src="assets/contenu-dynamique.js"></script>
 <img src="assets/logo-hl.png" alt="" aria-hidden="true" class="badge-hl">
 </body>
 </html>
