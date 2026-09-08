@@ -4328,6 +4328,27 @@ document.getElementById('btnNettoyerPresences')?.addEventListener('click', async
   btn.disabled = false;
 });
 
+document.getElementById('btnRepararApercusMessages')?.addEventListener('click', async () => {
+  if (!confirm("Recalculer le dernier message affiché pour TOUTES les conversations ? Corrige les aperçus restés bloqués sur un message déjà supprimé avant le correctif — sans effet sur les vrais messages, juste sur l'aperçu.")) return;
+  const btn = document.getElementById('btnRepararApercusMessages');
+  const zone = document.getElementById('repararApercusResultat');
+  btn.disabled = true;
+  zone.textContent = 'Réparation en cours...';
+  try {
+    const snap = await getDocs(collection(db, 'conversations'));
+    let compte = 0;
+    for (const d of snap.docs) {
+      await recalculerDernierMessage(d.id);
+      compte++;
+    }
+    zone.textContent = `Terminé : ${compte} conversation(s) vérifiée(s) et corrigée(s) si besoin.`;
+    chargerConversations();
+  } catch (err) {
+    zone.textContent = 'Erreur pendant la réparation : ' + err.message;
+  }
+  btn.disabled = false;
+});
+
 let currentAdminsPourMdp = [];
 
 async function chargerListeAdminsPourMdp() {
