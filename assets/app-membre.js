@@ -407,6 +407,10 @@ async function afficherProchainsCours() {
   const confirmations = {};
   confirmSnap.forEach(d => { confirmations[d.id] = d.data(); });
 
+  const exceptionsSnap = await getDocs(collection(db, 'exceptions_horaire'));
+  const exceptionsHoraire = {};
+  exceptionsSnap.forEach(d => { exceptionsHoraire[d.id] = d.data(); });
+
   const presSnap = await getDocs(query(collection(db, 'presences'), where('uid', '==', membreUid)));
   const presences = {};
   presSnap.forEach(d => { presences[d.id] = d.data(); });
@@ -420,8 +424,11 @@ async function afficherProchainsCours() {
     const clePres = `${groupeData.id}_${dateISO}_${membreUid}`;
     const annule = annulations[cleAnnul];
     const confirme = confirmations[cleAnnul];
+    const exceptionH = exceptionsHoraire[cleAnnul];
+    const heureDebutEffective = exceptionH ? exceptionH.nouvelleHeureDebut : groupeData.heureDebut;
+    const heureFinEffective = exceptionH ? exceptionH.nouvelleHeureFin : groupeData.heureFin;
     const presence = presences[clePres];
-    const m = await meteoPour(dateISO, groupeData.heureDebut);
+    const m = await meteoPour(dateISO, heureDebutEffective);
     const alerte = alerteMeteo(m);
     const meteoBadge = m ? `<span class="badge badge-neutral">${iconeCode(m.code)} ${m.temperature}°C · pluie ${m.pluie}%</span>` : '<span class="badge badge-neutral">Météo indisponible</span>';
     const confirmeBadge = confirme && !annule ? '<span class="badge badge-ok">✅ Confirmé par Katia</span>' : '';
@@ -430,14 +437,14 @@ async function afficherProchainsCours() {
       return `
       <div class="data-row">
         <div class="data-main">
-          <div class="data-title">${capitalize(dateLabel)} — ${groupeData.heureDebut}</div>
+          <div class="data-title">${capitalize(dateLabel)} — ${heureDebutEffective}</div>
           <div class="data-sub"><span class="badge badge-danger">Cours annulé — ${escapeHtml(annule.motif)}</span> ${meteoBadge}</div>
         </div>
       </div>`;
     }
 
     let statutHtml;
-    const heureCours = new Date(`${dateISO}T${groupeData.heureDebut}:00`);
+    const heureCours = new Date(`${dateISO}T${heureDebutEffective}:00`);
     const delaiDepasse = new Date() >= new Date(heureCours.getTime() - 24 * 60 * 60 * 1000);
 
     if (presence) {
@@ -496,8 +503,9 @@ async function afficherProchainsCours() {
     return `
     <div class="data-row">
       <div class="data-main">
-        <div class="data-title">${capitalize(dateLabel)} — ${groupeData.heureDebut}</div>
-        <div class="data-sub">${meteoBadge} ${confirmeBadge}</div>
+        <div class="data-title">${capitalize(dateLabel)} — ${heureDebutEffective}</div>
+        <div class="data-sub">${meteoBadge} ${confirmeBadge} ${exceptionH ? `<span class="badge badge-warn">⏰ Horaire exceptionnel (habituellement ${groupeData.heureDebut}–${groupeData.heureFin})</span>` : ''}</div>
+        ${exceptionH ? `<p style="font-size:0.8rem; color:var(--slate); font-style:italic; margin-top:4px;">Motif : ${escapeHtml(exceptionH.motif)}</p>` : ''}
         ${alerte ? `<div class="banner-alert" style="margin-top:8px; padding:8px 12px;">⚠️ ${alerte.texte}, une annulation est possible.</div>` : ''}
         ${statutHtml}
       </div>
