@@ -1,4 +1,4 @@
-// Projet Firebase : cabots-de-fernelmont-901ee — Site "Les Cabots de Fernelmont" — V01-040
+// Projet Firebase : cabots-de-fernelmont-901ee — Site "Les Cabots de Fernelmont" — V01-055
 // Convention de versionnage des livraisons : VJJ-NNN (JJ = numéro du jour de
 // travail sur ce site, pas la date calendaire ; NNN = numéro de livraison
 // dans cette journée de travail, repart à 001 à chaque nouveau jour de
@@ -52,6 +52,13 @@ service cloud.firestore {
     }
 
     match /confirmations/{id} {
+      allow read: if estConnecte();
+      allow write: if estAdmin();
+    }
+
+    match /exceptions_horaire/{id} {
+      // Changement d'horaire ponctuel d'un cours (pluie, chaleur...) — ne
+      // modifie jamais la récurrence du groupe, juste cette date précise.
       allow read: if estConnecte();
       allow write: if estAdmin();
     }
