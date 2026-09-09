@@ -9,8 +9,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&family=Great+Vibes&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/style.css?v=V01-051">
-<link rel="stylesheet" href="assets/app.css?v=V01-051">
+<link rel="stylesheet" href="assets/style.css?v=V01-053">
+<link rel="stylesheet" href="assets/app.css?v=V01-053">
 </head>
 <body class="app-body">
 
@@ -229,6 +229,57 @@
 
   <div id="panel-compta" class="tab-panel hidden">
     <div class="app-panel">
+      <h2>Récapitulatif du chiffre d'affaires</h2>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Pour reconstituer le chiffre d'affaires en cas de contrôle fiscal : total facturé par mois et par type (cours/abonnement, cotisation, Dog Sitting, boutique, toilettage...), à partir des paiements enregistrés et des commandes validées.</p>
+      <div class="field" style="max-width:160px;"><label>Année</label><input type="number" id="cptRecapAnnee"></div>
+      <button class="btn-sm primary" id="btnChargerRecapCA">Afficher</button>
+      <button class="btn-sm" id="btnExporterRecapCA" style="margin-left:8px;">📊 Exporter en Excel</button>
+      <div id="cptRecapTableau" style="margin-top:16px; overflow-x:auto;"></div>
+
+      <h3 style="margin-top:24px;">Détail par membre</h3>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:10px;">Pour un type et une période donnés, voir qui a payé quoi (utile notamment pour détailler les cours par personne).</p>
+      <div class="form-grid">
+        <div class="field"><label>Type</label>
+          <select id="cptDetailType">
+            <option value="Cotisation">Cotisation</option>
+            <option value="Abonnement">Abonnement (cours)</option>
+            <option value="Cours individuel">Cours individuel</option>
+            <option value="Séance de comportement">Séance de comportement</option>
+            <option value="Dog Sitting">Dog Sitting</option>
+            <option value="Toilettage">Toilettage</option>
+            <option value="Vente diverse">Vente diverse</option>
+            <option value="Autre">Autre</option>
+            <option value="Boutique">Boutique (commandes)</option>
+          </select>
+        </div>
+        <div class="field"><label>Mois</label><input type="month" id="cptDetailMois"></div>
+      </div>
+      <button class="btn-sm primary" id="btnDetailParMembre">Voir le détail</button>
+      <button class="btn-sm" id="btnExporterDetailMembre" style="margin-left:8px;">📊 Exporter en Excel</button>
+      <div id="cptDetailTableau" style="margin-top:14px;"></div>
+
+      <h3 style="margin-top:24px;">Total par type sur une période personnalisée</h3>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:10px;">Pour une période précise (pas forcément une année civile complète) : total par type sur ces dates.</p>
+      <div class="form-grid">
+        <div class="field"><label>Du</label><input type="date" id="cptPeriodeDu"></div>
+        <div class="field"><label>Au</label><input type="date" id="cptPeriodeAu"></div>
+      </div>
+      <button class="btn-sm primary" id="btnCalculerPeriodeCA">Calculer</button>
+      <button class="btn-sm" id="btnExporterPeriodeCA" style="margin-left:8px;">📊 Exporter en Excel</button>
+      <div id="cptPeriodeTableau" style="margin-top:14px;"></div>
+
+      <h3 style="margin-top:24px;">Cours utilisés par membre sur une période</h3>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:10px;">Nombre de cours réellement décomptés de l'abonnement de chaque membre (présences validées ou absences non répondues) sur la période choisie.</p>
+      <div class="form-grid">
+        <div class="field"><label>Du</label><input type="date" id="cptCoursDu"></div>
+        <div class="field"><label>Au</label><input type="date" id="cptCoursAu"></div>
+      </div>
+      <button class="btn-sm primary" id="btnCalculerCoursMembre">Calculer</button>
+      <button class="btn-sm" id="btnExporterCoursMembre" style="margin-left:8px;">📊 Exporter en Excel</button>
+      <div id="cptCoursTableau" style="margin-top:14px;"></div>
+    </div>
+
+    <div class="app-panel">
       <h2>Numérotation</h2>
       <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Indique le dernier numéro déjà utilisé (avant le site, ou l'an dernier) — le prochain document généré prendra automatiquement le numéro suivant.</p>
       <h3>Factures de vente</h3>
@@ -332,7 +383,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script type="module" src="assets/app-admin.js?v=V01-051"></script>
+<script type="module" src="assets/app-admin.js?v=V01-053"></script>
 <div id="versionTagCoin" style="position:fixed; bottom:10px; right:14px; font-size:0.72rem; color:var(--slate-light); opacity:0.55; z-index:30; pointer-events:none; background:var(--white); padding:2px 6px; border-radius:4px;"></div>
 </body>
 </html>
