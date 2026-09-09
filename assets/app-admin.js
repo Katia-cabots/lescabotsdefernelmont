@@ -72,6 +72,18 @@ async function chargerAnnulationsCache(forcer = false) {
 }
 function invaliderCacheAnnulations() { annulationsCache = null; }
 
+// Changements d'horaire exceptionnels (ponctuels, sans toucher à la
+// récurrence du groupe) — ex: décaler d'une heure à cause de la chaleur.
+let exceptionsHoraireCache = null;
+async function chargerExceptionsHoraireCache(forcer = false) {
+  if (exceptionsHoraireCache && !forcer) return exceptionsHoraireCache;
+  const snap = await getDocs(collection(db, 'exceptions_horaire'));
+  exceptionsHoraireCache = {};
+  snap.forEach(d => { exceptionsHoraireCache[d.id] = d.data(); });
+  return exceptionsHoraireCache;
+}
+function invaliderCacheExceptionsHoraire() { exceptionsHoraireCache = null; }
+
 // precommandes est aussi relue intégralement à 2 endroits différents
 // (badge Boutique + badge par commande groupée) à chaque chargement admin.
 let precommandesCache = null;
@@ -1244,6 +1256,7 @@ async function chargerCeSoir() {
   }
 
   const annulations = await chargerAnnulationsCache();
+  const exceptionsHoraire = await chargerExceptionsHoraireCache();
 
   const confirmSnap = await getDocs(collection(db, 'confirmations'));
   const confirmations = {};
@@ -1264,6 +1277,7 @@ async function chargerCeSoir() {
     const cle = `${g.id}_${dateISO}`;
     const annule = annulations[cle];
     const confirme = confirmations[cle];
+    const exceptionH = exceptionsHoraire[cle];
     const nbMembres = currentMembres.filter(m => m.groupeId === g.id).length;
     const presencesJour = presencesParCle[cle] || { present: 0, absent: 0 };
     const pasAssez = !annule && presencesJour.present < MIN_PARTICIPANTS;
@@ -1272,17 +1286,20 @@ async function chargerCeSoir() {
     const alerte = alerteMeteo(m);
     const dateLabel = date.toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' });
     const estAujourdhui = dateISO === aujourdhuiISO;
+    const horaireAffiche = exceptionH ? `${exceptionH.nouvelleHeureDebut}–${exceptionH.nouvelleHeureFin}` : `${g.heureDebut}–${g.heureFin}`;
 
     return `
     <div class="data-row">
       <div class="data-main">
-        <div class="data-title">${estAujourdhui ? "Ce soir — " : ""}${capitalize(dateLabel)} — ${escapeHtml(g.nom)} (${g.heureDebut}–${g.heureFin})</div>
+        <div class="data-title">${estAujourdhui ? "Ce soir — " : ""}${capitalize(dateLabel)} — ${escapeHtml(g.nom)} (${horaireAffiche})</div>
         <div class="data-sub">
           ${nbMembres} chiens inscrits · <strong>${presencesJour.present}</strong> confirmé(s) présent(s)${presencesJour.absent ? `, ${presencesJour.absent} absent(s)` : ''}
           ${annule ? `<span class="badge badge-danger">Annulé — ${escapeHtml(annule.motif)}</span>` : `<span class="badge badge-ok">Maintenu</span>`}
           ${confirme && !annule ? `<span class="badge badge-ok">✅ Confirmé par Katia</span>` : ''}
+          ${exceptionH ? `<span class="badge badge-warn">⏰ Horaire exceptionnel (habituellement ${g.heureDebut}–${g.heureFin})</span>` : ''}
           ${m ? `<span class="badge badge-neutral">${iconeCode(m.code)} ${m.temperature}°C · pluie ${m.pluie}%</span>` : '<span class="badge badge-neutral">Météo indisponible</span>'}
         </div>
+        ${exceptionH ? `<div class="data-sub" style="font-style:italic;">Motif du changement d'horaire : ${escapeHtml(exceptionH.motif)}</div>` : ''}
         ${alerte && !annule ? `<div class="banner-alert" style="margin-top:8px; padding:8px 12px; ${alerte.niveau==='danger' ? 'background:#FBEAEA;border-color:#E3B4B4;color:#8A2E2E;' : ''}">⚠️ ${alerte.texte} — pense à vérifier si le cours doit être maintenu.</div>` : ''}
         ${pasAssez ? `<div class="banner-alert" style="margin-top:8px; padding:8px 12px; background:#FBEAEA;border-color:#E3B4B4;color:#8A2E2E;">⚠️ Seulement ${presencesJour.present} confirmation(s) sur les ${MIN_PARTICIPANTS} minimum requises — le cours devra être annulé faute de participants si ça n'évolue pas.</div>` : ''}
       </div>
@@ -1292,6 +1309,7 @@ async function chargerCeSoir() {
           ? `<button class="btn-sm" onclick="window.reactiverCours('${g.id}','${dateISO}')">Réactiver</button>`
           : `
             ${!confirme ? `<button class="btn-sm primary" onclick="window.validerCoursSemaine('${g.id}','${dateISO}')">✅ Valider ce cours</button>` : `<button class="btn-sm" onclick="window.retirerValidationCours('${g.id}','${dateISO}')">Retirer la validation</button>`}
+            <button class="btn-sm" onclick="window.ouvrirModalChangementHoraire('${g.id}','${dateISO}')">⏰ Changer l'horaire</button>
             <button class="btn-sm danger" onclick="window.annulerCours('${g.id}','${dateISO}')">Annuler ce cours</button>
           `}
       </div>
@@ -1446,6 +1464,69 @@ window.reactiverCours = async (groupeId, dateISO) => {
   await deleteDoc(doc(db, 'annulations', `${groupeId}_${dateISO}`));
   invaliderCacheAnnulations();
   chargerCeSoir();
+};
+
+window.ouvrirModalChangementHoraire = (groupeId, dateISO) => {
+  const groupe = currentGroupes.find(g => g.id === groupeId);
+  const dateLabel = new Date(dateISO + 'T00:00:00').toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' });
+  const html = `
+    <div class="modal-overlay" id="modalOverlayHoraire">
+      <div class="modal-box">
+        <h3>⏰ Changer l'horaire de ce cours</h3>
+        <p style="font-size:0.85rem; color:var(--slate);">${escapeHtml(groupe?.nom || '')} — ${capitalize(dateLabel)}. Ce changement est ponctuel, pour cette date précise uniquement — l'horaire habituel du groupe (${groupe?.heureDebut}–${groupe?.heureFin}) n'est pas modifié pour les autres semaines.</p>
+        <div class="form-grid">
+          <div class="field"><label>Nouvelle heure de début</label><input type="time" id="mh-debut" value="${groupe?.heureDebut || ''}"></div>
+          <div class="field"><label>Nouvelle heure de fin</label><input type="time" id="mh-fin" value="${groupe?.heureFin || ''}"></div>
+        </div>
+        <div class="field"><label>Motif (obligatoire)</label>
+          <select id="mh-motif-select">
+            <option value="Chaleur">Chaleur</option>
+            <option value="Pluie">Pluie</option>
+            <option value="Autre">Autre</option>
+          </select>
+        </div>
+        <div class="field"><label>Précision (optionnel)</label><input id="mh-motif-texte" placeholder="ex: décalé d'1h pour éviter la canicule"></div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="document.getElementById('modalOverlayHoraire').remove()">Annuler</button>
+          <button class="btn-sm primary" id="mh-save">Confirmer le changement</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+
+  document.getElementById('mh-save').addEventListener('click', async () => {
+    const nouvelleHeureDebut = document.getElementById('mh-debut').value;
+    const nouvelleHeureFin = document.getElementById('mh-fin').value;
+    if (!nouvelleHeureDebut || !nouvelleHeureFin) { alert('Merci d\'indiquer les deux heures.'); return; }
+    const choix = document.getElementById('mh-motif-select').value;
+    const precision = document.getElementById('mh-motif-texte').value.trim();
+    const motif = precision ? `${choix} — ${precision}` : choix;
+
+    await setDoc(doc(db, 'exceptions_horaire', `${groupeId}_${dateISO}`), {
+      groupeId, dateISO,
+      heureDebutOriginal: groupe?.heureDebut || '',
+      heureFinOriginal: groupe?.heureFin || '',
+      nouvelleHeureDebut, nouvelleHeureFin, motif,
+      dateCreation: serverTimestamp()
+    });
+    invaliderCacheExceptionsHoraire();
+
+    // Prévient tous les membres du groupe par message, avec le point rouge
+    // habituel sur leur onglet Messages.
+    const texteAuto = `⏰ Changement d'horaire exceptionnel : votre cours du ${dateLabel} (${escapeHtml(groupe?.nom || '')}) aura lieu de ${nouvelleHeureDebut} à ${nouvelleHeureFin} au lieu de ${groupe?.heureDebut}–${groupe?.heureFin} — motif : ${motif}. La récurrence habituelle du groupe n'est pas modifiée.`;
+    const membresGroupe = currentMembres.filter(m => m.groupeId === groupeId);
+    await Promise.all(membresGroupe.map(async (m) => {
+      await addDoc(collection(db, 'conversations', m.id, 'messages'), {
+        texte: texteAuto, expediteur: 'admin', dateEnvoi: new Date().toISOString(), lu: false
+      });
+      await setDoc(doc(db, 'conversations', m.id), {
+        dernierMessage: texteAuto, dateDernierMessage: new Date().toISOString(), nonLuMembre: true
+      }, { merge: true });
+    }));
+
+    document.getElementById('modalOverlayHoraire').remove();
+    chargerCeSoir();
+  });
 };
 
 // ---------- Utils ----------
@@ -3494,7 +3575,15 @@ document.getElementById('btnCalculerCoursMembre').addEventListener('click', asyn
   const compte = {};
   snap.forEach(d => {
     const p = d.data();
-    if (!p.compteAbonnement) return; // uniquement les cours réellement décomptés de l'abonnement
+    // Ne compte que les cours réellement décomptés de l'abonnement : à la
+    // fois le statut ("present" ou "absent-auto" = non répondu à temps)
+    // ET le indicateur compteAbonnement. Double vérification volontaire :
+    // si un cours annulé par Katia a été correctement remboursé, ou si le
+    // membre a répondu "absent" à temps (jamais décompté), il ne doit
+    // jamais apparaître ici — même si d'anciennes données restaient
+    // incohérentes suite à un bug déjà corrigé par ailleurs.
+    if (p.statut !== 'present' && p.statut !== 'absent-auto') return;
+    if (!p.compteAbonnement) return;
     compte[p.uid] = (compte[p.uid] || 0) + 1;
   });
 
