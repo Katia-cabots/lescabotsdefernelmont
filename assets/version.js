@@ -9,4 +9,4 @@
 // Katia ET le Super Admin), l'espace membre (VERSION_SITE interne), et le pied de
 // page de toutes les pages publiques.
 // ==========================================================================
-export const VERSION_SITE = 'V01-051';
+export const VERSION_SITE = 'V01-053';

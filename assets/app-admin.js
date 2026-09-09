@@ -3281,6 +3281,252 @@ async function chargerNumerotationCompta() {
   document.getElementById('cpt-nc-dernier').value = ncDoc.exists() ? ncDoc.data().dernierNumero : 0;
 }
 
+// ==========================================================================
+// RÉCAPITULATIF DU CHIFFRE D'AFFAIRES — pour reconstituer le CA en cas de
+// contrôle fiscal : total par mois et par type, à partir des paiements
+// enregistrés (Cotisation, Abonnement, Cours individuel, Séance de
+// comportement, Dog Sitting, Toilettage, Vente diverse, Autre) et des
+// commandes boutique validées.
+// ==========================================================================
+const TYPES_RECAP_CA = ['Cotisation', 'Abonnement', 'Cours individuel', 'Séance de comportement', 'Dog Sitting', 'Toilettage', 'Vente diverse', 'Autre', 'Boutique'];
+const MOIS_COURTS = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
+
+document.getElementById('cptRecapAnnee').value = new Date().getFullYear();
+
+async function calculerRecapCA(annee) {
+  // matrice[mois 0-11][type] = montant
+  const matrice = Array.from({ length: 12 }, () => Object.fromEntries(TYPES_RECAP_CA.map(t => [t, 0])));
+
+  const paiementsSnap = await getDocs(query(collection(db, 'paiements'), where('date', '>=', `${annee}-01-01`), where('date', '<=', `${annee}-12-31`)));
+  paiementsSnap.forEach(d => {
+    const p = d.data();
+    const mois = parseInt(p.date.slice(5, 7), 10) - 1;
+    const type = TYPES_RECAP_CA.includes(p.type) ? p.type : 'Autre';
+    matrice[mois][type] += Number(p.montant) || 0;
+  });
+
+  const commandesSnap = await getDocs(query(collection(db, 'commandes'), where('statut', '==', 'validee')));
+  commandesSnap.forEach(d => {
+    const c = d.data();
+    if (!c.dateCreation?.toDate) return;
+    const dateCmd = c.dateCreation.toDate();
+    if (dateCmd.getFullYear() !== Number(annee)) return;
+    matrice[dateCmd.getMonth()]['Boutique'] += Number(c.total) || 0;
+  });
+
+  return matrice;
+}
+
+function tableauRecapCAHtml(matrice) {
+  let html = '<table style="width:100%; border-collapse:collapse; font-size:0.85rem;">';
+  html += '<tr style="background:var(--navy); color:#fff;"><th style="padding:6px 8px; text-align:left;">Mois</th>' +
+    TYPES_RECAP_CA.map(t => `<th style="padding:6px 8px; text-align:right;">${t}</th>`).join('') +
+    '<th style="padding:6px 8px; text-align:right;">Total</th></tr>';
+
+  const totauxParType = Object.fromEntries(TYPES_RECAP_CA.map(t => [t, 0]));
+  matrice.forEach((ligne, i) => {
+    const totalMois = TYPES_RECAP_CA.reduce((s, t) => s + ligne[t], 0);
+    TYPES_RECAP_CA.forEach(t => { totauxParType[t] += ligne[t]; });
+    html += `<tr style="border-bottom:1px solid #E3E7EB; ${i % 2 === 1 ? 'background:var(--paper);' : ''}">
+      <td style="padding:6px 8px;">${MOIS_COURTS[i]}</td>` +
+      TYPES_RECAP_CA.map(t => `<td style="padding:6px 8px; text-align:right;">${ligne[t] ? ligne[t].toFixed(2) : '—'}</td>`).join('') +
+      `<td style="padding:6px 8px; text-align:right; font-weight:600;">${totalMois.toFixed(2)}</td></tr>`;
+  });
+  const totalGeneral = TYPES_RECAP_CA.reduce((s, t) => s + totauxParType[t], 0);
+  html += `<tr style="background:var(--paper-warm); font-weight:700;"><td style="padding:6px 8px;">Total</td>` +
+    TYPES_RECAP_CA.map(t => `<td style="padding:6px 8px; text-align:right;">${totauxParType[t].toFixed(2)}</td>`).join('') +
+    `<td style="padding:6px 8px; text-align:right;">${totalGeneral.toFixed(2)}</td></tr>`;
+  html += '</table>';
+  return html;
+}
+
+let dernierRecapCA = null;
+let derniereAnneeRecapCA = null;
+
+document.getElementById('btnChargerRecapCA').addEventListener('click', async () => {
+  const annee = document.getElementById('cptRecapAnnee').value;
+  if (!annee) { alert('Indique une année.'); return; }
+  const zone = document.getElementById('cptRecapTableau');
+  zone.innerHTML = '<p style="color:var(--slate); font-size:0.85rem;">Calcul en cours...</p>';
+  dernierRecapCA = await calculerRecapCA(annee);
+  derniereAnneeRecapCA = annee;
+  zone.innerHTML = tableauRecapCAHtml(dernierRecapCA);
+});
+
+document.getElementById('btnExporterRecapCA').addEventListener('click', async () => {
+  if (!dernierRecapCA) { alert('Clique d\'abord sur "Afficher".'); return; }
+  const lignes = dernierRecapCA.map((ligne, i) => {
+    const row = { 'Mois': MOIS_COURTS[i] + ' ' + derniereAnneeRecapCA };
+    TYPES_RECAP_CA.forEach(t => { row[t] = Number(ligne[t].toFixed(2)); });
+    row['Total'] = Number(TYPES_RECAP_CA.reduce((s, t) => s + ligne[t], 0).toFixed(2));
+    return row;
+  });
+  const totalRow = { 'Mois': 'TOTAL ' + derniereAnneeRecapCA };
+  TYPES_RECAP_CA.forEach(t => { totalRow[t] = Number(dernierRecapCA.reduce((s, l) => s + l[t], 0).toFixed(2)); });
+  totalRow['Total'] = Number(Object.values(totalRow).slice(1).reduce((s, v) => s + v, 0).toFixed(2));
+  lignes.push(totalRow);
+
+  const feuille = XLSX.utils.json_to_sheet(lignes);
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, feuille, `CA ${derniereAnneeRecapCA}`);
+  XLSX.writeFile(classeur, `Chiffre-affaires-${derniereAnneeRecapCA}.xlsx`);
+});
+
+document.getElementById('btnDetailParMembre').addEventListener('click', async () => {
+  const type = document.getElementById('cptDetailType').value;
+  const mois = document.getElementById('cptDetailMois').value; // format YYYY-MM
+  if (!mois) { alert('Choisis un mois.'); return; }
+  const zone = document.getElementById('cptDetailTableau');
+  zone.innerHTML = '<p style="color:var(--slate); font-size:0.85rem;">Chargement...</p>';
+
+  let lignes = [];
+  if (type === 'Boutique') {
+    const snap = await getDocs(query(collection(db, 'commandes'), where('statut', '==', 'validee')));
+    snap.forEach(d => {
+      const c = d.data();
+      if (!c.dateCreation?.toDate) return;
+      const dISO = dateISOLocale(c.dateCreation.toDate());
+      if (!dISO.startsWith(mois)) return;
+      const membre = currentMembres.find(m => m.id === c.membreId) || currentMembresArchives.find(m => m.id === c.membreId);
+      lignes.push({ date: dISO, nom: membre?.nomMaitre || '(membre inconnu)', montant: Number(c.total) || 0 });
+    });
+  } else {
+    // Filtre uniquement par type côté Firestore (index simple), le mois est
+    // filtré ensuite côté client — évite d'avoir besoin d'un index composite
+    // Firestore (type + date) pour cette requête ponctuelle.
+    const snap = await getDocs(query(collection(db, 'paiements'), where('type', '==', type)));
+    snap.forEach(d => {
+      const p = d.data();
+      if (!p.date || !p.date.startsWith(mois)) return;
+      const membre = currentMembres.find(m => m.id === p.membreId) || currentMembresArchives.find(m => m.id === p.membreId);
+      lignes.push({ date: p.date, nom: membre?.nomMaitre || '(membre inconnu)', montant: Number(p.montant) || 0, note: p.note || '' });
+    });
+  }
+  lignes.sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+
+  if (lignes.length === 0) {
+    zone.innerHTML = '<div class="empty-state">Aucun paiement de ce type sur cette période.</div>';
+    dernierDetailMembre = null;
+    return;
+  }
+  const total = lignes.reduce((s, l) => s + l.montant, 0);
+  zone.innerHTML = `
+    <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+      <tr style="background:var(--navy); color:#fff;"><th style="padding:6px 8px; text-align:left;">Date</th><th style="padding:6px 8px; text-align:left;">Membre</th><th style="padding:6px 8px; text-align:right;">Montant</th></tr>
+      ${lignes.map((l, i) => `<tr style="border-bottom:1px solid #E3E7EB; ${i % 2 === 1 ? 'background:var(--paper);' : ''}">
+        <td style="padding:6px 8px;">${l.date}</td><td style="padding:6px 8px;">${escapeHtml(l.nom)}</td><td style="padding:6px 8px; text-align:right;">${l.montant.toFixed(2)} €</td>
+      </tr>`).join('')}
+      <tr style="background:var(--paper-warm); font-weight:700;"><td colspan="2" style="padding:6px 8px;">Total (${lignes.length})</td><td style="padding:6px 8px; text-align:right;">${total.toFixed(2)} €</td></tr>
+    </table>`;
+  dernierDetailMembre = { type, mois, lignes };
+});
+
+let dernierDetailMembre = null;
+document.getElementById('btnExporterDetailMembre').addEventListener('click', () => {
+  if (!dernierDetailMembre || dernierDetailMembre.lignes.length === 0) { alert('Clique d\'abord sur "Voir le détail".'); return; }
+  const lignesExport = dernierDetailMembre.lignes.map(l => ({ Date: l.date, Membre: l.nom, 'Montant (€)': l.montant, Note: l.note || '' }));
+  const feuille = XLSX.utils.json_to_sheet(lignesExport);
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, feuille, 'Détail');
+  XLSX.writeFile(classeur, `Detail-${dernierDetailMembre.type}-${dernierDetailMembre.mois}.xlsx`);
+});
+
+// ---- Total par type sur une période personnalisée (pas forcément une année civile) ----
+let dernierePeriodeCA = null;
+
+async function calculerPeriodeCA(du, au) {
+  const totaux = Object.fromEntries(TYPES_RECAP_CA.map(t => [t, 0]));
+  const paiementsSnap = await getDocs(query(collection(db, 'paiements'), where('date', '>=', du), where('date', '<=', au)));
+  paiementsSnap.forEach(d => {
+    const p = d.data();
+    const type = TYPES_RECAP_CA.includes(p.type) ? p.type : 'Autre';
+    totaux[type] += Number(p.montant) || 0;
+  });
+  const commandesSnap = await getDocs(query(collection(db, 'commandes'), where('statut', '==', 'validee')));
+  commandesSnap.forEach(d => {
+    const c = d.data();
+    if (!c.dateCreation?.toDate) return;
+    const dISO = dateISOLocale(c.dateCreation.toDate());
+    if (dISO < du || dISO > au) return;
+    totaux['Boutique'] += Number(c.total) || 0;
+  });
+  return totaux;
+}
+
+document.getElementById('btnCalculerPeriodeCA').addEventListener('click', async () => {
+  const du = document.getElementById('cptPeriodeDu').value;
+  const au = document.getElementById('cptPeriodeAu').value;
+  if (!du || !au) { alert('Choisis une date de début et de fin.'); return; }
+  const zone = document.getElementById('cptPeriodeTableau');
+  zone.innerHTML = '<p style="color:var(--slate); font-size:0.85rem;">Calcul en cours...</p>';
+  const totaux = await calculerPeriodeCA(du, au);
+  dernierePeriodeCA = { du, au, totaux };
+  const totalGeneral = TYPES_RECAP_CA.reduce((s, t) => s + totaux[t], 0);
+  zone.innerHTML = `
+    <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+      <tr style="background:var(--navy); color:#fff;"><th style="padding:6px 8px; text-align:left;">Type</th><th style="padding:6px 8px; text-align:right;">Total</th></tr>
+      ${TYPES_RECAP_CA.map((t, i) => `<tr style="border-bottom:1px solid #E3E7EB; ${i % 2 === 1 ? 'background:var(--paper);' : ''}"><td style="padding:6px 8px;">${t}</td><td style="padding:6px 8px; text-align:right;">${totaux[t].toFixed(2)} €</td></tr>`).join('')}
+      <tr style="background:var(--paper-warm); font-weight:700;"><td style="padding:6px 8px;">Total général</td><td style="padding:6px 8px; text-align:right;">${totalGeneral.toFixed(2)} €</td></tr>
+    </table>`;
+});
+
+document.getElementById('btnExporterPeriodeCA').addEventListener('click', () => {
+  if (!dernierePeriodeCA) { alert('Clique d\'abord sur "Calculer".'); return; }
+  const lignes = TYPES_RECAP_CA.map(t => ({ Type: t, 'Total (€)': Number(dernierePeriodeCA.totaux[t].toFixed(2)) }));
+  lignes.push({ Type: 'TOTAL GÉNÉRAL', 'Total (€)': Number(TYPES_RECAP_CA.reduce((s, t) => s + dernierePeriodeCA.totaux[t], 0).toFixed(2)) });
+  const feuille = XLSX.utils.json_to_sheet(lignes);
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, feuille, 'CA période');
+  XLSX.writeFile(classeur, `CA-${dernierePeriodeCA.du}-au-${dernierePeriodeCA.au}.xlsx`);
+});
+
+// ---- Cours utilisés par membre sur une période ----
+let dernierCoursParMembre = null;
+
+document.getElementById('btnCalculerCoursMembre').addEventListener('click', async () => {
+  const du = document.getElementById('cptCoursDu').value;
+  const au = document.getElementById('cptCoursAu').value;
+  if (!du || !au) { alert('Choisis une date de début et de fin.'); return; }
+  const zone = document.getElementById('cptCoursTableau');
+  zone.innerHTML = '<p style="color:var(--slate); font-size:0.85rem;">Calcul en cours...</p>';
+
+  const snap = await getDocs(query(collection(db, 'presences'), where('dateISO', '>=', du), where('dateISO', '<=', au)));
+  const compte = {};
+  snap.forEach(d => {
+    const p = d.data();
+    if (!p.compteAbonnement) return; // uniquement les cours réellement décomptés de l'abonnement
+    compte[p.uid] = (compte[p.uid] || 0) + 1;
+  });
+
+  const lignes = Object.entries(compte).map(([uid, nb]) => {
+    const membre = currentMembres.find(m => m.id === uid) || currentMembresArchives.find(m => m.id === uid);
+    return { nom: membre?.nomMaitre || '(membre inconnu)', nb };
+  }).sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+
+  dernierCoursParMembre = { du, au, lignes };
+
+  if (lignes.length === 0) {
+    zone.innerHTML = '<div class="empty-state">Aucun cours décompté sur cette période.</div>';
+    return;
+  }
+  const total = lignes.reduce((s, l) => s + l.nb, 0);
+  zone.innerHTML = `
+    <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+      <tr style="background:var(--navy); color:#fff;"><th style="padding:6px 8px; text-align:left;">Membre</th><th style="padding:6px 8px; text-align:right;">Cours utilisés</th></tr>
+      ${lignes.map((l, i) => `<tr style="border-bottom:1px solid #E3E7EB; ${i % 2 === 1 ? 'background:var(--paper);' : ''}"><td style="padding:6px 8px;">${escapeHtml(l.nom)}</td><td style="padding:6px 8px; text-align:right;">${l.nb}</td></tr>`).join('')}
+      <tr style="background:var(--paper-warm); font-weight:700;"><td style="padding:6px 8px;">Total (${lignes.length} membre(s))</td><td style="padding:6px 8px; text-align:right;">${total}</td></tr>
+    </table>`;
+});
+
+document.getElementById('btnExporterCoursMembre').addEventListener('click', () => {
+  if (!dernierCoursParMembre || dernierCoursParMembre.lignes.length === 0) { alert('Clique d\'abord sur "Calculer".'); return; }
+  const lignesExport = dernierCoursParMembre.lignes.map(l => ({ Membre: l.nom, 'Cours utilisés': l.nb }));
+  const feuille = XLSX.utils.json_to_sheet(lignesExport);
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, feuille, 'Cours utilisés');
+  XLSX.writeFile(classeur, `Cours-utilises-${dernierCoursParMembre.du}-au-${dernierCoursParMembre.au}.xlsx`);
+});
+
 document.getElementById('btnSauverNumFacture').addEventListener('click', async () => {
   const annee = parseInt(document.getElementById('cpt-facture-annee').value, 10);
   const dernierNumero = parseInt(document.getElementById('cpt-facture-dernier').value, 10) || 0;
