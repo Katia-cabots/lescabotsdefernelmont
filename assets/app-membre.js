@@ -417,7 +417,19 @@ async function afficherProchainsCours() {
 
   const wrap = document.getElementById('zoneCours');
 
-  const lignes = await Promise.all(dates.map(async (d) => {
+  // Si un cours a été déplacé vers une autre date (pluie, chaleur...), on
+  // affiche directement la nouvelle date à la place de l'ancienne — la
+  // date d'origine est gardée juste pour l'indiquer au membre.
+  const occurrencesEffectives = dates.map(d => {
+    const dateISO = dateISOLocale(d);
+    const ex = exceptionsHoraire[`${groupeData.id}_${dateISO}`];
+    if (ex && ex.nouvelleDateISO && ex.nouvelleDateISO !== dateISO) {
+      return { date: new Date(ex.nouvelleDateISO + 'T00:00:00'), dateISOOriginal: dateISO };
+    }
+    return { date: d, dateISOOriginal: null };
+  });
+
+  const lignes = await Promise.all(occurrencesEffectives.map(async ({ date: d, dateISOOriginal }) => {
     const dateISO = dateISOLocale(d);
     const dateLabel = d.toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' });
     const cleAnnul = `${groupeData.id}_${dateISO}`;
@@ -432,6 +444,7 @@ async function afficherProchainsCours() {
     const alerte = alerteMeteo(m);
     const meteoBadge = m ? `<span class="badge badge-neutral">${iconeCode(m.code)} ${m.temperature}°C · pluie ${m.pluie}%</span>` : '<span class="badge badge-neutral">Météo indisponible</span>';
     const confirmeBadge = confirme && !annule ? '<span class="badge badge-ok">✅ Confirmé par Katia</span>' : '';
+    const deplaceBadge = dateISOOriginal ? `<span class="badge badge-warn">🔀 Déplacé depuis le ${new Date(dateISOOriginal + 'T00:00:00').toLocaleDateString('fr-BE', { day: 'numeric', month: 'long' })}</span>` : '';
 
     if (annule) {
       return `
@@ -504,7 +517,7 @@ async function afficherProchainsCours() {
     <div class="data-row">
       <div class="data-main">
         <div class="data-title">${capitalize(dateLabel)} — ${heureDebutEffective}</div>
-        <div class="data-sub">${meteoBadge} ${confirmeBadge} ${exceptionH ? `<span class="badge badge-warn">⏰ Horaire exceptionnel (habituellement ${groupeData.heureDebut}–${groupeData.heureFin})</span>` : ''}</div>
+        <div class="data-sub">${meteoBadge} ${confirmeBadge} ${deplaceBadge}${!deplaceBadge && exceptionH ? `<span class="badge badge-warn">⏰ Horaire exceptionnel (habituellement ${groupeData.heureDebut}–${groupeData.heureFin})</span>` : ''}</div>
         ${exceptionH ? `<p style="font-size:0.8rem; color:var(--slate); font-style:italic; margin-top:4px;">Motif : ${escapeHtml(exceptionH.motif)}</p>` : ''}
         ${alerte ? `<div class="banner-alert" style="margin-top:8px; padding:8px 12px;">⚠️ ${alerte.texte}, une annulation est possible.</div>` : ''}
         ${statutHtml}
