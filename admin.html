@@ -9,8 +9,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&family=Great+Vibes&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/style.css?v=V01-057">
-<link rel="stylesheet" href="assets/app.css?v=V01-057">
+<link rel="stylesheet" href="assets/style.css?v=V01-061">
+<link rel="stylesheet" href="assets/app.css?v=V01-061">
 </head>
 <body class="app-body">
 
@@ -372,6 +372,16 @@
       <p style="color:var(--slate); font-size:0.85rem; margin-bottom:10px;">À utiliser une fois : recalcule "le dernier message" affiché dans la liste des conversations, pour toutes les conversations — corrige les aperçus restés bloqués sur un message déjà supprimé avant le correctif.</p>
       <button class="btn-sm danger" id="btnRepararApercusMessages">Réparer tous les aperçus de messages</button>
       <p id="repararApercusResultat" style="font-size:0.85rem; color:var(--slate); margin-top:10px;"></p>
+      <hr style="margin:18px 0; border:none; border-top:1px solid #E3E7EB;">
+      <label style="font-size:0.9rem; font-weight:600; color:var(--navy-dark); display:block; margin-bottom:6px;">Rembourser les cours annulés mal décomptés</label>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:10px;">À utiliser une fois : cherche toute présence encore décomptée de l'abonnement alors que le cours correspondant a été annulé, et rembourse le cours. Corrige un bug déjà présent avant ce correctif.</p>
+      <button class="btn-sm danger" id="btnRembourserCoursAnnules">Rechercher et rembourser</button>
+      <p id="rembourserCoursAnnulesResultat" style="font-size:0.85rem; color:var(--slate); margin-top:10px;"></p>
+      <hr style="margin:18px 0; border:none; border-top:1px solid #E3E7EB;">
+      <label style="font-size:0.9rem; font-weight:600; color:var(--navy-dark); display:block; margin-bottom:6px;">Recalculer les réservations Dog Sitting en cours (nouvelles règles de tarif)</label>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:10px;">À utiliser une fois : recalcule le tarif (22€/25€ selon accès cours), le nombre de nuits (avec suppléments arrivée avant 14h / départ après 12h) et le total pour les réservations en attente ou validées dont l'acompte n'est pas encore validé. Les réservations déjà bloquées (acompte validé), refusées ou annulées ne sont jamais touchées.</p>
+      <button class="btn-sm danger" id="btnRecalculerDogSitting">Recalculer</button>
+      <p id="recalculerDogSittingResultat" style="font-size:0.85rem; color:var(--slate); margin-top:10px;"></p>
     </div>
     <div class="app-panel">
       <h2>🔑 Mots de passe — tous les membres</h2>
@@ -388,7 +398,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script type="module" src="assets/app-admin.js?v=V01-057"></script>
+<script type="module" src="assets/app-admin.js?v=V01-061"></script>
 <div id="versionTagCoin" style="position:fixed; bottom:10px; right:14px; font-size:0.72rem; color:var(--slate-light); opacity:0.55; z-index:30; pointer-events:none; background:var(--white); padding:2px 6px; border-radius:4px;"></div>
 </body>
 </html>
