@@ -1242,17 +1242,18 @@ async function chargerCeSoir() {
   const wrap = document.getElementById('listeCeSoir');
   try {
 
-  // Construit la liste des occurrences de cours sur les 7 jours de la
-  // semaine affichée (aujourd'hui + offsetSemaineCeSoir semaines — négatif
-  // pour naviguer dans l'historique, positif pour anticiper), en fonction
-  // du jour récurrent de chaque groupe.
+  // Construit la liste des occurrences de cours sur la semaine civile
+  // affichée (toujours du lundi au dimanche, jamais "aujourd'hui + 6
+  // jours"), décalée de offsetSemaineCeSoir semaines — négatif pour
+  // naviguer dans l'historique, positif pour anticiper.
   const debutFenetre = new Date(); debutFenetre.setHours(0, 0, 0, 0);
-  debutFenetre.setDate(debutFenetre.getDate() + offsetSemaineCeSoir * 7);
+  const jourSemaineActuel = (debutFenetre.getDay() + 6) % 7; // 0 = lundi ... 6 = dimanche
+  debutFenetre.setDate(debutFenetre.getDate() - jourSemaineActuel + offsetSemaineCeSoir * 7);
   const finFenetre = new Date(debutFenetre); finFenetre.setDate(debutFenetre.getDate() + 6);
   const libelleEl = document.getElementById('libelleSemaineCeSoir');
   if (libelleEl) {
     libelleEl.textContent = offsetSemaineCeSoir === 0
-      ? 'Cette semaine'
+      ? `Cette semaine (${debutFenetre.toLocaleDateString('fr-BE', { day: 'numeric', month: 'long' })} – ${finFenetre.toLocaleDateString('fr-BE', { day: 'numeric', month: 'long' })})`
       : `Du ${debutFenetre.toLocaleDateString('fr-BE', { day: 'numeric', month: 'long' })} au ${finFenetre.toLocaleDateString('fr-BE', { day: 'numeric', month: 'long', year: 'numeric' })}`;
   }
 
@@ -1480,18 +1481,30 @@ window.annulerCours = (groupeId, dateISO) => {
     // ce cours précis — avec le point rouge habituel sur son onglet Messages.
     const groupe = currentGroupes.find(g => g.id === groupeId);
     const dateLabel = new Date(dateISO + 'T00:00:00').toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' });
-    const presSnap = await getDocs(query(collection(db, 'presences'),
-      where('groupeId', '==', groupeId), where('dateISO', '==', dateISO), where('statut', '==', 'present')));
+    // Rembourse et prévient TOUT membre dont ce cours avait déjà été
+    // décompté — qu'il ait répondu "présent" ou qu'il n'ait pas répondu à
+    // temps ("absent-auto", décompté aussi). Un cours annulé ne doit
+    // jamais coûter un cours d'abonnement à personne, peu importe la
+    // raison du décompte initial.
+    // Rembourse et prévient TOUT membre dont ce cours avait déjà été
+    // décompté — qu'il ait répondu "présent" ou qu'il n'ait pas répondu à
+    // temps ("absent-auto", décompté aussi). Un cours annulé ne doit
+    // jamais coûter un cours d'abonnement à personne, peu importe la
+    // raison du décompte initial. Filtré depuis le cache local (déjà
+    // chargé) plutôt qu'une nouvelle requête, pour éviter tout risque
+    // d'index composite manquant sur ce croisement de champs.
+    const toutesPresences = await chargerPresencesCache();
+    const presencesConcernees = toutesPresences.filter(p =>
+      p.groupeId === groupeId && p.dateISO === dateISO && (p.statut === 'present' || p.statut === 'absent-auto'));
     const texteAuto = `🚫 Cours annulé : votre cours du ${dateLabel} (${groupe ? groupe.nom : ''}) est annulé — motif : ${motif}.`;
-    await Promise.all(presSnap.docs.map(async (d) => {
-      const p = d.data();
+    await Promise.all(presencesConcernees.map(async (p) => {
       const uid = p.uid;
       // Si ce cours avait déjà été décompté avant l'annulation, on
       // rembourse immédiatement — un cours annulé ne doit jamais coûter
       // un cours d'abonnement à un membre qui avait dit "présent".
       if (p.compteAbonnement) {
         await updateDoc(doc(db, 'membres', uid), { coursRestants: increment(1) }).catch(() => {});
-        await updateDoc(d.ref, { compteAbonnement: false });
+        await updateDoc(doc(db, 'presences', p.id), { compteAbonnement: false });
       }
       await addDoc(collection(db, 'conversations', uid, 'messages'), {
         texte: texteAuto, expediteur: 'admin', dateEnvoi: new Date().toISOString(), lu: false
@@ -1630,7 +1643,7 @@ const SERVICES_PAR_DEFAUT = [
   { categorie: 'Éducation canine', nom: 'Cours individuel', prix: 8, prixTexte: '', unite: 'par cours', conditions: '', prixFutur: null, dateFutur: '' },
   { categorie: 'Éducation canine', nom: 'Cotisation annuelle', prix: 70, prixTexte: '', unite: 'par an', conditions: '', prixFutur: 75, dateFutur: '2027-01-01' },
   { categorie: 'Éducation canine', nom: 'Séance de comportement individuelle', prix: 60, prixTexte: '', unite: 'par heure', conditions: '', prixFutur: null, dateFutur: '' },
-  { categorie: 'Dog Sitting', nom: 'Dog Sitting', prix: 22, prixTexte: '', unite: 'par jour', conditions: "Sous réserve d'acceptation par Katia. Le chien doit obligatoirement être castré ou stérilisé. Arrivée à partir de 14h, départ avant 12h.", prixFutur: null, dateFutur: '' },
+  { categorie: 'Dog Sitting', nom: 'Dog Sitting', prix: 22, prixNonMembre: 25, prixTexte: '', unite: 'par nuit', conditions: "Sous réserve d'acceptation par Katia. Le chien doit obligatoirement être castré ou stérilisé. Arrivée à partir de 14h, départ avant 12h — sinon supplément d'une nuit.", prixFutur: null, dateFutur: '' },
   { categorie: 'Toilettage', nom: 'Toilettage pendant la pension', prix: null, prixTexte: 'Sur devis', unite: '', conditions: '', prixFutur: null, dateFutur: '' },
   { categorie: 'Toilettage', nom: 'Toilettage à la demande', prix: null, prixTexte: '40 à 60 €', unite: 'tarif sur devis', conditions: '', prixFutur: null, dateFutur: '' }
 ];
@@ -1703,8 +1716,9 @@ function ouvrirModalService(service) {
         </div>
         <div class="form-grid">
           <div class="field"><label>Prix TTC (€, laisser vide si "sur devis")</label><input type="number" step="0.01" id="sv-prix" value="${isEdit && service.prix != null ? service.prix : ''}"></div>
-          <div class="field"><label>Ou texte libre (ex: "40 à 60 €")</label><input id="sv-prixTexte" value="${isEdit ? escapeAttr(service.prixTexte||'') : ''}"></div>
+          <div class="field"><label>Prix non-membre TTC (€, si différent — ex: Dog Sitting)</label><input type="number" step="0.01" id="sv-prixNonMembre" value="${isEdit && service.prixNonMembre != null ? service.prixNonMembre : ''}"></div>
         </div>
+        <div class="field"><label>Ou texte libre (ex: "40 à 60 €")</label><input id="sv-prixTexte" value="${isEdit ? escapeAttr(service.prixTexte||'') : ''}"></div>
         <div class="field"><label>Unité / précision (ex: "par jour", "par heure")</label><input id="sv-unite" value="${isEdit ? escapeAttr(service.unite||'') : ''}"></div>
         <div class="field"><label>Conditions particulières (optionnel)</label><textarea id="sv-conditions" rows="2" style="resize:vertical;">${isEdit ? escapeHtml(service.conditions||'') : ''}</textarea></div>
         <div class="form-grid">
@@ -1723,10 +1737,12 @@ function ouvrirModalService(service) {
     const categorie = document.getElementById('sv-categorie').value.trim();
     if (!nom || !categorie) { alert('Merci d\'indiquer une catégorie et un nom.'); return; }
     const prixVal = document.getElementById('sv-prix').value;
+    const prixNonMembreVal = document.getElementById('sv-prixNonMembre').value;
     const prixFuturVal = document.getElementById('sv-prixFutur').value;
     const data = {
       categorie, nom,
       prix: prixVal === '' ? null : parseFloat(prixVal),
+      prixNonMembre: prixNonMembreVal === '' ? null : parseFloat(prixNonMembreVal),
       prixTexte: document.getElementById('sv-prixTexte').value.trim(),
       unite: document.getElementById('sv-unite').value.trim(),
       conditions: document.getElementById('sv-conditions').value.trim(),
@@ -3748,6 +3764,25 @@ async function syncDogSittingDates(id, dateDebut, dateFin, statut) {
 }
 let dsMoisAffiche = new Date(); dsMoisAffiche.setDate(1);
 
+async function tarifsDogSittingParNuitAdmin() {
+  let membre = 22, nonMembre = 25;
+  const service = currentServices.find(s => s.categorie === 'Dog Sitting');
+  if (service) {
+    if (typeof service.prix === 'number') membre = service.prix;
+    if (typeof service.prixNonMembre === 'number') nonMembre = service.prixNonMembre;
+  }
+  return { membre, nonMembre };
+}
+
+function calculerNuitsDogSittingAdmin(dateDebut, dateFin, heureArrivee, heureDepart) {
+  const d1 = new Date(dateDebut + 'T00:00:00');
+  const d2 = new Date(dateFin + 'T00:00:00');
+  let nuits = Math.max(1, Math.round((d2 - d1) / (1000 * 60 * 60 * 24)));
+  if (heureArrivee && heureArrivee < '14:00') nuits += 1;
+  if (heureDepart && heureDepart > '12:00') nuits += 1;
+  return nuits;
+}
+
 async function chargerDogSittingAdmin() {
   const snap = await getDocs(collection(db, 'dogsitting'));
   currentDogSitting = [];
@@ -3932,6 +3967,20 @@ function renderListeDogSittingAdmin() {
       infoAcompte += `<div class="data-sub">Motif d'annulation : <em>${escapeHtml(r.motifAnnulation)}</em></div>`;
     }
 
+    // Total toujours visible, quel que soit le statut — coût du service
+    // consultable à tout moment, comme demandé.
+    const infoTotal = (r.total != null && !r.isBlocage) ? `
+      <div class="data-sub">
+        <strong>Total TTC : ${r.total.toFixed(2)} €</strong>
+        ${r.nbNuits ? ` (${r.nbNuits} nuit${r.nbNuits > 1 ? 's' : ''} à ${(r.tarifNuit ?? 0).toFixed(2)} €)` : ''}
+        ${r.reductionDemiNuits ? ` — réduction de ${(r.reductionDemiNuits / 2)} nuit(s) appliquée` : ''}
+      </div>
+      <div class="data-sub" style="display:flex; align-items:center; gap:6px;">
+        Réduction (en demi-nuits, au tarif de cette réservation) :
+        <input type="number" step="1" min="0" id="ds-reduc-${r.id}" value="${r.reductionDemiNuits || 0}" style="width:60px;">
+        <button class="btn-sm" onclick="window.appliquerReductionDogSitting('${r.id}')">Appliquer</button>
+      </div>` : '';
+
     const apporteLabels = { carnet: 'carnet de santé', couche: 'couche/panier', gamelle: 'gamelle', nourriture: 'nourriture' };
     const apporteListe = r.apporte ? Object.keys(apporteLabels).filter(k => r.apporte[k]).map(k => apporteLabels[k]).join(', ') : '';
     const servicesListe = r.servicesDemandes ? [
@@ -3955,6 +4004,7 @@ function renderListeDogSittingAdmin() {
       <div class="data-main">
         <div class="data-title">${escapeHtml(m?.nomMaitre || '?')} — ${escapeHtml(r.chienNom)} ${badge}</div>
         <div class="data-sub">Du ${r.dateDebut} ${r.heureArrivee || ''} au ${r.dateFin} ${r.heureDepart || ''}</div>
+        ${infoTotal}
         ${infoAcompte}
         ${detailFiche}
       </div>
@@ -3970,6 +4020,60 @@ function renderListeDogSittingAdmin() {
     </div>`;
   }).join('');
 }
+
+window.appliquerReductionDogSitting = async (id) => {
+  const r = currentDogSitting.find(x => x.id === id);
+  if (!r) return;
+  const inputEl = document.getElementById(`ds-reduc-${id}`);
+  const reductionDemiNuits = Math.max(0, parseInt(inputEl.value, 10) || 0);
+  const tarifNuit = r.tarifNuit ?? 0;
+  const nbNuits = r.nbNuits ?? 0;
+  const nouveauTotal = Math.max(0, tarifNuit * nbNuits - reductionDemiNuits * 0.5 * tarifNuit);
+  const data = { reductionDemiNuits, total: Number(nouveauTotal.toFixed(2)) };
+  // Si un acompte de 30% était déjà calculé sur l'ancien total, on le
+  // recalcule aussi pour rester cohérent avec le nouveau total.
+  if (r.acompte != null) {
+    data.acompte = Number((nouveauTotal * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
+  }
+  await updateDoc(doc(db, 'dogsitting', id), data);
+  chargerDogSittingAdmin();
+};
+
+document.getElementById('btnRecalculerDogSitting')?.addEventListener('click', async () => {
+  if (!confirm("Recalculer le tarif, le nombre de nuits et le total des réservations Dog Sitting en attente ou validées (acompte non encore validé) avec les nouvelles règles ? Les réservations déjà bloquées, refusées ou annulées ne seront pas touchées.")) return;
+  const btn = document.getElementById('btnRecalculerDogSitting');
+  const zone = document.getElementById('recalculerDogSittingResultat');
+  btn.disabled = true;
+  zone.textContent = 'Recalcul en cours...';
+  try {
+    const tarifs = await tarifsDogSittingParNuitAdmin();
+    const snap = await getDocs(collection(db, 'dogsitting'));
+    let compte = 0;
+    for (const d of snap.docs) {
+      const r = d.data();
+      if (r.isBlocage) continue;
+      if (!['attente', 'validee'].includes(r.statut)) continue;
+      if (r.acompteValide) continue; // ne jamais retoucher un prix déjà bloqué par un acompte validé
+      if (!r.dateDebut || !r.dateFin) continue;
+
+      const membre = currentMembres.find(m => m.id === r.membreId) || currentMembresArchives.find(m => m.id === r.membreId);
+      const tarifNuit = membre?.accesCours ? tarifs.membre : tarifs.nonMembre;
+      const nbNuits = calculerNuitsDogSittingAdmin(r.dateDebut, r.dateFin, r.heureArrivee, r.heureDepart);
+      const reductionDemiNuits = r.reductionDemiNuits || 0;
+      const total = Number(Math.max(0, tarifNuit * nbNuits - reductionDemiNuits * 0.5 * tarifNuit).toFixed(2));
+      const maj = { tarifNuit, nbNuits, reductionDemiNuits, total };
+      if (r.acompte != null) maj.acompte = Number((total * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
+
+      await updateDoc(doc(db, 'dogsitting', d.id), maj);
+      compte++;
+    }
+    zone.textContent = `Terminé : ${compte} réservation(s) recalculée(s) avec les nouvelles règles.`;
+    chargerDogSittingAdmin();
+  } catch (err) {
+    zone.textContent = 'Erreur pendant le recalcul : ' + err.message;
+  }
+  btn.disabled = false;
+});
 
 window.validerDogSitting = async (id) => {
   await updateDoc(doc(db, 'dogsitting', id), { statut: 'validee', vuParMembre: false });
@@ -4747,6 +4851,41 @@ document.getElementById('btnRepararApercusMessages')?.addEventListener('click', 
     chargerConversations();
   } catch (err) {
     zone.textContent = 'Erreur pendant la réparation : ' + err.message;
+  }
+  btn.disabled = false;
+});
+
+document.getElementById('btnRembourserCoursAnnules')?.addEventListener('click', async () => {
+  if (!confirm("Rechercher toutes les présences encore décomptées correspondant à un cours annulé, et rembourser chaque cours trouvé ? Aucun effet sur les présences dont le cours n'a pas été annulé.")) return;
+  const btn = document.getElementById('btnRembourserCoursAnnules');
+  const zone = document.getElementById('rembourserCoursAnnulesResultat');
+  btn.disabled = true;
+  zone.textContent = 'Recherche en cours...';
+  try {
+    const annulations = await chargerAnnulationsCache(true);
+    const toutesPresences = await chargerPresencesCache(true);
+    const aRembourser = toutesPresences.filter(p =>
+      p.compteAbonnement === true && annulations[`${p.groupeId}_${p.dateISO}`]);
+
+    if (aRembourser.length === 0) {
+      zone.textContent = 'Aucune présence mal décomptée trouvée — rien à rembourser.';
+      btn.disabled = false;
+      return;
+    }
+
+    const parMembre = {};
+    for (const p of aRembourser) {
+      parMembre[p.uid] = (parMembre[p.uid] || 0) + 1;
+      await updateDoc(doc(db, 'presences', p.id), { compteAbonnement: false });
+    }
+    for (const uid of Object.keys(parMembre)) {
+      await updateDoc(doc(db, 'membres', uid), { coursRestants: increment(parMembre[uid]) });
+    }
+    invaliderCachePresences();
+    zone.textContent = `Terminé : ${aRembourser.length} cours remboursé(s) chez ${Object.keys(parMembre).length} membre(s).`;
+    chargerMembres();
+  } catch (err) {
+    zone.textContent = 'Erreur pendant la recherche : ' + err.message;
   }
   btn.disabled = false;
 });

@@ -1360,17 +1360,27 @@ async function chargerDogSittingMembre() {
   await chargerMesDemandesDogSitting();
 }
 
-async function prixDogSittingParJour() {
+async function tarifsDogSittingParNuit() {
   const snap = await getDocs(query(collection(db, 'services'), where('categorie', '==', 'Dog Sitting')));
-  let prix = 22; // valeur par défaut si le service n'a pas encore été configuré
-  snap.forEach(d => { if (typeof d.data().prix === 'number') prix = d.data().prix; });
-  return prix;
+  let membre = 22, nonMembre = 25; // valeurs par défaut si le service n'a pas encore été configuré
+  snap.forEach(d => {
+    if (typeof d.data().prix === 'number') membre = d.data().prix;
+    if (typeof d.data().prixNonMembre === 'number') nonMembre = d.data().prixNonMembre;
+  });
+  return { membre, nonMembre };
 }
 
-function nbJoursDogSitting(dateDebut, dateFin) {
+// Nombre de nuits facturées : le nombre de nuits entre l'arrivée et le
+// départ, +1 nuit si arrivée avant 14h, +1 nuit si départ après 12h —
+// arrivée à partir de 14h et départ avant 12h ne coûtent jamais de
+// supplément.
+function calculerNuitsDogSitting(dateDebut, dateFin, heureArrivee, heureDepart) {
   const d1 = new Date(dateDebut + 'T00:00:00');
   const d2 = new Date(dateFin + 'T00:00:00');
-  return Math.max(1, Math.round((d2 - d1) / (1000 * 60 * 60 * 24)) + 1);
+  let nuits = Math.max(1, Math.round((d2 - d1) / (1000 * 60 * 60 * 24)));
+  if (heureArrivee && heureArrivee < '14:00') nuits += 1;
+  if (heureDepart && heureDepart > '12:00') nuits += 1;
+  return nuits;
 }
 
 async function chargerMesDemandesDogSitting() {
@@ -1420,7 +1430,7 @@ async function chargerMesDemandesDogSitting() {
     <div class="data-row">
       <div class="data-main">
         <div class="data-title">${escapeHtml(r.chienNom)} ${badge}</div>
-        <div class="data-sub">Du ${r.dateDebut} ${r.heureArrivee || ''} au ${r.dateFin} ${r.heureDepart || ''}</div>
+        <div class="data-sub">Du ${r.dateDebut} ${r.heureArrivee || ''} au ${r.dateFin} ${r.heureDepart || ''}${r.total != null ? ` · <strong>Total : ${r.total.toFixed(2)} € TTC</strong>${r.nbNuits ? ` (${r.nbNuits} nuit${r.nbNuits > 1 ? 's' : ''})` : ''}` : ''}</div>
         ${blocAcompte}
       </div>
     </div>`;
@@ -1473,9 +1483,10 @@ document.getElementById('ds-envoyer').addEventListener('click', async () => {
       if (dateDebut <= r.dateFin && r.dateDebut <= dateFin) chevauchement = true;
     });
 
-    const prixJour = await prixDogSittingParJour();
-    const nbJours = nbJoursDogSitting(dateDebut, dateFin);
-    const total = prixJour * nbJours;
+    const tarifs = await tarifsDogSittingParNuit();
+    const tarifNuit = membreData.accesCours ? tarifs.membre : tarifs.nonMembre;
+    const nbNuits = calculerNuitsDogSitting(dateDebut, dateFin, heureArrivee, heureDepart);
+    const total = tarifNuit * nbNuits;
     const acompte = Math.round(total * TAUX_ACOMPTE_DOGSITTING_MEMBRE * 100) / 100;
     const statutDemande = chevauchement ? 'attente' : 'validee';
 
@@ -1483,6 +1494,7 @@ document.getElementById('ds-envoyer').addEventListener('click', async () => {
       membreId: membreUid, chienNom, dateDebut, dateFin, heureArrivee, heureDepart,
       apporte, servicesDemandes, habitudesDeVie,
       statut: statutDemande,
+      tarifNuit, nbNuits, reductionDemiNuits: 0,
       total, acompte, acomptePaye: false, acompteValide: false, vuParMembre: true, vuParAdmin: false,
       dateCreation: serverTimestamp()
     });
