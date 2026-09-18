@@ -43,6 +43,8 @@ const JOURS_MAJ = { lundi:"Lundi", mardi:"Mardi", mercredi:"Mercredi", jeudi:"Je
 
 let currentGroupes = [];
 let currentMembres = [];
+let rdvCacheParId = {};
+let rdvAdminCacheParId = {};
 
 // ==========================================================================
 // CACHE LOCAL (presences / annulations) — ces deux collections étaient
@@ -1815,6 +1817,9 @@ async function chargerRdv() {
   const adminSnap = await getDocs(collection(db, 'rdv_admin'));
   const membreIdsParRdv = {};
   adminSnap.forEach(d => { membreIdsParRdv[d.id] = d.data().membreIds || []; });
+  rdvAdminCacheParId = membreIdsParRdv;
+  rdvCacheParId = {};
+  rdvs.forEach(r => { rdvCacheParId[r.id] = r; });
 
   const reponsesSnap = await getDocs(collection(db, 'rdv_reponses'));
   const reponsesParRdv = {};
@@ -1858,8 +1863,9 @@ async function chargerRdv() {
     return `
     <div class="data-row">
       <div class="data-main">
+        ${rdv.photoURL ? `<img src="${escapeHtml(rdv.photoURL)}" alt="" style="width:100%; max-height:200px; object-fit:cover; border-radius:6px; margin-bottom:10px; display:block;">` : ''}
         <div class="data-title">${escapeHtml(rdv.titre)}</div>
-        <div class="data-sub">${dateLabel} ${rdv.heure || ''} · ${escapeHtml(rdv.lieu || '')} · ${escapeHtml(rdv.modalite || '')}</div>
+        <div class="data-sub">${dateLabel} ${rdv.heure || ''} · ${escapeHtml(rdv.lieu || '')} · <span style="white-space:pre-wrap;">${escapeHtml(rdv.modalite || '')}</span></div>
         <div class="data-sub">${escapeHtml(libelleDestinataires(rdv, membreIdsParRdv))}${rdv.prixParPersonne ? ` · ${Number(rdv.prixParPersonne).toFixed(2)} €/pers.` : ''}</div>
         <div class="data-sub">
           <span class="badge badge-ok">${presents.length} réponse(s) présent · ${totalPersonnes} pers.</span>
@@ -1868,43 +1874,48 @@ async function chargerRdv() {
         ${presents.length ? `<div style="margin-top:10px;">${detailPresents}</div>` : ''}
       </div>
       <div class="data-actions">
+        <button class="btn-sm" onclick="window.editerRdv('${rdv.id}')">Modifier</button>
         <button class="btn-sm danger" onclick="window.supprimerRdv('${rdv.id}')">Supprimer</button>
       </div>
     </div>`;
   }).join('');
 }
 
-document.getElementById('btnAjouterRdv').addEventListener('click', () => {
+function ouvrirModalRdv(rdvExistant) {
+  const isEdit = !!rdvExistant;
+  const membresIdsPreCoches = isEdit ? (rdvAdminCacheParId[rdvExistant.id]?.membreIds || []) : [];
   const html = `
     <div class="modal-overlay" id="modalOverlay">
       <div class="modal-box">
-        <h3>Créer un RDV</h3>
-        <div class="field"><label>Titre</label><input id="rd-titre" placeholder="ex: Repas du club"></div>
+        <h3>${isEdit ? 'Modifier le RDV' : 'Créer un RDV'}</h3>
+        <div class="field"><label>Titre</label><input id="rd-titre" placeholder="ex: Repas du club" value="${isEdit ? escapeAttr(rdvExistant.titre || '') : ''}"></div>
         <div class="form-grid">
-          <div class="field"><label>Date</label><input type="date" id="rd-date"></div>
-          <div class="field"><label>Heure</label><input type="time" id="rd-heure"></div>
+          <div class="field"><label>Date</label><input type="date" id="rd-date" value="${isEdit ? rdvExistant.date || '' : ''}"></div>
+          <div class="field"><label>Heure</label><input type="time" id="rd-heure" value="${isEdit ? rdvExistant.heure || '' : ''}"></div>
         </div>
-        <div class="field"><label>Lieu</label><input id="rd-lieu"></div>
-        <div class="field"><label>Modalité (info libre, optionnel)</label><input id="rd-modalite" placeholder="ex: Chacun ramène un plat"></div>
-        <div class="field"><label>Prix par personne (€ TTC, laisser vide si gratuit)</label><input type="number" step="0.01" id="rd-prix"></div>
+        <div class="field"><label>Lieu</label><input id="rd-lieu" value="${isEdit ? escapeAttr(rdvExistant.lieu || '') : ''}"></div>
+        <div class="field"><label>Modalité (info libre, optionnel)</label><textarea id="rd-modalite" rows="4" style="resize:vertical;" placeholder="ex: Chacun ramène un plat">${isEdit ? escapeHtml(rdvExistant.modalite || '') : ''}</textarea></div>
+        <div class="field"><label>Photo (URL, optionnel)</label><input id="rd-photoURL" placeholder="https://exemple.be/photo.jpg" value="${isEdit ? escapeAttr(rdvExistant.photoURL || '') : ''}"></div>
+        <div class="field"><label>Prix par personne (€ TTC, laisser vide si gratuit)</label><input type="number" step="0.01" id="rd-prix" value="${isEdit && rdvExistant.prixParPersonne != null ? rdvExistant.prixParPersonne : ''}"></div>
 
         <div class="field"><label>Destinataires</label>
-          <select id="rd-destinatairesType">
-            <option value="tous">Tous les membres</option>
-            <option value="groupe">Un groupe</option>
-            <option value="individuel">Membres spécifiques</option>
+          <select id="rd-destinatairesType" ${isEdit ? 'disabled' : ''}>
+            <option value="tous" ${isEdit && rdvExistant.destinataires?.type === 'tous' ? 'selected' : ''}>Tous les membres</option>
+            <option value="groupe" ${isEdit && rdvExistant.destinataires?.type === 'groupe' ? 'selected' : ''}>Un groupe</option>
+            <option value="individuel" ${isEdit && rdvExistant.destinataires?.type === 'individuel' ? 'selected' : ''}>Membres spécifiques</option>
           </select>
+          ${isEdit ? '<p style="font-size:0.78rem; color:var(--slate); margin-top:4px;">Les destinataires ne peuvent pas être changés après création — supprime et recrée le RDV si besoin.</p>' : ''}
         </div>
-        <div class="field hidden" id="rd-groupeWrap">
+        <div class="field ${isEdit && rdvExistant.destinataires?.type !== 'groupe' ? 'hidden' : ''}" id="rd-groupeWrap">
           <label>Groupe</label>
-          <select id="rd-groupe">${currentGroupes.map(g => `<option value="${g.id}">${escapeHtml(g.nom)}</option>`).join('')}</select>
+          <select id="rd-groupe" ${isEdit ? 'disabled' : ''}>${currentGroupes.map(g => `<option value="${g.id}" ${isEdit && rdvExistant.destinataires?.groupeId === g.id ? 'selected' : ''}>${escapeHtml(g.nom)}</option>`).join('')}</select>
         </div>
-        <div class="field hidden" id="rd-membresWrap">
+        <div class="field ${isEdit && rdvExistant.destinataires?.type !== 'individuel' ? 'hidden' : ''}" id="rd-membresWrap">
           <label>Membres invités</label>
           <div class="membre-check-list">
             ${currentMembres.map(m => `
               <label class="membre-check-row">
-                <input type="checkbox" class="rd-membre-check" value="${m.id}">
+                <input type="checkbox" class="rd-membre-check" value="${m.id}" ${isEdit ? 'disabled' : ''} ${membresIdsPreCoches.includes(m.id) ? 'checked' : ''}>
                 <span>${escapeHtml(m.nomMaitre)}</span>
               </label>`).join('')}
           </div>
@@ -1912,7 +1923,7 @@ document.getElementById('btnAjouterRdv').addEventListener('click', () => {
 
         <div class="modal-actions">
           <button class="btn-sm" onclick="window.fermerModal()">Annuler</button>
-          <button class="btn-sm primary" id="rd-save">Créer</button>
+          <button class="btn-sm primary" id="rd-save">${isEdit ? 'Enregistrer' : 'Créer'}</button>
         </div>
       </div>
     </div>`;
@@ -1928,6 +1939,23 @@ document.getElementById('btnAjouterRdv').addEventListener('click', () => {
     const date = document.getElementById('rd-date').value;
     if (!titre || !date) { alert('Merci de renseigner au moins un titre et une date.'); return; }
 
+    const prixVal = document.getElementById('rd-prix').value;
+    const donneesCommunes = {
+      titre, date,
+      heure: document.getElementById('rd-heure').value,
+      lieu: document.getElementById('rd-lieu').value.trim(),
+      modalite: document.getElementById('rd-modalite').value.trim(),
+      photoURL: document.getElementById('rd-photoURL').value.trim(),
+      prixParPersonne: prixVal === '' ? null : parseFloat(prixVal)
+    };
+
+    if (isEdit) {
+      await updateDoc(doc(db, 'rdv', rdvExistant.id), donneesCommunes);
+      window.fermerModal();
+      chargerRdv();
+      return;
+    }
+
     const typeDest = document.getElementById('rd-destinatairesType').value;
     let membreIdsCibles = [];
     const destinataires = { type: typeDest, groupeId: null };
@@ -1936,8 +1964,6 @@ document.getElementById('btnAjouterRdv').addEventListener('click', () => {
       membreIdsCibles = [...document.querySelectorAll('.rd-membre-check:checked')].map(c => c.value);
     }
 
-    const prixVal = document.getElementById('rd-prix').value;
-
     // Le RDV lui-même (lisible par tous les membres) ne contient JAMAIS la
     // liste nominative des membres ciblés — seulement le type et, pour un
     // ciblage par groupe, le groupeId (non personnel). La liste nominative
@@ -1945,11 +1971,7 @@ document.getElementById('btnAjouterRdv').addEventListener('click', () => {
     // membre ciblé va dans rdv_cibles, pour que chacun ne puisse vérifier
     // QUE sa propre invitation, jamais celle des autres.
     const refRdv = await addDoc(collection(db, 'rdv'), {
-      titre, date,
-      heure: document.getElementById('rd-heure').value,
-      lieu: document.getElementById('rd-lieu').value.trim(),
-      modalite: document.getElementById('rd-modalite').value.trim(),
-      prixParPersonne: prixVal === '' ? null : parseFloat(prixVal),
+      ...donneesCommunes,
       destinataires,
       dateCreation: serverTimestamp()
     });
@@ -1964,7 +1986,14 @@ document.getElementById('btnAjouterRdv').addEventListener('click', () => {
     window.fermerModal();
     chargerRdv();
   });
-});
+}
+
+document.getElementById('btnAjouterRdv').addEventListener('click', () => ouvrirModalRdv());
+
+window.editerRdv = (id) => {
+  const rdv = rdvCacheParId[id];
+  if (rdv) ouvrirModalRdv(rdv);
+};
 
 window.supprimerRdv = async (id) => {
   if (!confirm('Supprimer ce RDV ? Les réponses des membres seront aussi supprimées.')) return;
@@ -3968,17 +3997,27 @@ function renderListeDogSittingAdmin() {
     }
 
     // Total toujours visible, quel que soit le statut — coût du service
-    // consultable à tout moment, comme demandé.
-    const infoTotal = (r.total != null && !r.isBlocage) ? `
+    // consultable à tout moment, comme demandé. Si le total est à 0 ou
+    // manquant, on le signale clairement plutôt que de l'afficher comme
+    // si c'était normal.
+    const totalSuspect = !r.isBlocage && (r.total == null || r.total === 0);
+    const infoTotal = !r.isBlocage ? `
       <div class="data-sub">
-        <strong>Total TTC : ${r.total.toFixed(2)} €</strong>
+        <strong>Total TTC : ${(r.total ?? 0).toFixed(2)} €</strong>
         ${r.nbNuits ? ` (${r.nbNuits} nuit${r.nbNuits > 1 ? 's' : ''} à ${(r.tarifNuit ?? 0).toFixed(2)} €)` : ''}
         ${r.reductionDemiNuits ? ` — réduction de ${(r.reductionDemiNuits / 2)} nuit(s) appliquée` : ''}
+        ${r.totalFixeManuellement ? ' <span class="badge badge-neutral">Prix fixé manuellement</span>' : ''}
       </div>
-      <div class="data-sub" style="display:flex; align-items:center; gap:6px;">
+      ${totalSuspect ? `<div class="banner-alert" style="margin-top:4px; padding:6px 10px; background:#FBEAEA;border-color:#E3B4B4;color:#8A2E2E; font-size:0.82rem;">⚠️ Total à 0€ ou manquant — à vérifier et corriger ci-dessous.</div>` : ''}
+      <div class="data-sub" style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
         Réduction (en demi-nuits, au tarif de cette réservation) :
         <input type="number" step="1" min="0" id="ds-reduc-${r.id}" value="${r.reductionDemiNuits || 0}" style="width:60px;">
         <button class="btn-sm" onclick="window.appliquerReductionDogSitting('${r.id}')">Appliquer</button>
+      </div>
+      <div class="data-sub" style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+        Fixer le total manuellement (€) :
+        <input type="number" step="0.01" min="0" id="ds-total-manuel-${r.id}" placeholder="${(r.total ?? 0).toFixed(2)}" style="width:90px;">
+        <button class="btn-sm" onclick="window.fixerTotalManuelDogSitting('${r.id}')">Fixer ce prix</button>
       </div>` : '';
 
     const apporteLabels = { carnet: 'carnet de santé', couche: 'couche/panier', gamelle: 'gamelle', nourriture: 'nourriture' };
@@ -4021,6 +4060,18 @@ function renderListeDogSittingAdmin() {
   }).join('');
 }
 
+window.fixerTotalManuelDogSitting = async (id) => {
+  const inputEl = document.getElementById(`ds-total-manuel-${id}`);
+  const valeur = parseFloat(inputEl.value);
+  if (isNaN(valeur) || valeur < 0) { alert('Merci d\'indiquer un montant valide.'); return; }
+  if (!confirm(`Fixer le total de cette réservation à ${valeur.toFixed(2)} € ? Ce prix restera figé — il ne sera plus jamais recalculé automatiquement.`)) return;
+  const r = currentDogSitting.find(x => x.id === id);
+  const data = { total: Number(valeur.toFixed(2)), totalFixeManuellement: true };
+  if (r?.acompte != null) data.acompte = Number((valeur * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
+  await updateDoc(doc(db, 'dogsitting', id), data);
+  chargerDogSittingAdmin();
+};
+
 window.appliquerReductionDogSitting = async (id) => {
   const r = currentDogSitting.find(x => x.id === id);
   if (!r) return;
@@ -4054,6 +4105,7 @@ document.getElementById('btnRecalculerDogSitting')?.addEventListener('click', as
       if (r.isBlocage) continue;
       if (!['attente', 'validee'].includes(r.statut)) continue;
       if (r.acompteValide) continue; // ne jamais retoucher un prix déjà bloqué par un acompte validé
+      if (r.totalFixeManuellement) continue; // ni un prix fixé manuellement par l'admin
       if (!r.dateDebut || !r.dateFin) continue;
 
       const membre = currentMembres.find(m => m.id === r.membreId) || currentMembresArchives.find(m => m.id === r.membreId);

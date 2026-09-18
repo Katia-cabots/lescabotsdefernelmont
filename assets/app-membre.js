@@ -54,6 +54,16 @@ onAuthStateChanged(auth, async (user) => {
     document.getElementById('blocPremiereConnexion').classList.add('hidden');
   });
 
+  // Alerte bien visible sur l'accueil si le règlement n'a pas encore été
+  // approuvé — reste affichée tant que ce n'est pas fait (pas de bouton
+  // pour la fermer sans agir).
+  if (!membreData.reglementApprouve) {
+    document.getElementById('blocRoiNonSigne')?.classList.remove('hidden');
+  }
+  document.getElementById('btnAllerAuReglement')?.addEventListener('click', () => {
+    document.querySelector('.tab-btn[data-tab="reglement"]')?.click();
+  });
+
   // Changement de mot de passe trimestriel obligatoire (1er janvier, avril,
   // juillet, octobre) — pour tous les membres, sans exception.
   const derniereMajMdp = membreData.dateDernierChangementMdp ? new Date(membreData.dateDernierChangementMdp) : null;
@@ -690,15 +700,32 @@ async function chargerRdv() {
     return `
     <div class="data-row">
       <div class="data-main">
+        ${rdv.photoURL ? `<img src="${escapeHtml(rdv.photoURL)}" alt="" style="width:100%; max-height:220px; object-fit:cover; border-radius:6px; margin-bottom:10px; display:block;">` : ''}
         <div class="data-title">${escapeHtml(rdv.titre)}</div>
         <div class="data-sub">${capitalize(dateLabel)} ${rdv.heure || ''} · ${escapeHtml(rdv.lieu || '')}</div>
-        ${rdv.modalite ? `<div class="data-sub">${escapeHtml(rdv.modalite)}</div>` : ''}
+        ${rdv.modalite ? `<div class="data-sub" style="white-space:pre-wrap;">${escapeHtml(rdv.modalite)}</div>` : ''}
         ${rdv.prixParPersonne ? `<div class="data-sub">${Number(rdv.prixParPersonne).toFixed(2)} € / personne</div>` : ''}
         <div style="margin-top:8px;">${statutHtml}</div>
       </div>
     </div>`;
   }).join('');
+
+  // Point rouge sur l'onglet RDV si un RDV a été créé depuis la dernière
+  // visite de cet onglet (même principe que pour le Blog).
+  const dernierRdvCree = rdvs.reduce((max, r) => {
+    const iso = r.dateCreation?.toDate ? dateISOLocale(r.dateCreation.toDate()) : '';
+    return iso > max ? iso : max;
+  }, '');
+  const dernierVu = membreData.dernierRdvVu || '';
+  document.getElementById('tabRdvBtn')?.classList.toggle('has-unread', dernierRdvCree > dernierVu);
 }
+
+window.marquerRdvVu = async () => {
+  const aujourdhui = dateISOLocale(new Date());
+  await updateDoc(doc(db, 'membres', membreUid), { dernierRdvVu: aujourdhui });
+  membreData.dernierRdvVu = aujourdhui;
+  document.getElementById('tabRdvBtn')?.classList.remove('has-unread');
+};
 
 window.repondreRdv = async (rdvId, statut) => {
   const rdv = (await getDoc(doc(db, 'rdv', rdvId))).data();
@@ -1843,6 +1870,7 @@ async function chargerRoiMembre() {
       membreData.reglementApprouve = true;
       membreData.reglementApprouveLe = aujourdhui;
       membreData.reglementVersionApprouvee = version;
+      document.getElementById('blocRoiNonSigne')?.classList.add('hidden');
       chargerRoiMembre();
     });
   }

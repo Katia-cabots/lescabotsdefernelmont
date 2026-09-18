@@ -878,3 +878,20 @@ blockquote.pull-quote {
 @media (max-width: 560px) {
   .partenaire-row-photo { width: 60px; height: 60px; }
 }
+
+/* Bouton "Click-to-WhatsApp" dans le bandeau du haut — ouvre directement
+   une conversation WhatsApp avec le vrai numéro de Katia. */
+.whatsapp-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #25D366;
+  flex: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+.whatsapp-btn:hover { transform: scale(1.08); }
+.whatsapp-btn svg { width: 22px; height: 22px; fill: #fff; }
