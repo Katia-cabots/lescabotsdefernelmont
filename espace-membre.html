@@ -3,14 +3,19 @@
 <html lang="fr">
 <head>
 <meta charset="UTF-8">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
+
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Espace membre — Les Cabots de Fernelmont</title>
 <meta name="robots" content="noindex">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/style.css?v=V01-061">
-<link rel="stylesheet" href="assets/app.css?v=V01-061">
+<link rel="stylesheet" href="assets/style.css?v=V01-065">
+<link rel="stylesheet" href="assets/app.css?v=V01-065">
 </head>
 <body class="app-body">
 
@@ -34,7 +39,7 @@
     <button class="tab-btn" data-tab="reglement" id="tabReglementBtn">Règlement</button>
     <button class="tab-btn" data-tab="blog" id="tabBlogBtn">Blog</button>
     <button class="tab-btn" data-tab="messages" id="tabMessagesBtn">Messages</button>
-    <button class="tab-btn" data-tab="rdv">RDV</button>
+    <button class="tab-btn" data-tab="rdv" id="tabRdvBtn">RDV</button>
     <button class="tab-btn" data-tab="boutique" id="tabBoutiqueBtn">Boutique</button>
     <button class="tab-btn hidden" data-tab="dogsitting" id="tabDogSittingBtn">Dog Sitting</button>
     <button class="tab-btn" data-tab="videos">Vidéos</button>
@@ -47,6 +52,12 @@
       <h2>🔒 Bienvenue !</h2>
       <p style="color:var(--ink); margin-bottom:10px;">C'est votre première connexion. Pour votre sécurité, nous vous recommandons de <strong>changer votre mot de passe</strong> — rendez-vous dans l'onglet "Mon profil", tout en haut ("🔒 Changer mon mot de passe").</p>
       <button class="btn-sm" id="btnFermerPremiereConnexion">J'ai compris</button>
+    </div>
+
+    <div class="app-panel hidden" id="blocRoiNonSigne" style="background:#FBEAEA; border:2px solid #E3B4B4;">
+      <h2 style="color:#8A2E2E;">⚠️ Règlement d'ordre intérieur non signé</h2>
+      <p style="color:#8A2E2E; margin-bottom:10px;">Merci de lire et d'approuver le règlement du club — c'est nécessaire pour la validité de votre inscription.</p>
+      <button class="btn-sm primary" id="btnAllerAuReglement">Voir le règlement</button>
     </div>
 
     <div class="app-panel" id="blocNotifications">
@@ -363,6 +374,9 @@
       if (btn.dataset.tab === 'dogsitting' && window.marquerDogSittingVu) {
         window.marquerDogSittingVu();
       }
+      if (btn.dataset.tab === 'rdv' && window.marquerRdvVu) {
+        window.marquerRdvVu();
+      }
     });
   });
 
@@ -378,6 +392,6 @@
   });
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script type="module" src="assets/app-membre.js?v=V01-061"></script>
+<script type="module" src="assets/app-membre.js?v=V01-065"></script>
 </body>
 </html>

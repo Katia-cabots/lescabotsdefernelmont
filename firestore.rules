@@ -1,4 +1,4 @@
-// Projet Firebase : cabots-de-fernelmont-901ee — Site "Les Cabots de Fernelmont" — V01-057
+// Projet Firebase : cabots-de-fernelmont-901ee — Site "Les Cabots de Fernelmont" — V01-065
 // Convention de versionnage des livraisons : VJJ-NNN (JJ = numéro du jour de
 // travail sur ce site, pas la date calendaire ; NNN = numéro de livraison
 // dans cette journée de travail, repart à 001 à chaque nouveau jour de
@@ -23,7 +23,7 @@ service cloud.firestore {
                   'trouveVia','trouveViaDetail','conducteurNom','conducteurGsm','conducteurEmail',
                   'reglementApprouve','reglementApprouveLe','reglementVersionApprouvee',
                   'enqueteRenseignementsSoumise','motDePasseInitial','derniereConnexion','derniereActivite',
-                  'dateDernierChangementMdp']);
+                  'dateDernierChangementMdp','dernierRdvVu']);
     }
 
     match /membres/{uid} {
