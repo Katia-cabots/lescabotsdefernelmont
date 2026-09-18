@@ -624,15 +624,15 @@ async function chargerServicesMembre() {
 // RDV — filtré par destinataires, prix par personne, paiement par virement
 // ==========================================================================
 async function estInviteAuRdv(rdv) {
-  if (!rdv.destinataires || rdv.destinataires.type === 'tous') return true;
-  if (rdv.destinataires.type === 'groupe') return rdv.destinataires.groupeId === membreData.groupeId;
+  if (!rdv.destinataires || rdv.destinataires.type === 'tous') return { invite: true, dateAjout: null };
+  if (rdv.destinataires.type === 'groupe') return { invite: rdv.destinataires.groupeId === membreData.groupeId, dateAjout: null };
   if (rdv.destinataires.type === 'individuel') {
     // Vérifie SA PROPRE invitation via un marqueur dédié (rdv_cibles) —
     // jamais une liste partagée des autres membres invités.
     const cibleDoc = await getDoc(doc(db, 'rdv_cibles', `${rdv.id}_${membreUid}`));
-    return cibleDoc.exists();
+    return { invite: cibleDoc.exists(), dateAjout: cibleDoc.exists() ? (cibleDoc.data().dateAjout || null) : null };
   }
-  return false;
+  return { invite: false, dateAjout: null };
 }
 
 async function chargerRdv() {
@@ -640,7 +640,9 @@ async function chargerRdv() {
   let rdvs = [];
   snap.forEach(d => rdvs.push({ id: d.id, ...d.data() }));
   const invitations = await Promise.all(rdvs.map(estInviteAuRdv));
-  rdvs = rdvs.filter((r, i) => invitations[i]);
+  rdvs = rdvs
+    .map((r, i) => ({ ...r, dateAjout: invitations[i].dateAjout }))
+    .filter((r, i) => invitations[i].invite);
   rdvs.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
 
   const wrap = document.getElementById('zoneRdv');
@@ -669,8 +671,8 @@ async function chargerRdv() {
     if (maReponse) {
       if (maReponse.statut === 'present') {
         const communication = `${rdv.titre} ${nomChien} ${rdv.date}`;
-        statutHtml = `<span class="badge badge-ok">Vous serez présent(e)${maReponse.nombrePersonnes > 1 ? ` (${maReponse.nombrePersonnes} pers.)` : ''}</span>`;
-        if (rdv.prixParPersonne) {
+        statutHtml = `<span class="badge badge-ok">Vous serez présent(e)${maReponse.nombrePersonnes > 1 ? ` (${maReponse.nombrePersonnes} pers.)` : ''}${rdv.uniteNom && maReponse.quantiteUnite ? ` — ${maReponse.quantiteUnite} ${escapeHtml(rdv.uniteNom)}${maReponse.quantiteUnite > 1 ? 's' : ''}` : ''}</span>`;
+        if (rdv.prixParPersonne || rdv.unitePrix) {
           statutHtml += `
             <div class="banner-alert" style="margin-top:8px;">
               Montant à payer : <strong>${Number(maReponse.montant || 0).toFixed(2)} €</strong><br>
@@ -688,9 +690,16 @@ async function chargerRdv() {
       }
     } else {
       statutHtml = `
-        <div class="field" style="max-width:160px;">
-          <label>Nombre de personnes</label>
-          <input type="number" min="1" value="1" id="rd-nb-${rdv.id}" style="width:100%;">
+        <div class="form-grid">
+          <div class="field" style="max-width:160px;">
+            <label>Nombre de personnes</label>
+            <input type="number" min="1" value="1" id="rd-nb-${rdv.id}" style="width:100%;">
+          </div>
+          ${rdv.uniteNom ? `
+          <div class="field" style="max-width:200px;">
+            <label>Nombre de ${escapeHtml(rdv.uniteNom)}${rdv.unitePrix ? ` (${Number(rdv.unitePrix).toFixed(2)} €/unité)` : ''}</label>
+            <input type="number" min="0" value="0" id="rd-unite-${rdv.id}" style="width:100%;">
+          </div>` : ''}
         </div>
         <div class="presence-btns">
           <button class="btn-sm primary" onclick="window.repondreRdv('${rdv.id}','present')">Je serai présent(e)</button>
@@ -705,15 +714,19 @@ async function chargerRdv() {
         <div class="data-sub">${capitalize(dateLabel)} ${rdv.heure || ''} · ${escapeHtml(rdv.lieu || '')}</div>
         ${rdv.modalite ? `<div class="data-sub" style="white-space:pre-wrap;">${escapeHtml(rdv.modalite)}</div>` : ''}
         ${rdv.prixParPersonne ? `<div class="data-sub">${Number(rdv.prixParPersonne).toFixed(2)} € / personne</div>` : ''}
+        ${rdv.uniteNom && rdv.unitePrix ? `<div class="data-sub">${Number(rdv.unitePrix).toFixed(2)} € / ${escapeHtml(rdv.uniteNom)}</div>` : ''}
         <div style="margin-top:8px;">${statutHtml}</div>
       </div>
     </div>`;
   }).join('');
 
-  // Point rouge sur l'onglet RDV si un RDV a été créé depuis la dernière
-  // visite de cet onglet (même principe que pour le Blog).
+  // Point rouge sur l'onglet RDV si un RDV a été créé, OU si on vient
+  // d'y être ajouté (RDV à membres spécifiques, ajout après coup), depuis
+  // la dernière visite de cet onglet (même principe que pour le Blog).
   const dernierRdvCree = rdvs.reduce((max, r) => {
-    const iso = r.dateCreation?.toDate ? dateISOLocale(r.dateCreation.toDate()) : '';
+    const isoCreation = r.dateCreation?.toDate ? dateISOLocale(r.dateCreation.toDate()) : '';
+    const isoAjout = r.dateAjout ? dateISOLocale(new Date(r.dateAjout)) : '';
+    const iso = isoAjout > isoCreation ? isoAjout : isoCreation;
     return iso > max ? iso : max;
   }, '');
   const dernierVu = membreData.dernierRdvVu || '';
@@ -730,10 +743,11 @@ window.marquerRdvVu = async () => {
 window.repondreRdv = async (rdvId, statut) => {
   const rdv = (await getDoc(doc(db, 'rdv', rdvId))).data();
   const nombrePersonnes = statut === 'present' ? (parseInt(document.getElementById('rd-nb-' + rdvId)?.value, 10) || 1) : 1;
-  const montant = rdv.prixParPersonne ? rdv.prixParPersonne * nombrePersonnes : 0;
+  const quantiteUnite = statut === 'present' ? (parseInt(document.getElementById('rd-unite-' + rdvId)?.value, 10) || 0) : 0;
+  const montant = (rdv.prixParPersonne ? rdv.prixParPersonne * nombrePersonnes : 0) + (rdv.unitePrix ? rdv.unitePrix * quantiteUnite : 0);
   const cle = `${rdvId}_${membreUid}`;
   await setDoc(doc(db, 'rdv_reponses', cle), {
-    rdvId, uid: membreUid, statut, nombrePersonnes, montant, paye: false, paiementValide: false,
+    rdvId, uid: membreUid, statut, nombrePersonnes, quantiteUnite, montant, paye: false, paiementValide: false,
     dateReponse: new Date().toISOString()
   });
   chargerRdv();

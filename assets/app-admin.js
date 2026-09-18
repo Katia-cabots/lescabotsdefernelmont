@@ -1847,9 +1847,9 @@ async function chargerRdv() {
       return `
       <div class="data-row">
         <div class="data-main">
-          <div class="data-title">${escapeHtml(m?.nomMaitre || '?')}${m && nomsChiensActifs(m) ? ' — ' + escapeHtml(nomsChiensActifs(m)) : ''} ${r.nombrePersonnes > 1 ? `(${r.nombrePersonnes} pers.)` : ''}</div>
+          <div class="data-title">${escapeHtml(m?.nomMaitre || '?')}${m && nomsChiensActifs(m) ? ' — ' + escapeHtml(nomsChiensActifs(m)) : ''} ${r.nombrePersonnes > 1 ? `(${r.nombrePersonnes} pers.)` : ''}${rdv.uniteNom && r.quantiteUnite ? ` — ${r.quantiteUnite} ${escapeHtml(rdv.uniteNom)}${r.quantiteUnite > 1 ? 's' : ''}` : ''}</div>
           <div class="data-sub">
-            ${rdv.prixParPersonne ? `${Number(r.montant||0).toFixed(2)} € dû` : ''}
+            ${(rdv.prixParPersonne || rdv.unitePrix) ? `${Number(r.montant||0).toFixed(2)} € dû` : ''}
             ${r.paye ? '<span class="badge badge-ok">A indiqué avoir payé</span>' : '<span class="badge badge-neutral">Pas encore payé</span>'}
             ${r.paiementValide ? '<span class="badge badge-ok">Paiement validé</span>' : ''}
           </div>
@@ -1866,10 +1866,10 @@ async function chargerRdv() {
         ${rdv.photoURL ? `<img src="${escapeHtml(rdv.photoURL)}" alt="" style="width:100%; max-height:200px; object-fit:cover; border-radius:6px; margin-bottom:10px; display:block;">` : ''}
         <div class="data-title">${escapeHtml(rdv.titre)}</div>
         <div class="data-sub">${dateLabel} ${rdv.heure || ''} · ${escapeHtml(rdv.lieu || '')} · <span style="white-space:pre-wrap;">${escapeHtml(rdv.modalite || '')}</span></div>
-        <div class="data-sub">${escapeHtml(libelleDestinataires(rdv, membreIdsParRdv))}${rdv.prixParPersonne ? ` · ${Number(rdv.prixParPersonne).toFixed(2)} €/pers.` : ''}</div>
+        <div class="data-sub">${escapeHtml(libelleDestinataires(rdv, membreIdsParRdv))}${rdv.prixParPersonne ? ` · ${Number(rdv.prixParPersonne).toFixed(2)} €/pers.` : ''}${rdv.uniteNom && rdv.unitePrix ? ` · ${Number(rdv.unitePrix).toFixed(2)} €/${escapeHtml(rdv.uniteNom)}` : ''}</div>
         <div class="data-sub">
           <span class="badge badge-ok">${presents.length} réponse(s) présent · ${totalPersonnes} pers.</span>
-          ${rdv.prixParPersonne ? `<span class="badge badge-neutral">${totalDu.toFixed(2)} € attendus</span> <span class="badge badge-neutral">${valides}/${presents.length} paiements validés</span>` : ''}
+          ${(rdv.prixParPersonne || rdv.unitePrix) ? `<span class="badge badge-neutral">${totalDu.toFixed(2)} € attendus</span> <span class="badge badge-neutral">${valides}/${presents.length} paiements validés</span>` : ''}
         </div>
         ${presents.length ? `<div style="margin-top:10px;">${detailPresents}</div>` : ''}
       </div>
@@ -1896,7 +1896,12 @@ function ouvrirModalRdv(rdvExistant) {
         <div class="field"><label>Lieu</label><input id="rd-lieu" value="${isEdit ? escapeAttr(rdvExistant.lieu || '') : ''}"></div>
         <div class="field"><label>Modalité (info libre, optionnel)</label><textarea id="rd-modalite" rows="4" style="resize:vertical;" placeholder="ex: Chacun ramène un plat">${isEdit ? escapeHtml(rdvExistant.modalite || '') : ''}</textarea></div>
         <div class="field"><label>Photo (URL, optionnel)</label><input id="rd-photoURL" placeholder="https://exemple.be/photo.jpg" value="${isEdit ? escapeAttr(rdvExistant.photoURL || '') : ''}"></div>
-        <div class="field"><label>Prix par personne (€ TTC, laisser vide si gratuit)</label><input type="number" step="0.01" id="rd-prix" value="${isEdit && rdvExistant.prixParPersonne != null ? rdvExistant.prixParPersonne : ''}"></div>
+        <div class="field"><label>Prix par personne (€ TTC, laisser vide si gratuit ou si le prix est plutôt à l'unité ci-dessous)</label><input type="number" step="0.01" id="rd-prix" value="${isEdit && rdvExistant.prixParPersonne != null ? rdvExistant.prixParPersonne : ''}"></div>
+        <div class="form-grid">
+          <div class="field"><label>Unité supplémentaire (optionnel, ex: "pain saucisse")</label><input id="rd-uniteNom" placeholder="ex: pain saucisse" value="${isEdit ? escapeAttr(rdvExistant.uniteNom || '') : ''}"></div>
+          <div class="field"><label>Prix par unité (€ TTC)</label><input type="number" step="0.01" id="rd-unitePrix" value="${isEdit && rdvExistant.unitePrix != null ? rdvExistant.unitePrix : ''}"></div>
+        </div>
+        <p style="font-size:0.78rem; color:var(--slate); margin-top:-6px; margin-bottom:14px;">Le nombre de personnes est toujours demandé (pour l'organisation). Si tu remplis "unité supplémentaire", chaque membre indiquera aussi une quantité de cette unité (ex: nombre de pains saucisses) — utile quand le prix ne dépend pas du nombre de personnes.</p>
 
         <div class="field"><label>Destinataires</label>
           <select id="rd-destinatairesType" ${isEdit ? 'disabled' : ''}>
@@ -1904,7 +1909,7 @@ function ouvrirModalRdv(rdvExistant) {
             <option value="groupe" ${isEdit && rdvExistant.destinataires?.type === 'groupe' ? 'selected' : ''}>Un groupe</option>
             <option value="individuel" ${isEdit && rdvExistant.destinataires?.type === 'individuel' ? 'selected' : ''}>Membres spécifiques</option>
           </select>
-          ${isEdit ? '<p style="font-size:0.78rem; color:var(--slate); margin-top:4px;">Les destinataires ne peuvent pas être changés après création — supprime et recrée le RDV si besoin.</p>' : ''}
+          ${isEdit ? `<p style="font-size:0.78rem; color:var(--slate); margin-top:4px;">Le type de destinataires (tous / groupe / membres) ne peut pas être changé après création — supprime et recrée le RDV si besoin.${rdvExistant.destinataires?.type === 'individuel' ? ' Tu peux par contre cocher/décocher les membres invités ci-dessous.' : ''}</p>` : ''}
         </div>
         <div class="field ${isEdit && rdvExistant.destinataires?.type !== 'groupe' ? 'hidden' : ''}" id="rd-groupeWrap">
           <label>Groupe</label>
@@ -1915,7 +1920,7 @@ function ouvrirModalRdv(rdvExistant) {
           <div class="membre-check-list">
             ${currentMembres.map(m => `
               <label class="membre-check-row">
-                <input type="checkbox" class="rd-membre-check" value="${m.id}" ${isEdit ? 'disabled' : ''} ${membresIdsPreCoches.includes(m.id) ? 'checked' : ''}>
+                <input type="checkbox" class="rd-membre-check" value="${m.id}" ${isEdit && rdvExistant.destinataires?.type !== 'individuel' ? 'disabled' : ''} ${membresIdsPreCoches.includes(m.id) ? 'checked' : ''}>
                 <span>${escapeHtml(m.nomMaitre)}</span>
               </label>`).join('')}
           </div>
@@ -1934,57 +1939,89 @@ function ouvrirModalRdv(rdvExistant) {
     document.getElementById('rd-membresWrap').classList.toggle('hidden', e.target.value !== 'individuel');
   });
 
-  document.getElementById('rd-save').addEventListener('click', async () => {
+  document.getElementById('rd-save').addEventListener('click', async (e) => {
+    const btnSave = e.currentTarget;
+    if (btnSave.disabled) return; // anti double-clic : jamais deux écritures pour un seul clic
     const titre = document.getElementById('rd-titre').value.trim();
     const date = document.getElementById('rd-date').value;
     if (!titre || !date) { alert('Merci de renseigner au moins un titre et une date.'); return; }
+    btnSave.disabled = true;
 
-    const prixVal = document.getElementById('rd-prix').value;
-    const donneesCommunes = {
-      titre, date,
-      heure: document.getElementById('rd-heure').value,
-      lieu: document.getElementById('rd-lieu').value.trim(),
-      modalite: document.getElementById('rd-modalite').value.trim(),
-      photoURL: document.getElementById('rd-photoURL').value.trim(),
-      prixParPersonne: prixVal === '' ? null : parseFloat(prixVal)
-    };
+    try {
+      const prixVal = document.getElementById('rd-prix').value;
+      const unitePrixVal = document.getElementById('rd-unitePrix').value;
+      const donneesCommunes = {
+        titre, date,
+        heure: document.getElementById('rd-heure').value,
+        lieu: document.getElementById('rd-lieu').value.trim(),
+        modalite: document.getElementById('rd-modalite').value.trim(),
+        photoURL: document.getElementById('rd-photoURL').value.trim(),
+        prixParPersonne: prixVal === '' ? null : parseFloat(prixVal),
+        uniteNom: document.getElementById('rd-uniteNom').value.trim(),
+        unitePrix: unitePrixVal === '' ? null : parseFloat(unitePrixVal)
+      };
 
-    if (isEdit) {
-      await updateDoc(doc(db, 'rdv', rdvExistant.id), donneesCommunes);
+      if (isEdit) {
+        await updateDoc(doc(db, 'rdv', rdvExistant.id), donneesCommunes);
+
+        // Si c'est un RDV à membres spécifiques, on synchronise la liste
+        // des invités : les membres décochés perdent l'accès à ce RDV
+        // (et leur point rouge associé disparaît, puisqu'ils ne le
+        // verront plus du tout) ; les membres nouvellement cochés le
+        // reçoivent avec leur propre marqueur "vu depuis" pour que le
+        // point rouge s'allume bien chez eux.
+        if (rdvExistant.destinataires?.type === 'individuel') {
+          const nouveauxCoches = [...document.querySelectorAll('.rd-membre-check:checked')].map(c => c.value);
+          const anciens = membresIdsPreCoches;
+          const ajoutes = nouveauxCoches.filter(uid => !anciens.includes(uid));
+          const retires = anciens.filter(uid => !nouveauxCoches.includes(uid));
+
+          await setDoc(doc(db, 'rdv_admin', rdvExistant.id), { membreIds: nouveauxCoches });
+          await Promise.all([
+            ...ajoutes.map(uid => setDoc(doc(db, 'rdv_cibles', `${rdvExistant.id}_${uid}`), {
+              rdvId: rdvExistant.id, uid, dateAjout: new Date().toISOString()
+            })),
+            ...retires.map(uid => deleteDoc(doc(db, 'rdv_cibles', `${rdvExistant.id}_${uid}`)).catch(() => {}))
+          ]);
+        }
+
+        window.fermerModal();
+        chargerRdv();
+        return;
+      }
+
+      const typeDest = document.getElementById('rd-destinatairesType').value;
+      let membreIdsCibles = [];
+      const destinataires = { type: typeDest, groupeId: null };
+      if (typeDest === 'groupe') destinataires.groupeId = document.getElementById('rd-groupe').value;
+      if (typeDest === 'individuel') {
+        membreIdsCibles = [...document.querySelectorAll('.rd-membre-check:checked')].map(c => c.value);
+      }
+
+      // Le RDV lui-même (lisible par tous les membres) ne contient JAMAIS la
+      // liste nominative des membres ciblés — seulement le type et, pour un
+      // ciblage par groupe, le groupeId (non personnel). La liste nominative
+      // va dans rdv_admin (réservé à l'admin), et un petit marqueur par
+      // membre ciblé va dans rdv_cibles, pour que chacun ne puisse vérifier
+      // QUE sa propre invitation, jamais celle des autres.
+      const refRdv = await addDoc(collection(db, 'rdv'), {
+        ...donneesCommunes,
+        destinataires,
+        dateCreation: serverTimestamp()
+      });
+
+      if (typeDest === 'individuel') {
+        await setDoc(doc(db, 'rdv_admin', refRdv.id), { membreIds: membreIdsCibles });
+        await Promise.all(membreIdsCibles.map(uid =>
+          setDoc(doc(db, 'rdv_cibles', `${refRdv.id}_${uid}`), { rdvId: refRdv.id, uid, dateAjout: new Date().toISOString() })
+        ));
+      }
+
       window.fermerModal();
       chargerRdv();
-      return;
+    } finally {
+      btnSave.disabled = false;
     }
-
-    const typeDest = document.getElementById('rd-destinatairesType').value;
-    let membreIdsCibles = [];
-    const destinataires = { type: typeDest, groupeId: null };
-    if (typeDest === 'groupe') destinataires.groupeId = document.getElementById('rd-groupe').value;
-    if (typeDest === 'individuel') {
-      membreIdsCibles = [...document.querySelectorAll('.rd-membre-check:checked')].map(c => c.value);
-    }
-
-    // Le RDV lui-même (lisible par tous les membres) ne contient JAMAIS la
-    // liste nominative des membres ciblés — seulement le type et, pour un
-    // ciblage par groupe, le groupeId (non personnel). La liste nominative
-    // va dans rdv_admin (réservé à l'admin), et un petit marqueur par
-    // membre ciblé va dans rdv_cibles, pour que chacun ne puisse vérifier
-    // QUE sa propre invitation, jamais celle des autres.
-    const refRdv = await addDoc(collection(db, 'rdv'), {
-      ...donneesCommunes,
-      destinataires,
-      dateCreation: serverTimestamp()
-    });
-
-    if (typeDest === 'individuel') {
-      await setDoc(doc(db, 'rdv_admin', refRdv.id), { membreIds: membreIdsCibles });
-      await Promise.all(membreIdsCibles.map(uid =>
-        setDoc(doc(db, 'rdv_cibles', `${refRdv.id}_${uid}`), { rdvId: refRdv.id, uid })
-      ));
-    }
-
-    window.fermerModal();
-    chargerRdv();
   });
 }
 
