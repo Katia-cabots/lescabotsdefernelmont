@@ -676,7 +676,7 @@ async function chargerRdv() {
           statutHtml += `
             <div class="banner-alert" style="margin-top:8px;">
               Montant à payer : <strong>${Number(maReponse.montant || 0).toFixed(2)} €</strong><br>
-              ${iban ? `Virement sur : <strong>${escapeHtml(iban)}</strong><br>` : ''}
+              ${iban ? `À payer sur le compte de <strong>LES BEAUX CABOTS SRL</strong> : <strong>${escapeHtml(iban)}</strong><br>` : ''}
               Communication : <strong>${escapeHtml(communication)}</strong>
               <div class="presence-btns" style="margin-top:8px;">
                 ${maReponse.paye
