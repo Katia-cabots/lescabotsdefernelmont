@@ -2690,19 +2690,28 @@ async function chargerAbonnementsARenouveler() {
 async function corrigerAbsencesAvantInscription() {
   const toutes = await chargerPresencesCache();
   const aCorriger = toutes.filter(p => {
-    if (p.statut !== 'absent-auto') return false;
-    const membre = currentMembres.find(m => m.id === p.uid);
-    if (!membre?.dateInscription?.toDate) return false;
-    const inscriptionISO = dateISOLocale(membre.dateInscription.toDate());
-    return p.dateISO < inscriptionISO;
+    try {
+      if (p.statut !== 'absent-auto') return false;
+      const membre = currentMembres.find(m => m.id === p.uid);
+      if (!membre?.dateInscription?.toDate) return false;
+      const inscriptionISO = dateISOLocale(membre.dateInscription.toDate());
+      return p.dateISO < inscriptionISO;
+    } catch (err) {
+      console.error(`Erreur lors de la vérification de la présence ${p.id} :`, err);
+      return false;
+    }
   });
   if (aCorriger.length === 0) return;
 
   for (const p of aCorriger) {
-    if (p.compteAbonnement) {
-      await updateDoc(doc(db, 'membres', p.uid), { coursRestants: increment(1) });
+    try {
+      if (p.compteAbonnement) {
+        await updateDoc(doc(db, 'membres', p.uid), { coursRestants: increment(1) });
+      }
+      await deleteDoc(doc(db, 'presences', p.id));
+    } catch (err) {
+      console.error(`Erreur lors de la correction de la présence ${p.id} :`, err);
     }
-    await deleteDoc(doc(db, 'presences', p.id));
   }
   // Retire du cache en mémoire les entrées supprimées, pour que les étapes
   // suivantes du même cycle ne les revoient pas sans devoir tout relire.
@@ -2743,13 +2752,20 @@ async function detecterAbsencesNonRepondues() {
       if (!delaiDepasse) return;
 
       currentMembres.filter(m => m.groupeId === g.id).forEach(m => {
-        // On ne pénalise jamais un membre pour un cours qui a eu lieu
-        // avant sa date d'inscription au club.
-        if (m.dateInscription?.toDate && dateISO < dateISOLocale(m.dateInscription.toDate())) return;
-        const cle = `${g.id}_${dateISO}_${m.id}`;
-        if (!dejaReponduCles.has(cle)) {
-          aCreer.push({ groupeId: g.id, uid: m.id, dateISO });
-          dejaReponduCles.add(cle); // éviter les doublons si le même cours revient
+        try {
+          // On ne pénalise jamais un membre pour un cours qui a eu lieu
+          // avant sa date d'inscription au club.
+          if (m.dateInscription?.toDate && dateISO < dateISOLocale(m.dateInscription.toDate())) return;
+          const cle = `${g.id}_${dateISO}_${m.id}`;
+          if (!dejaReponduCles.has(cle)) {
+            aCreer.push({ groupeId: g.id, uid: m.id, dateISO });
+            dejaReponduCles.add(cle); // éviter les doublons si le même cours revient
+          }
+        } catch (err) {
+          // Une donnée corrompue chez CE membre (ex: dateInscription
+          // invalide) ne doit jamais empêcher le traitement de tous les
+          // autres membres qui suivent dans la liste.
+          console.error(`Erreur lors du traitement de ${m.nomMaitre || m.id} pour ${g.nom || g.id} du ${dateISO} :`, err);
         }
       });
     });
@@ -2795,10 +2811,14 @@ async function traiterAbsencesAutomatiques() {
   if (aTraiter.length === 0) return;
 
   for (const p of aTraiter) {
-    await updateDoc(doc(db, 'membres', p.uid), { coursRestants: increment(-1) }).catch(() => {});
-    await updateDoc(doc(db, 'presences', p.id), { compteAbonnement: true });
-    const entree = presencesCache.find(x => x.id === p.id);
-    if (entree) entree.compteAbonnement = true;
+    try {
+      await updateDoc(doc(db, 'membres', p.uid), { coursRestants: increment(-1) }).catch(() => {});
+      await updateDoc(doc(db, 'presences', p.id), { compteAbonnement: true });
+      const entree = presencesCache.find(x => x.id === p.id);
+      if (entree) entree.compteAbonnement = true;
+    } catch (err) {
+      console.error(`Erreur lors du décompte de la présence ${p.id} :`, err);
+    }
   }
   renderMembres();
 }
