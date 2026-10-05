@@ -14,8 +14,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&family=Great+Vibes&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/style.css?v=V01-078">
-<link rel="stylesheet" href="assets/app.css?v=V01-078">
+<link rel="stylesheet" href="assets/style.css?v=V01-081">
+<link rel="stylesheet" href="assets/app.css?v=V01-081">
 </head>
 <body class="app-body">
 
@@ -60,6 +60,7 @@
     <button class="tab-btn" data-tab="dogsitting" id="tabDogSittingBtn">Dog Sitting</button>
     <button class="tab-btn" data-tab="compta" id="tabComptaBtn">Compta</button>
     <button class="tab-btn" data-tab="contenu" id="tabContenuBtn">Contenu du site</button>
+    <button class="tab-btn hidden" data-tab="maintenance" id="tabMaintenanceBtn">🔧 Maintenance</button>
     <button class="tab-btn hidden" data-tab="motsdepasse" id="tabMotsDePasseBtn">🔑 Mots de passe</button>
   </div>
 
@@ -369,7 +370,7 @@
     </div>
   </div>
 
-  <div id="panel-motsdepasse" class="tab-panel hidden">
+  <div id="panel-maintenance" class="tab-panel hidden">
     <div class="app-panel">
       <h2>🔧 Maintenance</h2>
       <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Onglet visible uniquement pour toi.</p>
@@ -404,6 +405,9 @@
       <button class="btn-sm danger" id="btnRecalculerDogSitting">Recalculer</button>
       <p id="recalculerDogSittingResultat" style="font-size:0.85rem; color:var(--slate); margin-top:10px;"></p>
     </div>
+  </div>
+
+  <div id="panel-motsdepasse" class="tab-panel hidden">
     <div class="app-panel">
       <h2>🔑 Mots de passe — tous les membres</h2>
       <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Onglet visible uniquement pour toi. Toujours à jour : ce mot de passe est le vrai mot de passe de connexion, synchronisé automatiquement dès qu'il est créé ou changé.</p>
@@ -419,7 +423,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script type="module" src="assets/app-admin.js?v=V01-078"></script>
+<script type="module" src="assets/app-admin.js?v=V01-081"></script>
 <div id="versionTagCoin" style="position:fixed; bottom:10px; right:14px; font-size:0.72rem; color:var(--slate-light); opacity:0.55; z-index:30; pointer-events:none; background:var(--white); padding:2px 6px; border-radius:4px;"></div>
 </body>
 </html>
