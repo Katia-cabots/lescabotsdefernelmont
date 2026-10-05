@@ -1,6 +1,6 @@
-// © 2026 LES BEAUX CABOTS SRL. Tous droits réservés.
+// © 2026 Hélène Laruelle. Tous droits réservés.
 // Ce code ne peut être utilisé, copié ou modifié sans autorisation
-// écrite — voir LICENSE.txt à la racine du dépôt.
+// écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt.
 // Contenu du site sous la responsabilité de Katia Renard (LES BEAUX CABOTS SRL).
 
 // ==========================================================================
@@ -10,9 +10,6 @@
 // HTML. Lecture seule, publique, aucune connexion requise.
 // ==========================================================================
 import { db, collection, getDocs } from "./firebase-config.js";
-import { VERSION_SITE } from "./version.js";
-
-document.getElementById('versionPublic') && (document.getElementById('versionPublic').textContent = VERSION_SITE);
 
 (async () => {
   try {

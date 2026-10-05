@@ -1,6 +1,6 @@
-// © 2026 LES BEAUX CABOTS SRL. Tous droits réservés.
+// © 2026 Hélène Laruelle. Tous droits réservés.
 // Ce code ne peut être utilisé, copié ou modifié sans autorisation
-// écrite — voir LICENSE.txt à la racine du dépôt.
+// écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt.
 
 // ==========================================================================
 // Numéro de version du site — SOURCE UNIQUE, à mettre à jour ici avant
@@ -9,4 +9,4 @@
 // Katia ET le Super Admin), l'espace membre (VERSION_SITE interne), et le pied de
 // page de toutes les pages publiques.
 // ==========================================================================
-export const VERSION_SITE = 'V01-068';
+export const VERSION_SITE = 'V01-075';

@@ -1,6 +1,6 @@
-// © 2026 LES BEAUX CABOTS SRL. Tous droits réservés.
+// © 2026 Hélène Laruelle. Tous droits réservés.
 // Ce code ne peut être utilisé, copié ou modifié sans autorisation
-// écrite — voir LICENSE.txt à la racine du dépôt.
+// écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt.
 // Contenu du site sous la responsabilité de Katia Renard (LES BEAUX CABOTS SRL).
 
 import {
@@ -69,6 +69,15 @@ onAuthStateChanged(auth, async (user) => {
   const derniereMajMdp = membreData.dateDernierChangementMdp ? new Date(membreData.dateDernierChangementMdp) : null;
   if (!derniereMajMdp || derniereMajMdp < dateLimiteMdpActuelle()) {
     ouvrirModalMdpObligatoireMembre();
+  } else {
+    // Avertissement préventif (non bloquant) dans les 7 jours avant la
+    // prochaine échéance, pour éviter d'être pris au dépourvu le jour J.
+    const prochaine = prochaineDateLimiteMdp();
+    const joursRestants = Math.ceil((prochaine - new Date()) / (1000 * 60 * 60 * 24));
+    if (joursRestants <= 7) {
+      document.getElementById('dateLimiteMdpAffichee').textContent = prochaine.toLocaleDateString('fr-BE', { day: 'numeric', month: 'long' });
+      document.getElementById('blocAvertissementMdp')?.classList.remove('hidden');
+    }
   }
 
   // Dernière activité : mise à jour à chaque ouverture de page (pas
@@ -175,6 +184,17 @@ function dateLimiteMdpActuelle() {
   return derniere;
 }
 
+// Prochaine échéance (toujours dans le futur, contrairement à
+// dateLimiteMdpActuelle qui donne la dernière déjà passée) — sert
+// uniquement à prévenir à l'avance, pas à déclencher le blocage.
+function prochaineDateLimiteMdp() {
+  const maintenant = new Date();
+  const annee = maintenant.getFullYear();
+  const bornes = [new Date(annee, 0, 1), new Date(annee, 3, 1), new Date(annee, 6, 1), new Date(annee, 9, 1), new Date(annee + 1, 0, 1)];
+  for (const b of bornes) { if (b > maintenant) return b; }
+  return bornes[bornes.length - 1];
+}
+
 async function executerChangementMdpMembre(mdpActuel, mdpNouveau, mdpConfirmer, statutEl) {
   statutEl.style.color = 'var(--slate)';
 
@@ -244,6 +264,11 @@ function ouvrirModalMdpObligatoireMembre() {
         </div>
         <button class="btn-sm primary" id="mdpo-save">Changer mon mot de passe</button>
         <p id="mdpo-statut" style="font-size:0.85rem; margin-top:8px;"></p>
+        <p style="font-size:0.82rem; color:var(--slate); margin-top:14px; padding-top:12px; border-top:1px solid #E3E7EB;">
+          Vous ne vous souvenez plus de votre mot de passe actuel ?
+          <a href="https://wa.me/32494051796" target="_blank" rel="noopener">Contactez Katia sur WhatsApp</a>
+          ou appelez le <a href="tel:+32494051796">0032 494 05 17 96</a> — elle pourra vous en attribuer un nouveau.
+        </p>
       </div>
     </div>`;
   document.body.insertAdjacentHTML('beforeend', html);
@@ -920,7 +945,34 @@ function preremplirMonProfil() {
   // ayant accès par défaut.
   const aAccesCours = membreData.accesCours !== undefined ? !!membreData.accesCours : true;
   document.querySelectorAll('.mp-groupeCours').forEach(bloc => bloc.classList.toggle('hidden', !aAccesCours));
+
+  // Si une demande de suppression est déjà en cours, on affiche son statut
+  // à la place du formulaire plutôt que de permettre une nouvelle demande.
+  if (membreData.demandeSuppression) {
+    document.getElementById('mp-suppressionActive').classList.remove('hidden');
+    document.getElementById('mp-suppressionFormulaire').classList.add('hidden');
+    const dateLabel = membreData.dateDemandeSuppression ? new Date(membreData.dateDemandeSuppression).toLocaleDateString('fr-BE') : '';
+    document.getElementById('mp-dateDemandeSuppression').textContent = dateLabel;
+  }
 }
+
+document.getElementById('mp-demanderSuppression').addEventListener('click', async () => {
+  const motif = document.getElementById('mp-motifSuppression').value.trim();
+  if (!motif) { alert('Merci d\'indiquer un motif.'); return; }
+  if (!confirm('Confirmer la demande de suppression de votre compte ? Une fois validée par Katia, vous ne pourrez plus vous connecter.')) return;
+  const btn = document.getElementById('mp-demanderSuppression');
+  btn.disabled = true;
+  const maintenant = new Date().toISOString();
+  await updateDoc(doc(db, 'membres', membreUid), {
+    demandeSuppression: true, motifSuppression: motif, dateDemandeSuppression: maintenant
+  });
+  membreData.demandeSuppression = true;
+  membreData.dateDemandeSuppression = maintenant;
+  document.getElementById('mp-suppressionActive').classList.remove('hidden');
+  document.getElementById('mp-suppressionFormulaire').classList.add('hidden');
+  document.getElementById('mp-dateDemandeSuppression').textContent = new Date(maintenant).toLocaleDateString('fr-BE');
+  btn.disabled = false;
+});
 
 document.getElementById('mp-enregistrer').addEventListener('click', async () => {
   const btn = document.getElementById('mp-enregistrer');

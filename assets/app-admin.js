@@ -1,6 +1,6 @@
-// © 2026 LES BEAUX CABOTS SRL. Tous droits réservés.
+// © 2026 Hélène Laruelle. Tous droits réservés.
 // Ce code ne peut être utilisé, copié ou modifié sans autorisation
-// écrite — voir LICENSE.txt à la racine du dépôt.
+// écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt.
 // Contenu du site sous la responsabilité de Katia Renard (LES BEAUX CABOTS SRL).
 
 import {
@@ -42,6 +42,7 @@ function dateISOLocale(d) {
 const JOURS_MAJ = { lundi:"Lundi", mardi:"Mardi", mercredi:"Mercredi", jeudi:"Jeudi", vendredi:"Vendredi", samedi:"Samedi", dimanche:"Dimanche" };
 
 let currentGroupes = [];
+let superAdminActif = false; // true uniquement quand HeleneL (Super Admin) est connectée
 let currentMembres = [];
 let rdvCacheParId = {};
 let rdvAdminCacheParId = {};
@@ -119,16 +120,21 @@ onAuthStateChanged(auth, async (user) => {
   // même quand la session était déjà ouverte depuis avant.
   updateDoc(doc(db, 'membres', user.uid), { derniereActivite: new Date().toISOString() }).catch(() => {});
 
-  // Numéro de version : visible pour tous les comptes admin (Katia ET
-  // Super Admin). L'onglet "Mots de passe" reste réservé exclusivement au
-  // Super Admin. La fraise 🍓 reste réservée à Katia (Admin) uniquement — donc
-  // masquée pour le Super Admin. Aucun autre changement pour le compte Admin.
-  document.getElementById('versionTagCoin').textContent = VERSION_SITE;
-  document.getElementById('versionTag').textContent = VERSION_SITE;
-  if (user.email === identifiantVersEmail('HeleneL')) {
+  // Numéro de version : visible UNIQUEMENT pour le Super Admin — invisible
+  // pour Katia (Admin), partout ailleurs sur le site. L'onglet "Mots de
+  // passe" reste réservé exclusivement au Super Admin. La fraise 🍓 reste
+  // réservée à Katia (Admin) uniquement — donc masquée pour le Super Admin.
+  const estHeleneL = user.email === identifiantVersEmail('HeleneL');
+  superAdminActif = estHeleneL;
+  if (estHeleneL) {
+    document.getElementById('versionTagCoin').textContent = VERSION_SITE;
+    document.getElementById('versionTag').textContent = VERSION_SITE;
     document.getElementById('tabMotsDePasseBtn').classList.remove('hidden');
     document.getElementById('fraiseDiscrete')?.remove();
     chargerListeAdminsPourMdp();
+  } else {
+    document.getElementById('versionTagCoin')?.remove();
+    document.getElementById('versionTag')?.remove();
   }
 
   // 🍓💕 Surprise d'anniversaire — visible UNIQUEMENT sur le compte de
@@ -139,6 +145,15 @@ onAuthStateChanged(auth, async (user) => {
     const jour = aujourdhui.getDate();
     if (mois === 10 && jour >= 15 && jour <= 21) {
       document.getElementById('banniereAnniversaireKatia')?.classList.remove('hidden');
+    }
+
+    // 🍓❤️ Notre anniversaire à nous (14 octobre) — même principe,
+    // exclusivement sur le compte de Katia. Compte à rebours du 10 au 13,
+    // visuel différent le jour J.
+    if (mois === 9 && jour >= 10 && jour <= 14) { // 9 = octobre (0-indexé)
+      const img = document.getElementById('imgAnniversaireOctobre');
+      img.src = jour === 14 ? 'assets/anniv-octobre-jour-j.png' : 'assets/anniv-octobre-compte-a-rebours.png';
+      document.getElementById('banniereAnniversaireOctobre')?.classList.remove('hidden');
     }
   }
 
@@ -453,6 +468,7 @@ async function chargerMembres() {
   currentMembres.sort(parNom);
   currentMembresArchives.sort(parNom);
   renderMembres();
+  renderDemandesSuppressionAdmin();
   renderGroupes();
   chargerMotsDePasseAdmin();
 }
@@ -506,7 +522,7 @@ function renderMembres() {
       </div>
       <div class="data-actions">
         <button class="btn-sm" onclick="window.editerMembre('${m.id}')">Fiche</button>
-        <button class="btn-sm danger" onclick="window.archiverMembre('${m.id}')">Archiver</button>
+        ${(m.identifiant === 'Hexelya' && !superAdminActif) ? '' : `<button class="btn-sm danger" onclick="window.archiverMembre('${m.id}')">Archiver</button>`}
       </div>
     </div>`;
   }).join('');
@@ -671,9 +687,11 @@ function ouvrirModalMembre(membre, prefill) {
         </div>` : `
         <div class="form-grid">
           <div class="field"><label>Identifiant</label><input value="${escapeAttr(membre.identifiant||'')}" disabled style="background:var(--paper-warm);"></div>
-          <div class="field"><label>Mot de passe (pour référence)</label><input id="mm-mdpRef" value="${escapeAttr(membre.motDePasseInitial||'')}" placeholder="renseigne-le si tu le connais"></div>
+          ${(membre.identifiant === 'Hexelya' && !superAdminActif)
+            ? '<div class="field"><label>Mot de passe</label><input value="Géré par le Super Admin" disabled style="background:var(--paper-warm);"></div>'
+            : `<div class="field"><label>Mot de passe (pour référence)</label><input id="mm-mdpRef" value="${escapeAttr(membre.motDePasseInitial||'')}" placeholder="renseigne-le si tu le connais"></div>`}
         </div>
-        <button class="btn-sm" type="button" id="mm-btnChangerMdp" style="margin-bottom:10px;">🔑 Changer réellement le mot de passe de connexion</button>`}
+        ${(membre.identifiant === 'Hexelya' && !superAdminActif) ? '' : `<button class="btn-sm" type="button" id="mm-btnChangerMdp" style="margin-bottom:10px;">🔑 Changer réellement le mot de passe de connexion</button>`}`}
 
         <h3 style="margin-top:18px;">Accès</h3>
         <p style="font-size:0.85rem; color:var(--slate); margin-bottom:6px;">Détermine les champs ci-dessous et les onglets visibles côté espace membre.</p>
@@ -2397,6 +2415,26 @@ async function chargerPartenairesAdmin() {
   const snap = await getDocs(collection(db, 'partenaires'));
   currentPartenaires = [];
   snap.forEach(d => currentPartenaires.push({ id: d.id, ...d.data() }));
+
+  // Partenaire "Hexelya" (pub du site pro de la développeuse) toujours
+  // présent par défaut — recréé automatiquement s'il manque, pour
+  // n'importe quel compte admin (mais reste protégé en écriture, voir
+  // règles Firestore et affichage ci-dessous).
+  if (!currentPartenaires.some(p => p.nom === 'Hexelya')) {
+    await addDoc(collection(db, 'partenaires'), {
+      nom: 'Hexelya',
+      adresse: '',
+      apercu: 'Gestion administrative, comptabilité, RH et outils numériques sur mesure.',
+      description: "Hexelya accompagne indépendants et petites structures dans leur administratif, leur comptabilité et la mise en place d'outils numériques adaptés à leurs besoins.",
+      photoURL: '',
+      lien: 'https://hexelya.web.app/index.html',
+      dateCreation: serverTimestamp()
+    });
+    const snap2 = await getDocs(collection(db, 'partenaires'));
+    currentPartenaires = [];
+    snap2.forEach(d => currentPartenaires.push({ id: d.id, ...d.data() }));
+  }
+
   currentPartenaires.sort((a, b) => (a.nom || '').localeCompare(b.nom || '', 'fr'));
   renderPartenairesAdmin();
 }
@@ -2420,8 +2458,10 @@ function renderPartenairesAdmin() {
         </div>
       </div>
       <div class="data-actions">
+        ${(p.nom === 'Hexelya' && !superAdminActif) ? '<span class="badge badge-neutral">Géré par le Super Admin</span>' : `
         <button class="btn-sm" onclick="window.editerPartenaire('${p.id}')">Modifier</button>
         <button class="btn-sm danger" onclick="window.supprimerPartenaire('${p.id}')">Supprimer</button>
+        `}
       </div>
     </div>`).join('');
 }
@@ -4750,6 +4790,11 @@ function ouvrirModalMonCompte(oblige) {
           <button class="btn-sm primary" id="cpt-mdp-save">Changer mon mot de passe</button>
         </div>
         <p id="cpt-mdp-statut" style="font-size:0.85rem; color:var(--slate); margin-top:8px;"></p>
+        ${oblige ? `<p style="font-size:0.8rem; color:var(--slate); margin-top:14px; padding-top:12px; border-top:1px solid #E3E7EB;">
+          ${superAdminActif
+            ? 'Mot de passe actuel oublié ? Aucun moyen de le récupérer depuis le site — va dans la Console Firebase (Authentication → Users) pour forcer un nouveau mot de passe sur ce compte.'
+            : 'Mot de passe actuel oublié ? <a href="https://wa.me/32497268303" target="_blank" rel="noopener">Contactez Hélène sur WhatsApp</a> — elle seule peut forcer un nouveau mot de passe sur ce compte.'}
+        </p>` : ''}
       </div>
     </div>`;
   if (oblige) {
@@ -4960,6 +5005,44 @@ document.getElementById('btnRepararApercusMessages')?.addEventListener('click', 
     chargerConversations();
   } catch (err) {
     zone.textContent = 'Erreur pendant la réparation : ' + err.message;
+  }
+  btn.disabled = false;
+});
+
+document.getElementById('btnCreerCompteDemoHexelya')?.addEventListener('click', async () => {
+  const zone = document.getElementById('creerCompteDemoHexelyaResultat');
+  const btn = document.getElementById('btnCreerCompteDemoHexelya');
+  const dejaLa = currentMembres.some(m => m.identifiant === 'Hexelya') || currentMembresArchives.some(m => m.identifiant === 'Hexelya');
+  if (dejaLa) { zone.textContent = 'Le compte démo "Hexelya" existe déjà.'; return; }
+  if (!confirm('Créer le compte de démonstration "Hexelya" (identifiant Hexelya, mot de passe hexelya) ?')) return;
+  btn.disabled = true;
+  zone.textContent = 'Création en cours...';
+  const identifiant = 'Hexelya';
+  const mdp = 'hexelya';
+  const email = identifiantVersEmail(identifiant);
+  // Création via une instance Firebase secondaire pour ne pas déconnecter
+  // la session Super Admin en cours (même principe que pour un membre
+  // normal).
+  const secondaryApp = initializeApp(auth.app.options, 'secondaire-' + Date.now());
+  const secondaryAuth = getAuthSecondary(secondaryApp);
+  try {
+    await setPersistence(secondaryAuth, inMemoryPersistence);
+    const cred = await createUserWithEmailAndPassword(secondaryAuth, email, mdp);
+    await setDoc(doc(db, 'membres', cred.user.uid), {
+      nomMaitre: 'Hexelya (compte démo)',
+      gsm: '', email: '', adressePostale: '', dateAnniversaire: '',
+      chiens: [], identifiant, motDePasseInitial: mdp,
+      role: 'membre', archive: false,
+      accesCours: true, accesDogSitting: true, accesBoutique: true,
+      dateInscription: serverTimestamp()
+    });
+    await signOutSecondary(secondaryAuth);
+    await deleteApp(secondaryApp);
+    zone.textContent = 'Compte démo "Hexelya" créé avec succès.';
+    chargerMembres();
+  } catch (err) {
+    try { await deleteApp(secondaryApp); } catch (e2) { /* déjà supprimée ou jamais créée */ }
+    zone.textContent = "Erreur : " + (err.code === 'auth/email-already-in-use' ? 'cet identifiant existe déjà.' : err.message);
   }
   btn.disabled = false;
 });
@@ -5216,9 +5299,9 @@ let currentDemandesInfo = [];
 // indépendantes (demandes d'info + livre d'or) sans que l'une n'efface
 // le signal de l'autre, même si leurs chargements se terminent dans un
 // ordre imprévisible.
-let etatsPointRougeMembres = { demandesInfo: false, livreOr: false };
+let etatsPointRougeMembres = { demandesInfo: false, livreOr: false, suppression: false };
 function majPointRougeMembres() {
-  const actif = etatsPointRougeMembres.demandesInfo || etatsPointRougeMembres.livreOr;
+  const actif = etatsPointRougeMembres.demandesInfo || etatsPointRougeMembres.livreOr || etatsPointRougeMembres.suppression;
   document.getElementById('tabMembresBtn')?.classList.toggle('has-unread', actif);
 }
 
@@ -5316,6 +5399,53 @@ async function chargerLivreOrAdmin() {
     </div>`;
   }).join('');
 }
+
+function renderDemandesSuppressionAdmin() {
+  const wrap = document.getElementById('listeDemandesSuppression');
+  if (!wrap) return;
+  const demandes = currentMembres.filter(m => m.demandeSuppression);
+
+  etatsPointRougeMembres.suppression = demandes.length > 0;
+  majPointRougeMembres();
+  document.getElementById('titreDemandesSuppression')?.classList.toggle('has-unread', demandes.length > 0);
+
+  if (demandes.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucune demande de suppression en cours.</div>';
+    return;
+  }
+  wrap.innerHTML = demandes.map(m => {
+    const dateLabel = m.dateDemandeSuppression ? new Date(m.dateDemandeSuppression).toLocaleDateString('fr-BE') : '';
+    return `
+    <div class="data-row" style="background:#FBEFDA;">
+      <div class="data-main">
+        <div class="data-title">${escapeHtml(m.nomMaitre)}</div>
+        <div class="data-sub">Demandé le ${dateLabel}</div>
+        <div class="data-sub" style="white-space:pre-wrap;">Motif : ${escapeHtml(m.motifSuppression || '')}</div>
+      </div>
+      <div class="data-actions">
+        <button class="btn-sm danger" onclick="window.validerSuppressionCompte('${m.id}')">Valider (archiver le compte)</button>
+        <button class="btn-sm" onclick="window.refuserSuppressionCompte('${m.id}')">Refuser</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+window.validerSuppressionCompte = async (id) => {
+  if (!confirm("Archiver ce compte suite à sa demande de suppression ? Il ne pourra plus se connecter, mais ses données (historique, paiements...) restent conservées.")) return;
+  await updateDoc(doc(db, 'membres', id), {
+    archive: true, demandeSuppression: false
+  });
+  chargerMembres().then(() => {
+    renderDemandesSuppressionAdmin();
+    chargerConversations(); chargerAnniversaires(); chargerCotisationsARenouveler(); chargerAbonnementsARenouveler(); chargerVaccinsARappeler();
+  });
+};
+
+window.refuserSuppressionCompte = async (id) => {
+  if (!confirm('Refuser cette demande de suppression ? Le membre garde son compte actif.')) return;
+  await updateDoc(doc(db, 'membres', id), { demandeSuppression: false });
+  chargerMembres().then(() => renderDemandesSuppressionAdmin());
+};
 
 window.approuverMessageLivreOr = async (id) => {
   await updateDoc(doc(db, 'livre_or', id), { approuve: true });

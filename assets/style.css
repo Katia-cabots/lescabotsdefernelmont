@@ -1,4 +1,4 @@
-/* © 2026 LES BEAUX CABOTS SRL. Tous droits réservés. Voir LICENSE.txt. */
+/* © 2026 Hélène Laruelle. Tous droits réservés. Voir LICENSE.txt. */
 
 /* ==========================================================================
    Les Cabots de Fernelmont — Charte graphique
@@ -652,20 +652,24 @@ blockquote.pull-quote {
 
 /* Logo personnel discret mais visible, bas droite, sur toutes les pages
    publiques — pas de nom ni d'infobulle au survol, juste le visuel. */
-.badge-hl {
+.badge-hl-link {
   position: fixed;
   bottom: 16px;
   right: 16px;
+  z-index: 40;
+  display: block;
+}
+.badge-hl {
   width: 64px;
   height: auto;
   opacity: 0.9;
   transition: opacity 0.2s ease, transform 0.2s ease;
-  z-index: 40;
   filter: drop-shadow(0 2px 6px rgba(0,0,0,0.2));
-  pointer-events: none;
+  display: block;
 }
+.badge-hl-link:hover .badge-hl { opacity: 1; transform: scale(1.06); }
 @media (max-width: 600px) {
-  .badge-hl { width: 48px; bottom: 12px; right: 12px; }
+  .badge-hl { width: 48px; }
 }
 
 /* Formulaire public "Demande d'information" (page Nous contacter) */
