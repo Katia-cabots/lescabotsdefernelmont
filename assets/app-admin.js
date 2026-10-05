@@ -130,6 +130,7 @@ onAuthStateChanged(auth, async (user) => {
     document.getElementById('versionTagCoin').textContent = VERSION_SITE;
     document.getElementById('versionTag').textContent = VERSION_SITE;
     document.getElementById('tabMotsDePasseBtn').classList.remove('hidden');
+    document.getElementById('tabMaintenanceBtn').classList.remove('hidden');
     document.getElementById('fraiseDiscrete')?.remove();
     // Appelée plus bas, APRÈS chargerMembres() — sinon elle tournait
     // avant que currentMembres soit rempli et n'affichait que les
@@ -524,8 +525,10 @@ function renderMembres() {
         <div class="data-sub">Identifiant : <strong>${escapeHtml(m.identifiant || '—')}</strong>${m.motDePasseInitial ? ` · Mot de passe : <strong>${escapeHtml(m.motDePasseInitial)}</strong>` : ''}</div>
       </div>
       <div class="data-actions">
+        ${(m.identifiant === 'Hexelya' && !superAdminActif) ? '' : `
         <button class="btn-sm" onclick="window.editerMembre('${m.id}')">Fiche</button>
-        ${(m.identifiant === 'Hexelya' && !superAdminActif) ? '' : `<button class="btn-sm danger" onclick="window.archiverMembre('${m.id}')">Archiver</button>`}
+        <button class="btn-sm danger" onclick="window.archiverMembre('${m.id}')">Archiver</button>
+        `}
       </div>
     </div>`;
   }).join('');
