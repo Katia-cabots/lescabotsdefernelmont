@@ -131,7 +131,9 @@ onAuthStateChanged(auth, async (user) => {
     document.getElementById('versionTag').textContent = VERSION_SITE;
     document.getElementById('tabMotsDePasseBtn').classList.remove('hidden');
     document.getElementById('fraiseDiscrete')?.remove();
-    chargerListeAdminsPourMdp();
+    // Appelée plus bas, APRÈS chargerMembres() — sinon elle tournait
+    // avant que currentMembres soit rempli et n'affichait que les
+    // comptes admin, jamais les membres (bug corrigé).
   } else {
     document.getElementById('versionTagCoin')?.remove();
     document.getElementById('versionTag')?.remove();
@@ -159,6 +161,7 @@ onAuthStateChanged(auth, async (user) => {
 
   await chargerGroupes();
   await chargerMembres();
+  if (estHeleneL) chargerListeAdminsPourMdp();
   await chargerServices();
   activerBlocsRepliables(document);
   chargerConversations();
@@ -2420,19 +2423,26 @@ async function chargerPartenairesAdmin() {
   // présent par défaut — recréé automatiquement s'il manque, pour
   // n'importe quel compte admin (mais reste protégé en écriture, voir
   // règles Firestore et affichage ci-dessous).
-  if (!currentPartenaires.some(p => p.nom === 'Hexelya')) {
+  const LOGO_HEXELYA = 'https://hexelya.web.app/logo-full.png';
+  const hexelyaExistant = currentPartenaires.find(p => p.nom === 'Hexelya');
+  if (!hexelyaExistant) {
     await addDoc(collection(db, 'partenaires'), {
       nom: 'Hexelya',
       adresse: '',
       apercu: 'Gestion administrative, comptabilité, RH et outils numériques sur mesure.',
       description: "Hexelya accompagne indépendants et petites structures dans leur administratif, leur comptabilité et la mise en place d'outils numériques adaptés à leurs besoins.",
-      photoURL: '',
+      photoURL: LOGO_HEXELYA,
       lien: 'https://hexelya.web.app/index.html',
       dateCreation: serverTimestamp()
     });
     const snap2 = await getDocs(collection(db, 'partenaires'));
     currentPartenaires = [];
     snap2.forEach(d => currentPartenaires.push({ id: d.id, ...d.data() }));
+  } else if (hexelyaExistant.photoURL !== LOGO_HEXELYA) {
+    // Complète/actualise automatiquement le logo (fiche créée avant son
+    // ajout, ou encore sur l'ancienne copie locale).
+    await updateDoc(doc(db, 'partenaires', hexelyaExistant.id), { photoURL: LOGO_HEXELYA });
+    hexelyaExistant.photoURL = LOGO_HEXELYA;
   }
 
   currentPartenaires.sort((a, b) => (a.nom || '').localeCompare(b.nom || '', 'fr'));
@@ -2458,7 +2468,7 @@ function renderPartenairesAdmin() {
         </div>
       </div>
       <div class="data-actions">
-        ${(p.nom === 'Hexelya' && !superAdminActif) ? '<span class="badge badge-neutral">Géré par le Super Admin</span>' : `
+        ${(p.nom === 'Hexelya' && !superAdminActif) ? '' : `
         <button class="btn-sm" onclick="window.editerPartenaire('${p.id}')">Modifier</button>
         <button class="btn-sm danger" onclick="window.supprimerPartenaire('${p.id}')">Supprimer</button>
         `}
