@@ -1,4 +1,4 @@
-<!-- © 2026 LES BEAUX CABOTS SRL. Tous droits réservés. Ce code ne peut être utilisé, copié ou modifié sans autorisation écrite. Voir LICENSE.txt. Contenu sous la responsabilité de Katia Renard. -->
+<!-- © 2026 Hélène Laruelle. Tous droits réservés. Ce code ne peut être utilisé, copié ou modifié sans autorisation écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt. Contenu du site sous la responsabilité de Katia Renard (LES BEAUX CABOTS SRL). -->
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -14,8 +14,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&family=Great+Vibes&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/style.css?v=V01-068">
-<link rel="stylesheet" href="assets/app.css?v=V01-068">
+<link rel="stylesheet" href="assets/style.css?v=V01-075">
+<link rel="stylesheet" href="assets/app.css?v=V01-075">
 </head>
 <body class="app-body">
 
@@ -38,6 +38,10 @@
     </div>
     <div class="anniv-ligne-fraises">🍓 💕 ✨ 🍓 💖 ✨ 🍓 💕 🍓</div>
   </div>
+</div>
+
+<div id="banniereAnniversaireOctobre" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img id="imgAnniversaireOctobre" src="" alt="Joyeux anniversaire, ma petite fraise d'amour" style="width:100%; height:auto; border-radius:20px; display:block;">
 </div>
 
 <main class="app-main">
@@ -100,6 +104,13 @@
       <div class="bloc-contenu" id="blocDemandesInfo">
         <p style="font-size:0.85rem; color:var(--slate); margin-bottom:10px;">Demandes envoyées depuis le formulaire public de la page "Nous contacter".</p>
         <div class="data-list" id="listeDemandesInfo"><div class="empty-state">...</div></div>
+      </div>
+    </div>
+    <div class="app-panel">
+      <h3 class="bloc-titre" id="titreDemandesSuppression" style="margin-top:0;">🗑️ Demandes de suppression de compte <span class="bloc-fleche">▾</span></h3>
+      <div class="bloc-contenu" id="blocDemandesSuppression">
+        <p style="font-size:0.85rem; color:var(--slate); margin-bottom:10px;">Un membre a demandé la suppression de son compte. Valider archive son compte (il ne pourra plus se connecter, ses données restent conservées) ; refuser annule sa demande.</p>
+        <div class="data-list" id="listeDemandesSuppression"><div class="empty-state">...</div></div>
       </div>
     </div>
     <div class="app-panel">
@@ -383,6 +394,11 @@
       <button class="btn-sm danger" id="btnRembourserCoursAnnules">Rechercher et rembourser</button>
       <p id="rembourserCoursAnnulesResultat" style="font-size:0.85rem; color:var(--slate); margin-top:10px;"></p>
       <hr style="margin:18px 0; border:none; border-top:1px solid #E3E7EB;">
+      <label style="font-size:0.9rem; font-weight:600; color:var(--navy-dark); display:block; margin-bottom:6px;">Compte de démonstration "Hexelya"</label>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:10px;">À créer une seule fois : compte membre vide (sans donnée réelle), identifiant "Hexelya", mot de passe "hexelya", utilisable comme exemple du site en portfolio. Protégé — ni l'archivage ni le changement de mot de passe ne sont possibles depuis le compte Admin de Katia.</p>
+      <button class="btn-sm primary" id="btnCreerCompteDemoHexelya">Créer le compte démo Hexelya</button>
+      <p id="creerCompteDemoHexelyaResultat" style="font-size:0.85rem; color:var(--slate); margin-top:10px;"></p>
+      <hr style="margin:18px 0; border:none; border-top:1px solid #E3E7EB;">
       <label style="font-size:0.9rem; font-weight:600; color:var(--navy-dark); display:block; margin-bottom:6px;">Recalculer les réservations Dog Sitting en cours (nouvelles règles de tarif)</label>
       <p style="color:var(--slate); font-size:0.85rem; margin-bottom:10px;">À utiliser une fois : recalcule le tarif (22€/25€ selon accès cours), le nombre de nuits (avec suppléments arrivée avant 14h / départ après 12h) et le total pour les réservations en attente ou validées dont l'acompte n'est pas encore validé. Les réservations déjà bloquées (acompte validé), refusées ou annulées ne sont jamais touchées.</p>
       <button class="btn-sm danger" id="btnRecalculerDogSitting">Recalculer</button>
@@ -403,7 +419,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script type="module" src="assets/app-admin.js?v=V01-068"></script>
+<script type="module" src="assets/app-admin.js?v=V01-075"></script>
 <div id="versionTagCoin" style="position:fixed; bottom:10px; right:14px; font-size:0.72rem; color:var(--slate-light); opacity:0.55; z-index:30; pointer-events:none; background:var(--white); padding:2px 6px; border-radius:4px;"></div>
 </body>
 </html>

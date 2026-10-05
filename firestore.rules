@@ -1,4 +1,4 @@
-// Projet Firebase : cabots-de-fernelmont-901ee — Site "Les Cabots de Fernelmont" — V01-065
+// Projet Firebase : cabots-de-fernelmont-901ee — Site "Les Cabots de Fernelmont" — V01-073
 // Convention de versionnage des livraisons : VJJ-NNN (JJ = numéro du jour de
 // travail sur ce site, pas la date calendaire ; NNN = numéro de livraison
 // dans cette journée de travail, repart à 001 à chaque nouveau jour de
@@ -14,6 +14,10 @@ service cloud.firestore {
       return estConnecte() &&
         get(/databases/$(database)/documents/membres/$(request.auth.uid)).data.role == 'admin';
     }
+    function estSuperAdmin() {
+      return estAdmin() &&
+        get(/databases/$(database)/documents/membres/$(request.auth.uid)).data.identifiant == 'HeleneL';
+    }
 
     function champsAutorisesMembre() {
       return request.resource.data.diff(resource.data).affectedKeys()
@@ -23,14 +27,21 @@ service cloud.firestore {
                   'trouveVia','trouveViaDetail','conducteurNom','conducteurGsm','conducteurEmail',
                   'reglementApprouve','reglementApprouveLe','reglementVersionApprouvee',
                   'enqueteRenseignementsSoumise','motDePasseInitial','derniereConnexion','derniereActivite',
-                  'dateDernierChangementMdp','dernierRdvVu']);
+                  'dateDernierChangementMdp','dernierRdvVu',
+                  'demandeSuppression','motifSuppression','dateDemandeSuppression']);
     }
 
     match /membres/{uid} {
+      // Le compte de démonstration "Hexelya" (identifiant "Hexelya") ne
+      // peut être modifié (archivage compris) ou supprimé que par le
+      // Super Admin — un Admin simple (Katia) ne peut ni l'archiver ni en
+      // changer le mot de passe.
       allow read: if estConnecte() && (request.auth.uid == uid || estAdmin());
       allow create: if estAdmin();
-      allow update: if estAdmin() || (estConnecte() && request.auth.uid == uid && champsAutorisesMembre());
-      allow delete: if estAdmin();
+      allow update: if estSuperAdmin()
+        || (estAdmin() && resource.data.identifiant != 'Hexelya')
+        || (estConnecte() && request.auth.uid == uid && champsAutorisesMembre());
+      allow delete: if estSuperAdmin() || (estAdmin() && resource.data.identifiant != 'Hexelya');
     }
 
     match /groupes/{id} {
@@ -225,9 +236,14 @@ service cloud.firestore {
 
     match /partenaires/{id} {
       // Page publique "Partenaires de confiance" — contenu géré uniquement
-      // par l'admin, visible par tous (membres ou non).
+      // par l'admin, visible par tous (membres ou non). Le partenaire
+      // "Hexelya" (pub du site de la développeuse) ne peut être modifié
+      // ou supprimé que par le Super Admin, jamais par un simple Admin —
+      // que ce soit par ce champ actuel OU l'ancien (en cas de modif du
+      // nom lui-même par un Admin pour contourner la protection).
       allow read: if true;
-      allow write: if estAdmin();
+      allow create: if estAdmin();
+      allow update, delete: if estAdmin() && (resource.data.nom != 'Hexelya' || estSuperAdmin());
     }
 
     match /demandes_info/{id} {

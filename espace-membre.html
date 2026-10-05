@@ -1,4 +1,4 @@
-<!-- © 2026 LES BEAUX CABOTS SRL. Tous droits réservés. Ce code ne peut être utilisé, copié ou modifié sans autorisation écrite. Voir LICENSE.txt. Contenu sous la responsabilité de Katia Renard. -->
+<!-- © 2026 Hélène Laruelle. Tous droits réservés. Ce code ne peut être utilisé, copié ou modifié sans autorisation écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt. Contenu du site sous la responsabilité de Katia Renard (LES BEAUX CABOTS SRL). -->
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -14,13 +14,13 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/style.css?v=V01-068">
-<link rel="stylesheet" href="assets/app.css?v=V01-068">
+<link rel="stylesheet" href="assets/style.css?v=V01-075">
+<link rel="stylesheet" href="assets/app.css?v=V01-075">
 </head>
 <body class="app-body">
 
 <div class="app-topbar">
-  <div class="app-title">Bonjour <span id="membreNom">...</span> <small>Espace membre — <span id="chienNom"></span> · <span id="versionTag" style="opacity:0.6;"></span></small></div>
+  <div class="app-title">Bonjour <span id="membreNom">...</span> <small>Espace membre — <span id="chienNom"></span></small></div>
   <div style="display:flex; align-items:center; gap:8px;">
     <button class="btn-sm" id="logoutBtn" style="background:transparent; border-color:rgba(255,255,255,0.4); color:#fff;">Déconnexion</button>
     <a class="app-home-link" href="index.html" title="Retour au site" aria-label="Retour au site">⌂</a>
@@ -58,6 +58,11 @@
       <h2 style="color:#8A2E2E;">⚠️ Règlement d'ordre intérieur non signé</h2>
       <p style="color:#8A2E2E; margin-bottom:10px;">Merci de lire et d'approuver le règlement du club — c'est nécessaire pour la validité de votre inscription.</p>
       <button class="btn-sm primary" id="btnAllerAuReglement">Voir le règlement</button>
+    </div>
+
+    <div class="app-panel hidden" id="blocAvertissementMdp" style="background:#FFF7E6; border:1px solid #F0D9A0;">
+      <h2>🔒 Changement de mot de passe bientôt requis</h2>
+      <p style="color:var(--ink); margin-bottom:10px;">Le <strong id="dateLimiteMdpAffichee"></strong>, un changement de mot de passe vous sera demandé (sécurité du club, chaque trimestre). <strong>Assurez-vous de bien vous souvenir de votre mot de passe actuel</strong> avant cette date — sans lui, le changement sera impossible. Vous pouvez aussi le changer dès maintenant, tranquillement, depuis "Mon profil".</p>
     </div>
 
     <div class="app-panel" id="blocNotifications">
@@ -164,6 +169,20 @@
       <p id="mp-statut" style="font-size:0.85rem; color:var(--slate); margin-top:10px;"></p>
       <button class="btn-sm primary" id="mp-enregistrer" style="margin-top:8px;">Enregistrer mon profil</button>
     </div>
+
+    <div class="app-panel" id="mp-blocSuppression">
+      <h3 class="bloc-titre replie">🗑️ Supprimer mon compte <span class="bloc-fleche">▾</span></h3>
+      <div class="bloc-contenu replie">
+        <div id="mp-suppressionActive" class="hidden">
+          <p style="color:var(--slate);">Votre demande de suppression de compte a été envoyée à Katia le <span id="mp-dateDemandeSuppression"></span>. Elle sera traitée prochainement.</p>
+        </div>
+        <div id="mp-suppressionFormulaire">
+          <p style="color:var(--slate); font-size:0.85rem; margin-bottom:10px;">Cette demande sera transmise à Katia, qui devra la valider. Une fois validé, vous ne pourrez plus vous connecter à votre espace membre.</p>
+          <div class="field"><label>Motif (obligatoire)</label><textarea id="mp-motifSuppression" rows="3" style="resize:vertical;" placeholder="ex: déménagement, changement de club..."></textarea></div>
+          <button class="btn-sm danger" id="mp-demanderSuppression">Demander la suppression de mon compte</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ==================== MON CHIEN ==================== -->
@@ -219,6 +238,11 @@
         <input type="text" id="chatInputMembre" placeholder="Écrire un message...">
         <button class="btn-sm primary" id="chatSendMembre">Envoyer</button>
       </div>
+    </div>
+
+    <div class="app-panel">
+      <h3 style="margin-top:0;">Un souci technique avec le site ?</h3>
+      <p style="color:var(--slate); font-size:0.9rem;">Pour un bug ou un problème lié au fonctionnement du site lui-même (pas une question sur les cours ou le club, à envoyer plutôt ci-dessus à Katia), écrivez directement à Hélène, la développeuse du site : <a href="mailto:helene.laruelle@gmail.com">helene.laruelle@gmail.com</a></p>
     </div>
   </div>
 
@@ -392,6 +416,6 @@
   });
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script type="module" src="assets/app-membre.js?v=V01-068"></script>
+<script type="module" src="assets/app-membre.js?v=V01-075"></script>
 </body>
 </html>
