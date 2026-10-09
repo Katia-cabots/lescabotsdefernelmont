@@ -1,4 +1,4 @@
-// Projet Firebase : cabots-de-fernelmont-901ee — Site "Les Cabots de Fernelmont" — V01-073
+// Projet Firebase : cabots-de-fernelmont-901ee — Site "Les Cabots de Fernelmont" — V01-082
 // Convention de versionnage des livraisons : VJJ-NNN (JJ = numéro du jour de
 // travail sur ce site, pas la date calendaire ; NNN = numéro de livraison
 // dans cette journée de travail, repart à 001 à chaque nouveau jour de
@@ -36,7 +36,12 @@ service cloud.firestore {
       // peut être modifié (archivage compris) ou supprimé que par le
       // Super Admin — un Admin simple (Katia) ne peut ni l'archiver ni en
       // changer le mot de passe.
-      allow read: if estConnecte() && (request.auth.uid == uid || estAdmin());
+      // La fiche du Super Admin (identifiant "HeleneL") n'est lisible par
+      // un Admin simple que si c'est sa propre fiche (uid == uid) — jamais
+      // via l'accès "admin" général, pour qu'un Admin ne puisse jamais lire
+      // le mot de passe en clair (motDePasseInitial) du Super Admin.
+      allow read: if estConnecte() && (request.auth.uid == uid || estSuperAdmin() ||
+        (estAdmin() && resource.data.identifiant != 'HeleneL'));
       allow create: if estAdmin();
       allow update: if estSuperAdmin()
         || (estAdmin() && resource.data.identifiant != 'Hexelya')
@@ -52,8 +57,23 @@ service cloud.firestore {
     match /presences/{id} {
       // Un membre ne peut lire/écrire QUE ses propres présences (jamais
       // celles des autres membres) — l'admin garde un accès complet.
+      // "compteAbonnement" est EXCLU des champs qu'un membre peut écrire :
+      // c'est le champ qui décide si un cours est décompté de son
+      // abonnement, calculé uniquement par traiterAbsencesAutomatiques()
+      // côté admin — sans cette exclusion, un membre pourrait s'écrire
+      // lui-même compteAbonnement:true pour que ce rattrapage ignore sa
+      // présence et ne décompte jamais le cours. Pour la même raison, une
+      // demande d'annulation ne peut être CRÉÉE par le membre qu'au statut
+      // "attente" — seul l'admin peut la faire passer à "validee"/"refusee".
       allow read: if estConnecte() && (resource.data.uid == request.auth.uid || estAdmin());
-      allow create, update: if estAdmin() || (estConnecte() && request.resource.data.uid == request.auth.uid);
+      allow create: if estAdmin() || (estConnecte() && request.resource.data.uid == request.auth.uid &&
+        request.resource.data.keys().hasOnly(
+          ['groupeId','uid','dateISO','statut','repondu','demandeAnnulationMotif','demandeAnnulationStatut','demandeAnnulationDate']) &&
+        (!('demandeAnnulationStatut' in request.resource.data) || request.resource.data.demandeAnnulationStatut == 'attente'));
+      allow update: if estAdmin() || (estConnecte() && resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['groupeId','uid','dateISO','statut','repondu','demandeAnnulationMotif','demandeAnnulationStatut','demandeAnnulationDate']) &&
+        (!('demandeAnnulationStatut' in request.resource.data) || request.resource.data.demandeAnnulationStatut == 'attente'));
       allow delete: if estAdmin();
     }
 
@@ -109,8 +129,12 @@ service cloud.firestore {
       // Un membre ne peut lire/écrire QUE ses propres réponses de RDV
       // (jamais qui d'autre vient, combien de personnes, ni le statut de
       // paiement des autres) — l'admin garde un accès complet.
+      // "paiementValide" ne peut jamais être mis à true par le membre
+      // lui-même (seul Katia valide un paiement reçu) — il peut seulement
+      // signaler "paye:true" (voir signalerPaiementRdv côté membre).
       allow read: if estConnecte() && (resource.data.uid == request.auth.uid || estAdmin());
-      allow create, update: if estAdmin() || (estConnecte() && request.resource.data.uid == request.auth.uid);
+      allow create, update: if estAdmin() || (estConnecte() && request.resource.data.uid == request.auth.uid &&
+        request.resource.data.paiementValide == false);
       allow delete: if estAdmin();
     }
 
@@ -152,8 +176,13 @@ service cloud.firestore {
     }
 
     match /commandes/{id} {
+      // Une commande est toujours créée au statut "en_attente" — seul
+      // l'admin peut ensuite la faire passer à "validee"/"annulee" (update
+      // déjà réservé à l'admin ci-dessous), pour qu'un membre ne puisse pas
+      // créer directement une commande déjà marquée validée.
       allow read: if estConnecte() && (resource.data.membreId == request.auth.uid || estAdmin());
-      allow create: if estConnecte() && request.resource.data.membreId == request.auth.uid;
+      allow create: if estConnecte() && request.resource.data.membreId == request.auth.uid &&
+        request.resource.data.statut == 'en_attente';
       allow update, delete: if estAdmin();
     }
 
@@ -204,8 +233,13 @@ service cloud.firestore {
     }
 
     match /precommandes/{id} {
+      // "vu" doit toujours rester à false quand c'est le membre qui
+      // écrit sa précommande (création ou modification avant clôture) —
+      // sinon il pourrait la marquer "vue" lui-même et faire disparaître
+      // le point rouge d'alerte chez Katia avant qu'elle ne l'ait vue.
       allow read: if estConnecte() && (resource.data.membreId == request.auth.uid || estAdmin());
-      allow create, update: if estConnecte() && request.resource.data.membreId == request.auth.uid;
+      allow create, update: if estConnecte() && request.resource.data.membreId == request.auth.uid &&
+        request.resource.data.vu == false;
       // L'admin peut aussi marquer une précommande "vue" (point rouge sur
       // l'onglet Boutique), sans pouvoir changer les lignes/quantités.
       allow update: if estAdmin() &&
