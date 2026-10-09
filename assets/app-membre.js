@@ -532,9 +532,13 @@ async function afficherProchainsCours() {
       }
     } else if (delaiDepasse) {
       // Le délai de 24h avant le cours est dépassé sans réponse : absence automatique.
+      // "compteAbonnement" n'est plus écrit ici volontairement (voir
+      // firestore.rules) : c'est traiterAbsencesAutomatiques(), côté admin,
+      // qui le met à true et décompte réellement l'abonnement — un membre
+      // ne doit jamais pouvoir écrire ce champ lui-même.
       await setDoc(doc(db, 'presences', clePres), {
         groupeId: groupeData.id, uid: membreUid, dateISO, statut: 'absent-auto',
-        repondu: new Date().toISOString(), compteAbonnement: false
+        repondu: new Date().toISOString()
       });
       statutHtml = '<span class="badge badge-warn">Pas de réponse dans les délais — comptabilisé(e) absent(e), ce cours compte dans votre abonnement.</span>';
     } else if ((membreData.coursRestants ?? 0) <= 0) {
