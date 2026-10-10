@@ -14,8 +14,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&family=Great+Vibes&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/style.css?v=V01-082">
-<link rel="stylesheet" href="assets/app.css?v=V01-082">
+<link rel="stylesheet" href="assets/style.css?v=V01-085">
+<link rel="stylesheet" href="assets/app.css?v=V01-085">
 </head>
 <body class="app-body">
 
@@ -40,8 +40,13 @@
   </div>
 </div>
 
-<div id="banniereAnniversaireOctobre" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+<div id="banniereAnniversaireOctobre" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px; position:relative;">
   <img id="imgAnniversaireOctobre" src="" alt="Joyeux anniversaire, ma petite fraise d'amour" style="width:100%; height:auto; border-radius:20px; display:block;">
+  <!-- Le compte à rebours (J-N) n'est plus écrit en dur dans l'image (qui est
+       réutilisée plusieurs jours de suite) : il est calculé par JS à chaque
+       chargement pour ne jamais être faux — voir afficherMeteoDuJour... non,
+       voir le bloc onAuthStateChanged dans app-admin.js. -->
+  <div id="texteCompteARebours" class="hidden" style="position:absolute; top:4.5%; left:0; right:0; text-align:center; color:#fff; font-weight:800; font-size:clamp(11px,1.6vw,15px); letter-spacing:0.06em; text-shadow:0 1px 3px rgba(0,0,0,0.25);"></div>
 </div>
 
 <main class="app-main">
@@ -423,7 +428,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script type="module" src="assets/app-admin.js?v=V01-082"></script>
+<script type="module" src="assets/app-admin.js?v=V01-085"></script>
 <div id="versionTagCoin" style="position:fixed; bottom:10px; right:14px; font-size:0.72rem; color:var(--slate-light); opacity:0.55; z-index:30; pointer-events:none; background:var(--white); padding:2px 6px; border-radius:4px;"></div>
 </body>
 </html>
