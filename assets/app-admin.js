@@ -160,6 +160,7 @@ onAuthStateChanged(auth, async (user) => {
     if (mois === 9 && jour >= 10 && jour <= 14) { // 9 = octobre (0-indexé)
       const img = document.getElementById('imgAnniversaireOctobre');
       const texte = document.getElementById('texteCompteARebours');
+      const badgeCoeur = document.getElementById('badgeCoeurCompteARebours');
       if (jour === 14) {
         // Image spéciale "Joyeux 1 an de nous" : contient "1 an" figé dans
         // la photo — valable UNIQUEMENT pour 2026 (leur premier
@@ -172,12 +173,20 @@ onAuthStateChanged(auth, async (user) => {
         const annee = aujourdhui.getFullYear();
         img.src = (annee === 2026) ? 'assets/anniv-14oct-2026.jpg' : 'assets/anniv-14oct-generique.jpg';
         texte?.classList.add('hidden');
+        badgeCoeur?.classList.add('hidden');
       } else {
-        img.src = 'assets/anniv-octobre-fond.png';
+        // Photo "coeur + étiquette bois" (anniv-14oct-2026, image envoyée le
+        // 10/10) : la date "avant le 14/10/2026" reste figée dans la photo
+        // (correcte toute cette période, pas besoin d'être dynamique), mais
+        // le "J-4" d'origine était lui aussi figé dans la photo — remplacé
+        // ici par un badge rond calculé par JS, posé par-dessus le coeur,
+        // pour afficher le bon chiffre les 4 jours (J-4 à J-1).
+        img.src = 'assets/anniv-compte-coeur.jpg';
+        texte?.classList.add('hidden');
         const joursRestants = 14 - jour;
-        if (texte) {
-          texte.textContent = `J-${joursRestants} · 14 OCTOBRE`;
-          texte.classList.remove('hidden');
+        if (badgeCoeur) {
+          badgeCoeur.querySelector('span').textContent = `J-${joursRestants}`;
+          badgeCoeur.classList.remove('hidden');
         }
       }
       document.getElementById('banniereAnniversaireOctobre')?.classList.remove('hidden');
