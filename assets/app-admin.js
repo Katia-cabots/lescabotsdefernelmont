@@ -151,16 +151,15 @@ onAuthStateChanged(auth, async (user) => {
     }
 
     // 🍓❤️ Notre anniversaire à nous (14 octobre) — même principe,
-    // exclusivement sur le compte de Katia. Compte à rebours du 10 au 13,
-    // visuel différent le jour J. Le nombre "J-N" n'est PLUS écrit en dur
-    // dans l'image (bug corrigé le 10/10 : l'image "compte-a-rebours" étant
-    // réutilisée 4 jours de suite, un texte figé dedans était forcément faux
-    // 3 jours sur 4) — il est recalculé ici à chaque chargement et affiché
-    // par-dessus l'image via #texteCompteARebours.
+    // exclusivement sur le compte de Katia. Une vraie photo par jour de
+    // compte à rebours (assets/anniv-compte-JN.jpg, le "J-N" est DANS la
+    // photo, fournie par Hélène) + une photo différente le jour J. Aucun
+    // texte calculé/superposé : on choisit juste le bon fichier. Fonctionne
+    // pour n'importe quel nombre de jours de compte à rebours tant que le
+    // fichier correspondant existe (ajouter anniv-compte-J5.jpg, etc. si on
+    // veut démarrer plus tôt une année).
     if (mois === 9 && jour >= 10 && jour <= 14) { // 9 = octobre (0-indexé)
       const img = document.getElementById('imgAnniversaireOctobre');
-      const texte = document.getElementById('texteCompteARebours');
-      const badgeCoeur = document.getElementById('badgeCoeurCompteARebours');
       if (jour === 14) {
         // Image spéciale "Joyeux 1 an de nous" : contient "1 an" figé dans
         // la photo — valable UNIQUEMENT pour 2026 (leur premier
@@ -172,22 +171,9 @@ onAuthStateChanged(auth, async (user) => {
         // aucun chiffre précis.
         const annee = aujourdhui.getFullYear();
         img.src = (annee === 2026) ? 'assets/anniv-14oct-2026.jpg' : 'assets/anniv-14oct-generique.jpg';
-        texte?.classList.add('hidden');
-        badgeCoeur?.classList.add('hidden');
       } else {
-        // Photo "coeur + étiquette bois" (anniv-14oct-2026, image envoyée le
-        // 10/10) : la date "avant le 14/10/2026" reste figée dans la photo
-        // (correcte toute cette période, pas besoin d'être dynamique), mais
-        // le "J-4" d'origine était lui aussi figé dans la photo — remplacé
-        // ici par un badge rond calculé par JS, posé par-dessus le coeur,
-        // pour afficher le bon chiffre les 4 jours (J-4 à J-1).
-        img.src = 'assets/anniv-compte-coeur.jpg';
-        texte?.classList.add('hidden');
         const joursRestants = 14 - jour;
-        if (badgeCoeur) {
-          badgeCoeur.querySelector('span').textContent = `J-${joursRestants}`;
-          badgeCoeur.classList.remove('hidden');
-        }
+        img.src = `assets/anniv-compte-J${joursRestants}.jpg`;
       }
       document.getElementById('banniereAnniversaireOctobre')?.classList.remove('hidden');
     }
