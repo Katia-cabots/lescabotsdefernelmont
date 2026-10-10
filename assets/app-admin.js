@@ -152,10 +152,34 @@ onAuthStateChanged(auth, async (user) => {
 
     // 🍓❤️ Notre anniversaire à nous (14 octobre) — même principe,
     // exclusivement sur le compte de Katia. Compte à rebours du 10 au 13,
-    // visuel différent le jour J.
+    // visuel différent le jour J. Le nombre "J-N" n'est PLUS écrit en dur
+    // dans l'image (bug corrigé le 10/10 : l'image "compte-a-rebours" étant
+    // réutilisée 4 jours de suite, un texte figé dedans était forcément faux
+    // 3 jours sur 4) — il est recalculé ici à chaque chargement et affiché
+    // par-dessus l'image via #texteCompteARebours.
     if (mois === 9 && jour >= 10 && jour <= 14) { // 9 = octobre (0-indexé)
       const img = document.getElementById('imgAnniversaireOctobre');
-      img.src = jour === 14 ? 'assets/anniv-octobre-jour-j.png' : 'assets/anniv-octobre-compte-a-rebours.png';
+      const texte = document.getElementById('texteCompteARebours');
+      if (jour === 14) {
+        // Image spéciale "Joyeux 1 an de nous" : contient "1 an" figé dans
+        // la photo — valable UNIQUEMENT pour 2026 (leur premier
+        // anniversaire). À partir de 2027, bascule automatiquement sur
+        // l'image générique "Un an de plus..." (anniv-14oct-generique.jpg)
+        // — celle-ci est volontairement réutilisable chaque année : la
+        // date "14/10/2025" qui y figure est la date de leur rencontre
+        // (fixe, elle ne change jamais), et "Un an de plus..." ne cite
+        // aucun chiffre précis.
+        const annee = aujourdhui.getFullYear();
+        img.src = (annee === 2026) ? 'assets/anniv-14oct-2026.jpg' : 'assets/anniv-14oct-generique.jpg';
+        texte?.classList.add('hidden');
+      } else {
+        img.src = 'assets/anniv-octobre-fond.png';
+        const joursRestants = 14 - jour;
+        if (texte) {
+          texte.textContent = `J-${joursRestants} · 14 OCTOBRE`;
+          texte.classList.remove('hidden');
+        }
+      }
       document.getElementById('banniereAnniversaireOctobre')?.classList.remove('hidden');
     }
   }
