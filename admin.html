@@ -14,8 +14,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&family=Great+Vibes&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/style.css?v=V01-087">
-<link rel="stylesheet" href="assets/app.css?v=V01-087">
+<link rel="stylesheet" href="assets/style.css?v=V01-096">
+<link rel="stylesheet" href="assets/app.css?v=V01-096">
 </head>
 <body class="app-body">
 
@@ -47,6 +47,111 @@
        onAuthStateChanged dans app-admin.js) — fonctionne pour n'importe quel
        nombre de jours tant que le fichier assets/anniv-compte-JN.jpg existe. -->
   <img id="imgAnniversaireOctobre" src="" alt="Joyeux anniversaire, ma petite fraise d'amour" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+
+<!-- Bannières Noël / Nouvel An côté admin, réservées à Katia (comme la
+     bannière d'anniversaire ci-dessus) : 20→25 décembre inclus, puis
+     28 décembre→2 janvier inclus. Voir onAuthStateChanged dans app-admin.js. -->
+<div id="banniereNoelAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-noel-admin.jpg" alt="Joyeux Noël, ma petite fraise d'amour" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniereNouvelAnAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-nouvelan-admin.jpg" alt="Bonne et heureuse année, ma petite fraise" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+
+<!-- Bannières "dates à nous" côté admin, réservées à Katia (même principe
+     que ci-dessus) : 3→4 septembre inclus (soir du RDV restaurant), puis
+     14 février (Saint-Valentin) et 26 juillet (anniversaire de leur
+     première conversation). Voir onAuthStateChanged dans app-admin.js. -->
+<div id="banniereSeptAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-sept-admin.jpg" alt="RDV au Bon Plan à Andenne" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere14FevAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-14fev-admin.jpg" alt="Joyeuse Saint-Valentin, ma petite fraise d'amour" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere26JuilletAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-26juillet-admin.jpg" alt="26 juillet, première papote entre nous deux" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+
+<!-- Bannière générique "14 du mois" côté admin, réservée à Katia : une
+     vraie photo par mois (assets/anniv-14-{mois}-admin.jpg, le "14" est
+     dans la photo), pour chaque 14 du mois SAUF le 14 octobre (bannière
+     dédiée ci-dessus) et le 14 février (bannière Saint-Valentin dédiée
+     ci-dessus). Le choix du fichier est calculé par JS. -->
+<div id="banniere14MoisAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img id="imgBanniere14Mois" src="" alt="Le 14 du mois, ma petite fraise" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+
+<!-- Autres dates ponctuelles côté admin, réservées à Katia (même
+     principe) : 20 mars (printemps), 6 juillet (journée du baiser),
+     1er octobre (journée du café), 13 novembre (journée de la
+     gentillesse). Voir onAuthStateChanged dans app-admin.js. -->
+<div id="banniere20MarsAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-20mars-admin.jpg" alt="Le printemps arrive" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere6JuilletAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-6juillet-admin.jpg" alt="Journée internationale du Baiser" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere1OctobreAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-1octobre-admin.jpg" alt="Journée internationale du Café" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere13NovembreAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-13novembre-admin.jpg" alt="Journée mondiale de la Gentillesse" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere11JuilletAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-11juillet-admin.jpg" alt="Journée nationale du Mojito" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere25NovembreAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-25novembre-admin.jpg" alt="Sainte-Katia" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere26AoutAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-26aout-chien-admin.jpg" alt="Journée internationale du Chien" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere4DecAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-4dec-saintecookie-admin.jpg" alt="Sainte Cookie" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere11JuilletOlgaAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-11juillet-sainteolga-admin.jpg" alt="Sainte Olga" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere26FevAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-26fev-saintepistache-admin.jpg" alt="Sainte Pistache" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere19AoutAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-19aout-saintesarah-admin.jpg" alt="Sainte Sarah" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+
+<!-- Fête des Mères (Belgique) côté admin, réservée à Katia : la date
+     varie chaque année (2e dimanche de mai), donc une vraie photo par
+     année (assets/anniv-fetedesmeres-{année}-admin.jpg) plutôt qu'une
+     seule date fixe. Rien ne s'affiche pour une année non couverte —
+     ajouter le fichier correspondant pour l'étendre. Voir
+     onAuthStateChanged dans app-admin.js. -->
+<div id="banniereFeteDesMeresAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img id="imgBanniereFeteDesMeres" src="" alt="Bonne fête à toutes les Mamans" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere27FevAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-27fev-fraise-admin.jpg" alt="Journée internationale de la Fraise" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere21JanvierAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-21janvier-calin-admin.jpg" alt="Journée internationale du Câlin" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere16AoutAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-16aout-rhum-admin.jpg" alt="Journée internationale du Rhum" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere22AvrilAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-22avril-amour-admin.jpg" alt="Journée internationale de l'Amour" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere1AoutAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-1aout-petiteamie-admin.jpg" alt="Journée internationale de la Petite Amie" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere9AoutAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-9aout-saintamour-admin.jpg" alt="La Saint-Amour" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere18AoutAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-18aout-couples-admin.jpg" alt="Journée nationale des Couples" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere3OctobreAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-3octobre-couples-admin.jpg" alt="Journée internationale des Couples" style="width:100%; height:auto; border-radius:20px; display:block;">
 </div>
 
 <main class="app-main">
@@ -428,7 +533,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script type="module" src="assets/app-admin.js?v=V01-087"></script>
+<script type="module" src="assets/app-admin.js?v=V01-096"></script>
 <div id="versionTagCoin" style="position:fixed; bottom:10px; right:14px; font-size:0.72rem; color:var(--slate-light); opacity:0.55; z-index:30; pointer-events:none; background:var(--white); padding:2px 6px; border-radius:4px;"></div>
 </body>
 </html>
