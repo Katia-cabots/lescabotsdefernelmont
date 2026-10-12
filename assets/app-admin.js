@@ -2475,20 +2475,71 @@ async function chargerArticles() {
   if (articles.length === 0) {
     wrap.innerHTML = '<div class="empty-state">Aucun article pour l\'instant.</div>';
   } else {
-    wrap.innerHTML = articles.map(a => `
+    const aujourdhui = dateISOLocale(new Date());
+    wrap.innerHTML = articles.map(a => {
+      // Date "effective" de l'article pour le point rouge des membres :
+      // la publication, ou la dernière modification si plus récente — même
+      // calcul que côté membre (chargerBlogMembre() dans app-membre.js).
+      // Tant que cette date est celle d'AUJOURD'HUI, l'article s'affiche
+      // avec un point rouge sur l'onglet "Blog" pour tout membre qui n'a
+      // pas encore ouvert son blog aujourd'hui (quelle que soit sa propre
+      // dernière visite) — au-delà, ça dépend de la dernière visite propre
+      // à chaque membre et ne peut plus être résumé en un seul badge ici.
+      const dateEffective = (a.dateModification && a.dateModification > a.datePublication) ? a.dateModification : a.datePublication;
+      const badgeNouveau = dateEffective === aujourdhui
+        ? '<span class="badge badge-warn">🔴 Marqué "nouveau" pour les membres aujourd\'hui</span>'
+        : '';
+      return `
       <div class="data-row">
         <div class="data-main">
           <div class="data-title">${escapeHtml(a.titre)}</div>
-          <div class="data-sub">${a.datePublication || ''} · ${escapeHtml((a.contenu || '').slice(0, 80))}${(a.contenu||'').length > 80 ? '…' : ''}</div>
+          <div class="data-sub">Publié le ${a.datePublication || ''}${a.dateModification ? ` · modifié le ${a.dateModification}` : ''} · ${escapeHtml((a.contenu || '').slice(0, 80))}${(a.contenu||'').length > 80 ? '…' : ''}</div>
+          ${badgeNouveau ? `<div class="data-sub">${badgeNouveau}</div>` : ''}
         </div>
         <div class="data-actions">
+          <button class="btn-sm" onclick="window.apercuArticleMembre('${a.id}')">👁 Aperçu membre</button>
           <button class="btn-sm" onclick="window.editerArticle('${a.id}')">Modifier</button>
           <button class="btn-sm danger" onclick="window.archiverArticle('${a.id}')">Archiver</button>
         </div>
-      </div>`).join('');
+      </div>`;
+    }).join('');
   }
   renderArticlesArchives();
 }
+
+// Aperçu fidèle de ce que verra un membre dans son onglet "Blog" : même
+// rendu HTML que chargerBlogMembre() côté membre (app-membre.js), plus une
+// ligne indiquant si cet article déclenchera le point rouge aujourd'hui.
+window.apercuArticleMembre = async (id) => {
+  const d = await getDoc(doc(db, 'articles', id));
+  if (!d.exists()) return;
+  const a = { id: d.id, ...d.data() };
+  const aujourdhui = dateISOLocale(new Date());
+  const dateEffective = (a.dateModification && a.dateModification > a.datePublication) ? a.dateModification : a.datePublication;
+  const declenchePointRouge = dateEffective === aujourdhui;
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box" style="max-width:600px;">
+        <h3>👁 Aperçu — ce que verra le membre</h3>
+        <p style="color:var(--slate); font-size:0.8rem; margin-bottom:10px;">
+          ${declenchePointRouge
+            ? '🔴 Aujourd\'hui, cet article affiche un point rouge sur l\'onglet "Blog" de tout membre qui n\'a pas encore ouvert son blog aujourd\'hui.'
+            : 'Pas de point rouge "nouveau" lié à cet article aujourd\'hui (publié/modifié avant aujourd\'hui).'}
+        </p>
+        <div class="app-panel" style="margin-bottom:14px;">
+          ${a.image ? `<img src="${escapeHtml(a.image)}" alt="${escapeHtml(a.titre)}" style="width:100%; max-height:260px; object-fit:cover; border-radius:6px; margin-bottom:14px;">` : ''}
+          <h3 style="font-size:1.15rem;">${escapeHtml(a.titre)}</h3>
+          <p style="color:var(--slate); font-size:0.8rem; margin-bottom:10px;">${a.datePublication || ''}</p>
+          <p style="white-space:pre-wrap;">${texteAvecLiens(a.contenu)}</p>
+          ${a.lien ? `<a href="${escapeHtml(a.lien)}" target="_blank" rel="noopener noreferrer" class="btn-sm" style="display:inline-block; text-decoration:none; margin-top:10px;">🔗 En savoir plus</a>` : ''}
+        </div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="window.fermerModal()">Fermer</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+};
 
 function renderArticlesArchives() {
   const wrap = document.getElementById('listeArticlesArchives');
@@ -2562,6 +2613,12 @@ function ouvrirModalArticle(article) {
       datePublication: isEdit ? article.datePublication : dateISOLocale(new Date())
     };
     if (isEdit) {
+      // Une modification d'article republié doit, elle aussi, déclencher le
+      // point rouge "nouveau" sur l'onglet Blog des membres — pas seulement
+      // une toute nouvelle publication. On garde dateModification séparée
+      // de datePublication (jamais modifiée) pour ne jamais perdre la date
+      // de première publication affichée aux membres.
+      data.dateModification = dateISOLocale(new Date());
       await updateDoc(doc(db, 'articles', article.id), data);
     } else {
       await addDoc(collection(db, 'articles'), data);

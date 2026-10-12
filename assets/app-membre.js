@@ -1443,7 +1443,15 @@ async function chargerBlogMembre() {
       </div>`).join('');
   }
 
-  const dernierArticle = articles[0]?.datePublication || '';
+  // Un article republié (modifié par l'admin après sa publication initiale)
+  // doit, lui aussi, redéclencher le point rouge — pas seulement une toute
+  // nouvelle publication. On compare donc, pour chaque article, sa date de
+  // publication ET sa date de dernière modification (si plus récente), et
+  // on garde la plus récente des deux parmi tous les articles.
+  const dernierArticle = articles.reduce((plusRecente, a) => {
+    const dateEffective = (a.dateModification && a.dateModification > a.datePublication) ? a.dateModification : a.datePublication;
+    return (dateEffective || '') > plusRecente ? (dateEffective || '') : plusRecente;
+  }, '');
   const dernierVu = membreData.dernierBlogVu || '';
   document.getElementById('tabBlogBtn')?.classList.toggle('has-unread', dernierArticle > dernierVu);
 }
