@@ -142,6 +142,14 @@ onAuthStateChanged(auth, async (user) => {
 
   // 🍓💕 Surprise d'anniversaire — visible UNIQUEMENT sur le compte de
   // Katia (Admin), du 15 novembre au 21 novembre inclus.
+  // Tout ce bloc "bannières du jour" est volontairement protégé par un seul
+  // grand try/catch : ce sont de nombreuses petites conditions de date
+  // ajoutées au fil du temps, purement décoratives, et une erreur dans
+  // l'une d'elles (ex: un id d'image mal orthographié lors d'un futur
+  // ajout) ne doit JAMAIS empêcher la suite — chargement des groupes, des
+  // membres, des présences, etc. — de s'exécuter. Avant ce correctif, une
+  // telle erreur ici aurait bloqué TOUT le reste de l'admin pour Katia.
+  try {
   if (user.email === identifiantVersEmail('Admin')) {
     const aujourdhui = new Date();
     const mois = aujourdhui.getMonth(); // 10 = novembre (0-indexé)
@@ -160,23 +168,138 @@ onAuthStateChanged(auth, async (user) => {
     // veut démarrer plus tôt une année).
     if (mois === 9 && jour >= 10 && jour <= 14) { // 9 = octobre (0-indexé)
       const img = document.getElementById('imgAnniversaireOctobre');
-      if (jour === 14) {
-        // Image spéciale "Joyeux 1 an de nous" : contient "1 an" figé dans
-        // la photo — valable UNIQUEMENT pour 2026 (leur premier
-        // anniversaire). À partir de 2027, bascule automatiquement sur
-        // l'image générique "Un an de plus..." (anniv-14oct-generique.jpg)
-        // — celle-ci est volontairement réutilisable chaque année : la
-        // date "14/10/2025" qui y figure est la date de leur rencontre
-        // (fixe, elle ne change jamais), et "Un an de plus..." ne cite
-        // aucun chiffre précis.
-        const annee = aujourdhui.getFullYear();
-        img.src = (annee === 2026) ? 'assets/anniv-14oct-2026.jpg' : 'assets/anniv-14oct-generique.jpg';
-      } else {
-        const joursRestants = 14 - jour;
-        img.src = `assets/anniv-compte-J${joursRestants}.jpg`;
+      if (img) {
+        if (jour === 14) {
+          // Image spéciale "Joyeux 1 an de nous" : contient "1 an" figé dans
+          // la photo — valable UNIQUEMENT pour 2026 (leur premier
+          // anniversaire). À partir de 2027, bascule automatiquement sur
+          // l'image générique "Un an de plus..." (anniv-14oct-generique.jpg)
+          // — celle-ci est volontairement réutilisable chaque année : la
+          // date "14/10/2025" qui y figure est la date de leur rencontre
+          // (fixe, elle ne change jamais), et "Un an de plus..." ne cite
+          // aucun chiffre précis.
+          const annee = aujourdhui.getFullYear();
+          img.src = (annee === 2026) ? 'assets/anniv-14oct-2026.jpg' : 'assets/anniv-14oct-generique.jpg';
+        } else {
+          const joursRestants = 14 - jour;
+          img.src = `assets/anniv-compte-J${joursRestants}.jpg`;
+        }
       }
       document.getElementById('banniereAnniversaireOctobre')?.classList.remove('hidden');
     }
+
+    // 🎄🎆 Bannières Noël / Nouvel An, exclusivement sur le compte de
+    // Katia : 20→25 décembre inclus, puis 28 décembre→2 janvier inclus.
+    if (mois === 11 && jour >= 20 && jour <= 25) {
+      document.getElementById('banniereNoelAdmin')?.classList.remove('hidden');
+    }
+    if ((mois === 11 && jour >= 28) || (mois === 0 && jour <= 2)) {
+      document.getElementById('banniereNouvelAnAdmin')?.classList.remove('hidden');
+    }
+
+    // 🍓 Autres "dates à nous", exclusivement sur le compte de Katia :
+    // 3→4 septembre inclus (RDV restaurant), 14 février (Saint-Valentin)
+    // et 26 juillet (première papote).
+    if (mois === 8 && jour >= 3 && jour <= 4) { // 8 = septembre (0-indexé)
+      document.getElementById('banniereSeptAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 1 && jour === 14) { // 1 = février
+      document.getElementById('banniere14FevAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 6 && jour === 26) { // 6 = juillet
+      document.getElementById('banniere26JuilletAdmin')?.classList.remove('hidden');
+    }
+
+    // 🍓 Bannière générique "14 du mois", exclusivement sur le compte de
+    // Katia : une vraie photo par mois (le "14" est dans la photo), pour
+    // chaque 14 SAUF octobre (bannière dédiée ci-dessus) et février
+    // (bannière Saint-Valentin dédiée ci-dessus). Fonctionne pour
+    // n'importe lequel des mois listés tant que le fichier
+    // assets/anniv-14-{mois}-admin.jpg existe.
+    const moisFichier14 = ['janvier', null, 'mars', 'avril', 'mai', 'juin', 'juillet', 'aout', 'septembre', null, 'novembre', 'decembre'];
+    if (jour === 14 && moisFichier14[mois]) {
+      const imgMois = document.getElementById('imgBanniere14Mois');
+      if (imgMois) imgMois.src = `assets/anniv-14-${moisFichier14[mois]}-admin.jpg`;
+      document.getElementById('banniere14MoisAdmin')?.classList.remove('hidden');
+    }
+
+    // 🍓 Dates ponctuelles supplémentaires, exclusivement sur le compte de
+    // Katia : 20 mars (printemps), 6 juillet (journée du Baiser),
+    // 1er octobre (journée du Café), 13 novembre (journée de la
+    // Gentillesse).
+    if (mois === 2 && jour === 20) { // 2 = mars
+      document.getElementById('banniere20MarsAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 6 && jour === 6) { // 6 = juillet
+      document.getElementById('banniere6JuilletAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 9 && jour === 1) { // 9 = octobre
+      document.getElementById('banniere1OctobreAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 10 && jour === 13) { // 10 = novembre
+      document.getElementById('banniere13NovembreAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 6 && jour === 11) { // 6 = juillet
+      document.getElementById('banniere11JuilletAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 10 && jour === 25) { // 10 = novembre
+      document.getElementById('banniere25NovembreAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 7 && jour === 26) { // 7 = août
+      document.getElementById('banniere26AoutAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 11 && jour === 4) { // 11 = décembre
+      document.getElementById('banniere4DecAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 6 && jour === 11) { // 6 = juillet (en plus du Mojito, les deux s'affichent)
+      document.getElementById('banniere11JuilletOlgaAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 1 && jour === 26) { // 1 = février
+      document.getElementById('banniere26FevAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 7 && jour === 19) { // 7 = août
+      document.getElementById('banniere19AoutAdmin')?.classList.remove('hidden');
+    }
+
+    // 🌷 Fête des Mères (Belgique) : 2e dimanche de mai, une date
+    // différente chaque année — une vraie photo par année tant que le
+    // fichier assets/anniv-fetedesmeres-{année}-admin.jpg existe.
+    const dateFeteDesMeres = { 2026: [4, 9], 2028: [4, 14], 2029: [4, 13], 2030: [4, 12] }; // mois 0-indexé (4 = mai)
+    const anneeCourante = aujourdhui.getFullYear();
+    const feteMeres = dateFeteDesMeres[anneeCourante];
+    if (feteMeres && mois === feteMeres[0] && jour === feteMeres[1]) {
+      const imgMeres = document.getElementById('imgBanniereFeteDesMeres');
+      if (imgMeres) imgMeres.src = `assets/anniv-fetedesmeres-${anneeCourante}-admin.jpg`;
+      document.getElementById('banniereFeteDesMeresAdmin')?.classList.remove('hidden');
+    }
+
+    if (mois === 1 && jour === 27) { // 1 = février
+      document.getElementById('banniere27FevAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 0 && jour === 21) { // 0 = janvier
+      document.getElementById('banniere21JanvierAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 7 && jour === 16) { // 7 = août
+      document.getElementById('banniere16AoutAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 3 && jour === 22) { // 3 = avril
+      document.getElementById('banniere22AvrilAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 7 && jour === 1) { // 7 = août
+      document.getElementById('banniere1AoutAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 7 && jour === 9) { // 7 = août
+      document.getElementById('banniere9AoutAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 7 && jour === 18) { // 7 = août
+      document.getElementById('banniere18AoutAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 9 && jour === 3) { // 9 = octobre
+      document.getElementById('banniere3OctobreAdmin')?.classList.remove('hidden');
+    }
+  }
+  } catch (err) {
+    console.error('Erreur dans l\'affichage des bannières du jour (sans impact sur le reste de l\'admin) :', err);
   }
 
   await chargerGroupes();
@@ -200,18 +323,35 @@ onAuthStateChanged(auth, async (user) => {
 
   // Rattrapage des absences non répondues + décompte : potentiellement long
   // (beaucoup d'écritures la première fois), donc en arrière-plan, sans
-  // bloquer l'affichage du reste de la page. Protégé par try/catch pour
-  // qu'une erreur ici ne casse jamais le reste de l'admin.
+  // bloquer l'affichage du reste de la page. Chaque étape est protégée
+  // INDIVIDUELLEMENT (et plus seulement par un seul try/catch englobant) :
+  // avant ce correctif, une seule écriture en échec (membre supprimé,
+  // document corrompu...) faisait planter TOUTE la chaîne via le await
+  // en cascade, et donc sautait aussi bien le décompte que le
+  // rafraîchissement de l'écran — un membre pouvait alors rester affiché
+  // "n'a pas encore répondu" indéfiniment alors que le délai de 24h était
+  // bien dépassé, pendant que d'autres (déjà traités lors d'une exécution
+  // antérieure réussie) restaient correctement décomptés. D'où le
+  // rafraîchissement final placé dans un bloc "finally" : il a lieu même
+  // si une étape a échoué, pour que l'écran reflète toujours le mieux
+  // possible l'état réel de la base.
   (async () => {
     try {
       await corrigerAbsencesAvantInscription();
-      await detecterAbsencesNonRepondues();
-      await traiterAbsencesAutomatiques();
-      chargerCeSoir();
     } catch (err) {
-      console.error('Erreur rattrapage absences :', err);
+      console.error('Erreur rattrapage absences (correction avant inscription) :', err);
     }
-  })();
+    try {
+      await detecterAbsencesNonRepondues();
+    } catch (err) {
+      console.error('Erreur rattrapage absences (détection des non-réponses) :', err);
+    }
+    try {
+      await traiterAbsencesAutomatiques();
+    } finally {
+      chargerCeSoir();
+    }
+  })().catch(err => console.error('Erreur rattrapage absences (décompte) :', err));
   chargerBoutiqueAdmin();
   chargerDogSittingAdmin();
   chargerCampagnesAdmin();
@@ -2808,55 +2948,122 @@ async function detecterAbsencesNonRepondues() {
   const annulations = await chargerAnnulationsCache();
   const annulesCles = new Set(Object.keys(annulations));
 
+  // Changements d'horaire/date exceptionnels (pluie, chaleur...) : AVANT ce
+  // correctif, cette fonction ignorait complètement exceptions_horaire et
+  // calculait toujours le délai de 24h sur l'horaire par défaut du groupe
+  // (g.heureDebut) à sa date habituelle. Un cours exceptionnellement avancé,
+  // retardé ou déplacé à une autre date avait donc une échéance mal
+  // calculée ici (alors que l'espace membre et "Ce soir" géraient déjà
+  // correctement ces exceptions) : certains membres se retrouvaient
+  // "oubliés" par le rattrapage automatique, affichés indéfiniment comme
+  // "n'a pas encore répondu" dans la fiche du cours.
+  const exceptionsHoraire = await chargerExceptionsHoraireCache();
+
   const maintenant = new Date();
   const aCreer = [];
+  const occurrencesTraitees = new Set(); // "groupeId_dateISO" déjà traité, évite les doublons entre les deux passes ci-dessous
+
+  // Traite UNE occurrence effective de cours (groupe + date où il a RÉELLEMENT
+  // lieu + heure effective) : calcule le délai de 24h et programme la
+  // création des absences automatiques pour les membres n'ayant pas répondu.
+  // Partagé par la boucle "récurrence habituelle" et la boucle "cours
+  // déplacés vers une autre date" ci-dessous, pour ne jamais dupliquer cette
+  // logique (et donc ne jamais la faire diverger entre les deux).
+  function traiterOccurrence(g, dateISO, heureDebutEffective) {
+    const cleOccurrence = `${g.id}_${dateISO}`;
+    if (occurrencesTraitees.has(cleOccurrence)) return;
+    occurrencesTraitees.add(cleOccurrence);
+
+    if (annulesCles.has(cleOccurrence)) return; // cours annulé, pas de décompte
+    const heureCours = new Date(`${dateISO}T${heureDebutEffective || '00:00'}:00`);
+    const delaiDepasse = maintenant >= new Date(heureCours.getTime() - 24 * 60 * 60 * 1000);
+    if (!delaiDepasse) return;
+
+    currentMembres.filter(m => m.groupeId === g.id).forEach(m => {
+      try {
+        // On ne pénalise jamais un membre pour un cours qui a eu lieu
+        // avant sa date d'inscription au club.
+        if (m.dateInscription?.toDate && dateISO < dateISOLocale(m.dateInscription.toDate())) return;
+        const cle = `${g.id}_${dateISO}_${m.id}`;
+        if (!dejaReponduCles.has(cle)) {
+          aCreer.push({ groupeId: g.id, uid: m.id, dateISO });
+          dejaReponduCles.add(cle); // éviter les doublons si le même cours revient
+        }
+      } catch (err) {
+        // Une donnée corrompue chez CE membre (ex: dateInscription
+        // invalide) ne doit jamais empêcher le traitement de tous les
+        // autres membres qui suivent dans la liste.
+        console.error(`Erreur lors du traitement de ${m.nomMaitre || m.id} pour ${g.nom || g.id} du ${dateISO} :`, err);
+      }
+    });
+  }
 
   for (let i = 0; i <= 60; i++) {
     const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i);
     const jour = JOURS[d.getDay()];
-    const dateISO = dateISOLocale(d);
-    if (dateISO < DATE_LANCEMENT_SITE) continue; // jamais avant le vrai lancement du site
+    const dateISOHabituelle = dateISOLocale(d);
+    if (dateISOHabituelle < DATE_LANCEMENT_SITE) continue; // jamais avant le vrai lancement du site
 
     currentGroupes.filter(g => g.jour === jour).forEach(g => {
-      if (annulesCles.has(`${g.id}_${dateISO}`)) return; // cours annulé, pas de décompte
-      const heureCours = new Date(`${dateISO}T${g.heureDebut || '00:00'}:00`);
-      const delaiDepasse = maintenant >= new Date(heureCours.getTime() - 24 * 60 * 60 * 1000);
-      if (!delaiDepasse) return;
+      const exception = exceptionsHoraire[`${g.id}_${dateISOHabituelle}`];
+      // Cours déplacé à une AUTRE date (ex.nouvelleDateISO différent) : ce
+      // créneau habituel n'a pas lieu, le vrai cours est ailleurs — il est
+      // traité par la seconde boucle ci-dessous (qui parcourt directement
+      // les exceptions), pas ici.
+      if (exception && exception.nouvelleDateISO && exception.nouvelleDateISO !== dateISOHabituelle) return;
 
-      currentMembres.filter(m => m.groupeId === g.id).forEach(m => {
-        try {
-          // On ne pénalise jamais un membre pour un cours qui a eu lieu
-          // avant sa date d'inscription au club.
-          if (m.dateInscription?.toDate && dateISO < dateISOLocale(m.dateInscription.toDate())) return;
-          const cle = `${g.id}_${dateISO}_${m.id}`;
-          if (!dejaReponduCles.has(cle)) {
-            aCreer.push({ groupeId: g.id, uid: m.id, dateISO });
-            dejaReponduCles.add(cle); // éviter les doublons si le même cours revient
-          }
-        } catch (err) {
-          // Une donnée corrompue chez CE membre (ex: dateInscription
-          // invalide) ne doit jamais empêcher le traitement de tous les
-          // autres membres qui suivent dans la liste.
-          console.error(`Erreur lors du traitement de ${m.nomMaitre || m.id} pour ${g.nom || g.id} du ${dateISO} :`, err);
-        }
-      });
+      const heureDebutEffective = exception ? exception.nouvelleHeureDebut : (g.heureDebut || '00:00');
+      traiterOccurrence(g, dateISOHabituelle, heureDebutEffective);
     });
   }
 
+  // Cours déplacés vers une AUTRE date (ex: lundi → mercredi) : la boucle
+  // ci-dessus, qui ne parcourt que les dates correspondant au jour habituel
+  // du groupe (g.jour), ne tombe jamais sur cette autre date si elle tombe
+  // un jour de semaine différent — elle passait donc totalement inaperçue,
+  // et le membre concerné restait affiché "n'a pas encore répondu" sans
+  // fin, même largement après le vrai cours. On parcourt ici directement
+  // les exceptions elles-mêmes pour couvrir ce cas.
+  Object.values(exceptionsHoraire).forEach(ex => {
+    if (!ex.nouvelleDateISO || ex.nouvelleDateISO === ex.dateISOOriginal) return;
+    if (ex.nouvelleDateISO < DATE_LANCEMENT_SITE) return;
+    const dNouvelle = new Date(ex.nouvelleDateISO + 'T00:00:00');
+    if (dNouvelle > maintenant) return; // cours déplacé mais pas encore passé, rien à rattraper
+    const g = currentGroupes.find(gr => gr.id === ex.groupeId);
+    if (!g) return;
+    traiterOccurrence(g, ex.nouvelleDateISO, ex.nouvelleHeureDebut);
+  });
+
   if (aCreer.length === 0) return;
 
-  await Promise.all(aCreer.map(p =>
+  // Promise.allSettled (et non Promise.all) : si l'écriture échoue pour UN
+  // membre (ex: fiche supprimée entre-temps, identifiant corrompu...), les
+  // autres doivent quand même être traités. Avec Promise.all, un seul échec
+  // rejetait tout le lot d'un coup — plus aucune absence n'était détectée
+  // ce cycle-ci, pour PERSONNE, et comme l'étape suivante (décompte) et le
+  // rafraîchissement de l'écran dépendaient de cet await, ils ne
+  // s'exécutaient plus non plus : un membre pouvait alors rester affiché
+  // "n'a pas encore répondu" indéfiniment malgré un délai de 24h dépassé.
+  const resultats = await Promise.allSettled(aCreer.map(p =>
     setDoc(doc(db, 'presences', `${p.groupeId}_${p.dateISO}_${p.uid}`), {
       groupeId: p.groupeId, uid: p.uid, dateISO: p.dateISO, statut: 'absent-auto',
       repondu: new Date().toISOString(), compteAbonnement: false
     })
   ));
-  // Ajoute les nouvelles entrées au cache en mémoire : l'étape suivante du
-  // même cycle (décompte) les traite sans re-télécharger toute la collection.
-  aCreer.forEach(p => presencesCache.push({
-    id: `${p.groupeId}_${p.dateISO}_${p.uid}`, groupeId: p.groupeId, uid: p.uid,
-    dateISO: p.dateISO, statut: 'absent-auto', compteAbonnement: false
-  }));
+  // Ajoute au cache en mémoire uniquement les écritures qui ont réellement
+  // réussi : l'étape suivante du même cycle (décompte) les traite sans
+  // re-télécharger toute la collection.
+  resultats.forEach((r, i) => {
+    const p = aCreer[i];
+    if (r.status === 'fulfilled') {
+      presencesCache.push({
+        id: `${p.groupeId}_${p.dateISO}_${p.uid}`, groupeId: p.groupeId, uid: p.uid,
+        dateISO: p.dateISO, statut: 'absent-auto', compteAbonnement: false
+      });
+    } else {
+      console.error(`Échec de la création de l'absence automatique pour ${p.uid} (${p.groupeId} du ${p.dateISO}) :`, r.reason);
+    }
+  });
 }
 
 // ==========================================================================

@@ -80,6 +80,26 @@ onAuthStateChanged(auth, async (user) => {
     }
   }
 
+  // Bannières Noël / Nouvel An, visibles de tous les membres : 20→25
+  // décembre inclus, puis 28 décembre→2 janvier inclus (la 2e période
+  // chevauche le changement d'année, d'où le OR sur mois 11/jour>=28 ou
+  // mois 0/jour<=2). Voir espace-membre.html pour les divs correspondantes.
+  // Protégé par try/catch (comme le bloc équivalent côté admin) : purement
+  // décoratif, ça ne doit jamais pouvoir bloquer le reste de la page.
+  try {
+    const aujourdhui = new Date();
+    const mois = aujourdhui.getMonth();
+    const jour = aujourdhui.getDate();
+    if (mois === 11 && jour >= 20 && jour <= 25) {
+      document.getElementById('banniereNoelMembre')?.classList.remove('hidden');
+    }
+    if ((mois === 11 && jour >= 28) || (mois === 0 && jour <= 2)) {
+      document.getElementById('banniereNouvelAnMembre')?.classList.remove('hidden');
+    }
+  } catch (err) {
+    console.error('Erreur dans l\'affichage des bannières du jour (sans impact sur le reste de la page) :', err);
+  }
+
   // Dernière activité : mise à jour à chaque ouverture de page (pas
   // seulement à la connexion), y compris quand la session était déjà
   // ouverte depuis avant. Silencieux, sans impact sur rien d'autre.
@@ -129,7 +149,18 @@ onAuthStateChanged(auth, async (user) => {
     if (gDoc.exists()) {
       groupeData = { id: gDoc.id, ...gDoc.data() };
       afficherGroupe();
-      await afficherProchainsCours();
+      // Protégé par try/catch : cette fonction est l'init la plus "lourde"
+      // de la page (plusieurs lectures Firestore + écritures d'absences
+      // automatiques) — avant ce correctif, le moindre souci ici (réseau,
+      // permissions...) faisait planter cet appel `await` non protégé,
+      // ce qui interrompait TOUT le reste de l'initialisation de l'espace
+      // membre (onglets, abonnement, bannières, etc.), puisque rien
+      // n'englobe onAuthStateChanged dans un try/catch global.
+      try {
+        await afficherProchainsCours();
+      } catch (err) {
+        console.error('Erreur lors du chargement de "Mes prochains cours" :', err);
+      }
     }
   } else {
     // Pas (encore) de groupe hebdo précis assigné : les panneaux "Mon
@@ -536,10 +567,21 @@ async function afficherProchainsCours() {
       // firestore.rules) : c'est traiterAbsencesAutomatiques(), côté admin,
       // qui le met à true et décompte réellement l'abonnement — un membre
       // ne doit jamais pouvoir écrire ce champ lui-même.
-      await setDoc(doc(db, 'presences', clePres), {
-        groupeId: groupeData.id, uid: membreUid, dateISO, statut: 'absent-auto',
-        repondu: new Date().toISOString()
-      });
+      // Protégé par try/catch : cette écriture est dans un Promise.all avec
+      // toutes les autres dates affichées (voir plus haut) — sans ce
+      // try/catch, un échec sur CETTE date (réseau, etc.) aurait fait
+      // échouer le Promise.all entier et empêché l'affichage de TOUTES les
+      // dates du panneau "Mes prochains cours", pas seulement celle-ci.
+      // L'admin rattrape de toute façon ce cas le lendemain via
+      // detecterAbsencesNonRepondues() côté admin.
+      try {
+        await setDoc(doc(db, 'presences', clePres), {
+          groupeId: groupeData.id, uid: membreUid, dateISO, statut: 'absent-auto',
+          repondu: new Date().toISOString()
+        });
+      } catch (err) {
+        console.error(`Erreur lors de l'enregistrement de l'absence automatique du ${dateISO} :`, err);
+      }
       statutHtml = '<span class="badge badge-warn">Pas de réponse dans les délais — comptabilisé(e) absent(e), ce cours compte dans votre abonnement.</span>';
     } else if ((membreData.coursRestants ?? 0) <= 0) {
       statutHtml = '<span class="badge badge-danger">Abonnement épuisé — contactez Katia</span>';
