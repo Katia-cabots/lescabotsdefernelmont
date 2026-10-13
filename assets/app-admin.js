@@ -1290,6 +1290,7 @@ async function chargerHistoriquePresencesAdmin(membreId) {
     else if (p.statut === 'absent-justifie') badge = '<span class="badge badge-neutral">Absent(e) justifié(e) — non décompté</span>';
     else badge = '<span class="badge badge-neutral">Absent(e) (signalé)</span>';
     if (annulation) badge += ` <span class="badge badge-neutral">🚫 Cours annulé — ne compte pas (${escapeHtml(annulation.motif || '')})</span>`;
+    if (p.exceptionnel) badge += ' <span class="badge badge-neutral">🔁 Ajout exceptionnel dans un autre groupe</span>';
     return `
     <div class="data-row">
       <div class="data-main">
@@ -1583,11 +1584,18 @@ window.marquerPresenceManuelle = async (groupeId, dateISO, uid, statut) => {
 
 window.voirMembresCours = async (groupeId, dateISO) => {
   const groupe = currentGroupes.find(g => g.id === groupeId);
-  const membresDuGroupe = currentMembres.filter(m => m.groupeId === groupeId);
 
   const presSnap = await getDocs(query(collection(db, 'presences'), where('groupeId', '==', groupeId), where('dateISO', '==', dateISO)));
   const reponses = {};
   presSnap.forEach(d => { reponses[d.data().uid] = d.data(); });
+
+  // Membres du groupe + tout membre d'un AUTRE groupe ajouté
+  // exceptionnellement à cette occurrence précise (voir
+  // window.ouvrirAjoutExceptionnel ci-dessous, ex: son propre cours habituel
+  // a été annulé et il vient à celui-ci à la place) — sans ce deuxième
+  // critère, un membre ajouté exceptionnellement disparaîtrait de cette
+  // liste à la prochaine ouverture de la fenêtre.
+  const membresDuGroupe = currentMembres.filter(m => m.groupeId === groupeId || reponses[m.id]);
 
   // Si ce cours précis a été annulé, les réponses "Présent" enregistrées
   // avant l'annulation restent affichées telles quelles ci-dessous (trace
@@ -1600,12 +1608,15 @@ window.voirMembresCours = async (groupeId, dateISO) => {
 
   const lignes = membresDuGroupe.map(m => {
     const r = reponses[m.id];
+    const estExceptionnel = m.groupeId !== groupeId;
+    const groupeHabituel = estExceptionnel ? currentGroupes.find(g => g.id === m.groupeId) : null;
     let badge;
     if (!r) badge = '<span class="badge badge-neutral">N\'a pas encore répondu</span>';
     else if (r.statut === 'present') badge = '<span class="badge badge-ok">Présent</span>';
     else if (r.statut === 'absent-auto') badge = '<span class="badge badge-warn">Absent — non répondu (décompté)</span>';
     else if (r.statut === 'absent-justifie') badge = '<span class="badge badge-neutral">Absent justifié (non décompté)</span>';
     else badge = '<span class="badge badge-neutral">Absent (signalé)</span>';
+    if (estExceptionnel) badge += ` <span class="badge badge-neutral">🔁 Exceptionnellement ici (habituellement ${escapeHtml(groupeHabituel?.nom || '')})</span>`;
     return `
       <div class="data-row">
         <div class="data-main">
@@ -1616,6 +1627,7 @@ window.voirMembresCours = async (groupeId, dateISO) => {
           <button class="btn-sm primary" onclick="window.marquerPresenceManuelle('${groupeId}','${dateISO}','${m.id}','present')">✅ Présent</button>
           <button class="btn-sm danger" onclick="window.marquerPresenceManuelle('${groupeId}','${dateISO}','${m.id}','absent-auto')">Absent (décompté)</button>
           <button class="btn-sm" onclick="window.marquerPresenceManuelle('${groupeId}','${dateISO}','${m.id}','absent-justifie')">Absent justifié (non décompté)</button>
+          ${estExceptionnel ? `<button class="btn-sm danger" onclick="window.retirerMembreExceptionnel('${groupeId}','${dateISO}','${m.id}')">Retirer (exceptionnel)</button>` : ''}
         </div>
       </div>`;
   }).join('');
@@ -1629,12 +1641,100 @@ window.voirMembresCours = async (groupeId, dateISO) => {
         <div class="data-list ce-soir-membres">
           ${lignes || '<div class="empty-state">Aucun membre dans ce groupe.</div>'}
         </div>
+        <button class="btn-sm" style="margin-top:10px;" onclick="window.ouvrirAjoutExceptionnel('${groupeId}','${dateISO}')">+ Ajouter un membre d'un autre groupe exceptionnellement</button>
         <div class="modal-actions">
           <button class="btn-sm" onclick="window.fermerModal()">Fermer</button>
         </div>
       </div>
     </div>`;
   document.getElementById('modalZone').innerHTML = html;
+};
+
+// Permet à Katia d'ajouter, pour UNE occurrence précise, un membre qui
+// appartient normalement à un AUTRE groupe — typiquement quand le cours
+// habituel de ce membre vient d'être annulé et qu'il participe à celui-ci
+// à la place. Le cours est immédiatement décompté de son abonnement (comme
+// n'importe quelle présence marquée par l'admin) et le membre reçoit un
+// message l'informant du changement exceptionnel.
+window.ouvrirAjoutExceptionnel = async (groupeId, dateISO) => {
+  const presSnap = await getDocs(query(collection(db, 'presences'), where('groupeId', '==', groupeId), where('dateISO', '==', dateISO)));
+  const dejaIds = new Set();
+  presSnap.forEach(d => dejaIds.add(d.data().uid));
+
+  const candidats = currentMembres
+    .filter(m => m.groupeId !== groupeId && !dejaIds.has(m.id))
+    .sort((a, b) => (a.nomMaitre || '').localeCompare(b.nomMaitre || '', 'fr', { sensitivity: 'base' }));
+
+  if (candidats.length === 0) {
+    alert("Aucun autre membre disponible à ajouter : ils sont déjà tous soit dans ce groupe, soit déjà enregistrés pour ce cours.");
+    return;
+  }
+
+  const options = candidats.map(m => {
+    const gHab = currentGroupes.find(g => g.id === m.groupeId);
+    return `<option value="${m.id}">${escapeAttr(m.nomMaitre)}${nomsChiensActifs(m) ? ' — ' + escapeAttr(nomsChiensActifs(m)) : ''} (habituellement ${gHab ? escapeAttr(gHab.nom) : 'sans groupe'} · ${m.coursRestants ?? 0} cours restant(s))</option>`;
+  }).join('');
+
+  const html = `
+    <div class="modal-overlay" id="modalOverlayAjoutExceptionnel">
+      <div class="modal-box">
+        <h3>Ajouter un membre exceptionnellement</h3>
+        <p style="font-size:0.85rem; color:var(--slate);">Pour un membre d'un AUTRE groupe qui vient à ce cours-ci à titre exceptionnel (ex: son propre cours habituel a été annulé). Le cours sera immédiatement décompté de son abonnement, et il recevra un message l'informant du changement.</p>
+        <div class="field">
+          <label>Membre</label>
+          <select id="ae-membre">${options}</select>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="document.getElementById('modalOverlayAjoutExceptionnel').remove()">Annuler</button>
+          <button class="btn-sm primary" id="ae-confirmer">Ajouter et décompter</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  document.getElementById('ae-confirmer').addEventListener('click', async () => {
+    const uid = document.getElementById('ae-membre').value;
+    document.getElementById('modalOverlayAjoutExceptionnel').remove();
+    await window.ajouterMembreExceptionnel(groupeId, dateISO, uid);
+    window.voirMembresCours(groupeId, dateISO);
+  });
+};
+
+window.ajouterMembreExceptionnel = async (groupeId, dateISO, uid) => {
+  const groupe = currentGroupes.find(g => g.id === groupeId);
+  const m = currentMembres.find(x => x.id === uid);
+  const groupeHabituel = m ? currentGroupes.find(g => g.id === m.groupeId) : null;
+  const dateLabel = new Date(dateISO + 'T00:00:00').toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  await setDoc(doc(db, 'presences', `${groupeId}_${dateISO}_${uid}`), {
+    groupeId, uid, dateISO, statut: 'present',
+    repondu: new Date().toISOString(),
+    compteAbonnement: false,
+    marqueParAdmin: true,
+    exceptionnel: true,
+    groupeHabituelId: m ? m.groupeId : null
+  });
+  invaliderCachePresences();
+  await traiterAbsencesAutomatiques(); // décompte immédiatement l'abonnement, comme pour toute présence marquée par l'admin
+
+  const texte = `📅 Changement exceptionnel : vous avez été ajouté(e) au cours "${groupe ? groupe.nom : ''}" du ${dateLabel}${groupeHabituel ? ` (à la place de votre cours habituel "${groupeHabituel.nom}")` : ''} par Katia. Ce cours compte dans votre abonnement.`;
+  await addDoc(collection(db, 'conversations', uid, 'messages'), {
+    texte, expediteur: 'admin', dateEnvoi: new Date().toISOString(), lu: false
+  });
+  await setDoc(doc(db, 'conversations', uid), {
+    dernierMessage: texte, dateDernierMessage: new Date().toISOString(), nonLuMembre: true
+  });
+};
+
+window.retirerMembreExceptionnel = async (groupeId, dateISO, uid) => {
+  if (!confirm("Retirer ce membre de ce cours exceptionnel ? Si le cours avait déjà été décompté de son abonnement, il sera recrédité.")) return;
+  const presenceId = `${groupeId}_${dateISO}_${uid}`;
+  const presSnap = await getDoc(doc(db, 'presences', presenceId));
+  if (presSnap.exists() && presSnap.data().compteAbonnement === true) {
+    await updateDoc(doc(db, 'membres', uid), { coursRestants: increment(1) });
+  }
+  await deleteDoc(doc(db, 'presences', presenceId));
+  invaliderCachePresences();
+  window.voirMembresCours(groupeId, dateISO);
 };
 
 window.validerCoursSemaine = async (groupeId, dateISO) => {
