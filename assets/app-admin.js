@@ -3148,6 +3148,23 @@ async function traiterAbsencesAutomatiques() {
 
   for (const p of aTraiter) {
     try {
+      // Revérification "juste à temps", directement en base (PAS depuis le
+      // cache local figé au début de cette fonction) : ce traitement est
+      // volontairement séquentiel et peut prendre plusieurs secondes s'il y
+      // a beaucoup de présences à décompter d'affilée. Si Katia annule un
+      // cours PENDANT que cette boucle tourne (ex: "pas assez de
+      // participants"), l'annulation créée entre-temps n'apparaît pas dans
+      // annulesCles, calculé une seule fois plus haut — sans cette
+      // revérification, le cours serait quand même décompté de
+      // l'abonnement du membre malgré son annulation, et ne serait ensuite
+      // JAMAIS remboursé automatiquement. C'est exactement le bug
+      // remonté : un cours annulé pour manque de participants dont
+      // l'abonnement n'était pas remis à jour (ex: Yuna). window.annulerCours
+      // crée toujours le document d'annulation EN PREMIER, avant toute
+      // autre écriture — cette vérification juste avant le décompte est
+      // donc fiable quel que soit l'ordre d'exécution entre les deux.
+      const annulationDoc = await getDoc(doc(db, 'annulations', `${p.groupeId}_${p.dateISO}`));
+      if (annulationDoc.exists()) continue;
       await updateDoc(doc(db, 'membres', p.uid), { coursRestants: increment(-1) }).catch(() => {});
       await updateDoc(doc(db, 'presences', p.id), { compteAbonnement: true });
       const entree = presencesCache.find(x => x.id === p.id);
