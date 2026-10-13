@@ -1274,13 +1274,22 @@ async function chargerHistoriquePresencesAdmin(membreId) {
     zone.innerHTML = '<div class="empty-state">Aucun historique pour l\'instant.</div>';
     return;
   }
+  // Un cours annulé après coup (pluie, pas assez de participants...) laisse
+  // la réponse d'origine du membre (ex: "Présent(e)") inchangée dans son
+  // historique — c'est volontaire, ça garde la trace de ce qu'il avait
+  // répondu. Mais affiché seul, "Présent(e)" est trompeur : on y ajoute ici
+  // un badge "Cours annulé" pour que ce soit clair que ce cours n'a pas eu
+  // lieu et ne compte pas, même s'il a répondu présent.
+  const annulations = await chargerAnnulationsCache();
   zone.innerHTML = presences.map(p => {
     const g = currentGroupes.find(gr => gr.id === p.groupeId);
+    const annulation = annulations[`${p.groupeId}_${p.dateISO}`];
     let badge;
     if (p.statut === 'present') badge = '<span class="badge badge-ok">Présent(e)</span>';
     else if (p.statut === 'absent-auto') badge = '<span class="badge badge-warn">Non répondu — décompté</span>';
     else if (p.statut === 'absent-justifie') badge = '<span class="badge badge-neutral">Absent(e) justifié(e) — non décompté</span>';
     else badge = '<span class="badge badge-neutral">Absent(e) (signalé)</span>';
+    if (annulation) badge += ` <span class="badge badge-neutral">🚫 Cours annulé — ne compte pas (${escapeHtml(annulation.motif || '')})</span>`;
     return `
     <div class="data-row">
       <div class="data-main">
@@ -1580,6 +1589,13 @@ window.voirMembresCours = async (groupeId, dateISO) => {
   const reponses = {};
   presSnap.forEach(d => { reponses[d.data().uid] = d.data(); });
 
+  // Si ce cours précis a été annulé, les réponses "Présent" enregistrées
+  // avant l'annulation restent affichées telles quelles ci-dessous (trace
+  // de ce que le membre avait répondu) — mais sans ce bandeau, ça prête à
+  // confusion : on dirait que le cours a bien eu lieu avec ces présences.
+  const annulations = await chargerAnnulationsCache();
+  const annulation = annulations[`${groupeId}_${dateISO}`];
+
   const dateLabel = new Date(dateISO + 'T00:00:00').toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' });
 
   const lignes = membresDuGroupe.map(m => {
@@ -1608,6 +1624,7 @@ window.voirMembresCours = async (groupeId, dateISO) => {
     <div class="modal-overlay" id="modalOverlay">
       <div class="modal-box" style="max-width:640px;">
         <h3>${escapeHtml(groupe?.nom || '')} — ${capitalize(dateLabel)}</h3>
+        ${annulation ? `<div class="banner-alert" style="margin-bottom:10px;">🚫 Ce cours a été annulé (${escapeHtml(annulation.motif || '')}) — il n'a pas eu lieu et ne compte pour aucun membre, même ceux affichés "Présent" ci-dessous (trace de leur réponse d'origine).</div>` : ''}
         <p style="color:var(--slate); font-size:0.85rem;">En temps normal, chaque membre valide lui-même sa présence depuis son espace. Utilise ces boutons pour aider un membre qui n'y arrive pas seul (pas d'accès, difficulté avec le site...).</p>
         <div class="data-list ce-soir-membres">
           ${lignes || '<div class="empty-state">Aucun membre dans ce groupe.</div>'}
