@@ -1435,6 +1435,7 @@ let offsetSemaineCeSoir = 0;
 
 async function chargerCeSoir() {
   const wrap = document.getElementById('listeCeSoir');
+  if (!wrap) return; // section pas affichée actuellement (ex: appelé en arrière-plan depuis un modal) — rien à rafraîchir
   try {
 
   // Construit la liste des occurrences de cours sur la semaine civile
@@ -1580,6 +1581,7 @@ window.marquerPresenceManuelle = async (groupeId, dateISO, uid, statut) => {
   invaliderCachePresences();
   await traiterAbsencesAutomatiques(); // décompte l'abonnement immédiatement, comme pour une réponse normale
   window.voirMembresCours(groupeId, dateISO); // rafraîchit la fenêtre avec le nouveau statut
+  chargerCeSoir(); // rafraîchit aussi le total de présents affiché derrière la fenêtre
 };
 
 window.voirMembresCours = async (groupeId, dateISO) => {
@@ -1670,33 +1672,51 @@ window.ouvrirAjoutExceptionnel = async (groupeId, dateISO) => {
     return;
   }
 
-  const options = candidats.map(m => {
-    const gHab = currentGroupes.find(g => g.id === m.groupeId);
-    return `<option value="${m.id}">${escapeAttr(m.nomMaitre)}${nomsChiensActifs(m) ? ' — ' + escapeAttr(nomsChiensActifs(m)) : ''} (habituellement ${gHab ? escapeAttr(gHab.nom) : 'sans groupe'} · ${m.coursRestants ?? 0} cours restant(s))</option>`;
-  }).join('');
+  // Seuls le nom du maître et le(s) nom(s) du/des chien(s) sont affichés
+  // (pas le groupe habituel ni les cours restants) — avec un champ de
+  // recherche, pour retrouver vite un membre dans une liste qui peut être
+  // longue.
+  const rendreListe = (terme) => {
+    const t = (terme || '').trim().toLowerCase();
+    const filtres = !t ? candidats : candidats.filter(m =>
+      (m.nomMaitre || '').toLowerCase().includes(t) || nomsChiensActifs(m).toLowerCase().includes(t));
+    if (filtres.length === 0) return '<div class="empty-state">Aucun membre ne correspond.</div>';
+    return filtres.map(m => `
+      <div class="data-row">
+        <div class="data-main">
+          <div class="data-title">${escapeHtml(m.nomMaitre)}</div>
+          <div class="data-sub">${escapeHtml(nomsChiensActifs(m) || '—')}</div>
+        </div>
+        <div class="data-actions">
+          <button class="btn-sm primary" onclick="window.confirmerAjoutExceptionnel('${groupeId}','${dateISO}','${m.id}')">Ajouter</button>
+        </div>
+      </div>`).join('');
+  };
 
   const html = `
     <div class="modal-overlay" id="modalOverlayAjoutExceptionnel">
       <div class="modal-box">
         <h3>Ajouter un membre exceptionnellement</h3>
         <p style="font-size:0.85rem; color:var(--slate);">Pour un membre d'un AUTRE groupe qui vient à ce cours-ci à titre exceptionnel (ex: son propre cours habituel a été annulé). Le cours sera immédiatement décompté de son abonnement, et il recevra un message l'informant du changement.</p>
-        <div class="field">
-          <label>Membre</label>
-          <select id="ae-membre">${options}</select>
-        </div>
+        <div class="field"><input type="text" id="ae-recherche" placeholder="Rechercher un maître ou un chien..."></div>
+        <div class="data-list" id="ae-liste" style="max-height:320px; overflow-y:auto;">${rendreListe('')}</div>
         <div class="modal-actions">
-          <button class="btn-sm" onclick="document.getElementById('modalOverlayAjoutExceptionnel').remove()">Annuler</button>
-          <button class="btn-sm primary" id="ae-confirmer">Ajouter et décompter</button>
+          <button class="btn-sm" onclick="document.getElementById('modalOverlayAjoutExceptionnel').remove()">Fermer</button>
         </div>
       </div>
     </div>`;
   document.body.insertAdjacentHTML('beforeend', html);
-  document.getElementById('ae-confirmer').addEventListener('click', async () => {
-    const uid = document.getElementById('ae-membre').value;
-    document.getElementById('modalOverlayAjoutExceptionnel').remove();
-    await window.ajouterMembreExceptionnel(groupeId, dateISO, uid);
-    window.voirMembresCours(groupeId, dateISO);
+  document.getElementById('ae-recherche').addEventListener('input', (e) => {
+    document.getElementById('ae-liste').innerHTML = rendreListe(e.target.value);
   });
+  document.getElementById('ae-recherche').focus();
+};
+
+window.confirmerAjoutExceptionnel = async (groupeId, dateISO, uid) => {
+  document.getElementById('modalOverlayAjoutExceptionnel')?.remove();
+  await window.ajouterMembreExceptionnel(groupeId, dateISO, uid);
+  window.voirMembresCours(groupeId, dateISO);
+  chargerCeSoir(); // rafraîchit aussi le total de présents affiché derrière la fenêtre
 };
 
 window.ajouterMembreExceptionnel = async (groupeId, dateISO, uid) => {
@@ -1735,6 +1755,7 @@ window.retirerMembreExceptionnel = async (groupeId, dateISO, uid) => {
   await deleteDoc(doc(db, 'presences', presenceId));
   invaliderCachePresences();
   window.voirMembresCours(groupeId, dateISO);
+  chargerCeSoir(); // rafraîchit aussi le total de présents affiché derrière la fenêtre
 };
 
 window.validerCoursSemaine = async (groupeId, dateISO) => {
