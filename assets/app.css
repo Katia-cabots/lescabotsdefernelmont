@@ -284,15 +284,13 @@
   .data-row .data-actions .btn-sm { width: 100%; box-sizing: border-box; font-size: 0.82rem; padding: 6px 10px; text-align: center; }
 }
 
-/* Liste "Membres du cours" (admin > Ce soir) : les 3 boutons de présence
-   toujours côte à côte sur une seule ligne, sous le nom du membre. */
+/* Liste "Membres du cours" (admin > Ce soir) : les boutons de présence sous
+   le nom du membre, répartis sur deux (par paires) pour ne jamais déborder
+   du cadre de la modale, même quand un 4e bouton (ex: "Retirer -
+   exceptionnel") s'ajoute aux 3 boutons habituels. */
 .ce-soir-membres .data-row { flex-direction: column; align-items: stretch; }
-.ce-soir-membres .data-actions { flex-wrap: nowrap; margin-top: 8px; }
-.ce-soir-membres .data-actions .btn-sm { flex: 1; text-align: center; white-space: nowrap; }
-@media (max-width: 480px) {
-  .ce-soir-membres .data-actions { flex-wrap: wrap; }
-  .ce-soir-membres .data-actions .btn-sm { flex: 1 1 auto; }
-}
+.ce-soir-membres .data-actions { flex-wrap: wrap; margin-top: 8px; }
+.ce-soir-membres .data-actions .btn-sm { flex: 1 1 calc(50% - 6px); text-align: center; white-space: normal; font-size: 0.76rem; padding: 6px 8px; line-height: 1.2; }
 
 .data-row-left {
   display: flex;
