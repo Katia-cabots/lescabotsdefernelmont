@@ -376,9 +376,31 @@
   max-height: 90vh;
   overflow-y: auto;
   box-shadow: var(--shadow-card);
+  position: relative;
 }
-.modal-box h3 { margin-bottom: 18px; }
+.modal-box h3 { margin-bottom: 18px; padding-right: 30px; }
 .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+.modal-close-x {
+  position: sticky;
+  top: 0;
+  float: right;
+  margin: -26px -26px 0 10px;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: var(--white);
+  color: var(--slate);
+  font-size: 1.6rem;
+  line-height: 1;
+  cursor: pointer;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+  box-shadow: 0 0 0 1px rgba(18,40,63,0.08);
+}
+.modal-close-x:hover { background: #EEF1F4; color: var(--navy, #12283F); }
 
 .banner-alert {
   background: #FBEFDA;

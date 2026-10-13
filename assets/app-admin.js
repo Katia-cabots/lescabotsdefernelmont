@@ -17,6 +17,31 @@ import { getAuth as getAuthSecondary, createUserWithEmailAndPassword, signOut as
   from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
 import { meteoActuelle, meteoPour, alerteMeteo, iconeCode } from "./meteo.js";
 
+// Ajoute automatiquement une croix de fermeture en haut à droite de chaque
+// fenêtre modale qui s'ouvre (en plus du bouton "Fermer/Annuler" existant en
+// bas) — utile quand le contenu de la modale dépasse la hauteur de l'écran.
+// Fonctionne quelle que soit la façon dont la modale a été insérée dans le
+// DOM (modalZone.innerHTML ou document.body.insertAdjacentHTML).
+new MutationObserver((mutations) => {
+  mutations.forEach(mutation => {
+    mutation.addedNodes.forEach(node => {
+      if (node.nodeType !== 1) return;
+      const overlays = node.classList?.contains('modal-overlay') ? [node] : Array.from(node.querySelectorAll?.('.modal-overlay') || []);
+      overlays.forEach(overlay => {
+        const box = overlay.querySelector('.modal-box');
+        if (!box || box.querySelector('.modal-close-x')) return;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'modal-close-x';
+        btn.setAttribute('aria-label', 'Fermer');
+        btn.innerHTML = '&times;';
+        btn.onclick = () => overlay.remove();
+        box.prepend(btn);
+      });
+    });
+  });
+}).observe(document.body, { childList: true, subtree: true });
+
 const JOURS = ["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
 
 // Identifiants et mots de passe : caractères spéciaux interdits (lettres,

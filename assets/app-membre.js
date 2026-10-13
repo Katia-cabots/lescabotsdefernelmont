@@ -10,6 +10,29 @@ import {
 } from "./firebase-config.js";
 import { meteoPour, alerteMeteo, iconeCode } from "./meteo.js";
 
+// Ajoute automatiquement une croix de fermeture en haut à droite de chaque
+// fenêtre modale qui s'ouvre (en plus du bouton "Fermer/Annuler" existant en
+// bas) — utile quand le contenu de la modale dépasse la hauteur de l'écran.
+new MutationObserver((mutations) => {
+  mutations.forEach(mutation => {
+    mutation.addedNodes.forEach(node => {
+      if (node.nodeType !== 1) return;
+      const overlays = node.classList?.contains('modal-overlay') ? [node] : Array.from(node.querySelectorAll?.('.modal-overlay') || []);
+      overlays.forEach(overlay => {
+        const box = overlay.querySelector('.modal-box');
+        if (!box || box.querySelector('.modal-close-x')) return;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'modal-close-x';
+        btn.setAttribute('aria-label', 'Fermer');
+        btn.innerHTML = '&times;';
+        btn.onclick = () => overlay.remove();
+        box.prepend(btn);
+      });
+    });
+  });
+}).observe(document.body, { childList: true, subtree: true });
+
 const JOURS = ["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
 
 // IMPORTANT : ne jamais utiliser Date.toISOString() pour obtenir la date du
