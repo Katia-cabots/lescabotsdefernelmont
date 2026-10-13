@@ -629,7 +629,45 @@ async function afficherProchainsCours() {
     </div>`;
   }));
 
-  wrap.innerHTML = lignes.join('');
+  // Cours exceptionnels dans un AUTRE groupe (ajoutés par Katia depuis
+  // "Membres" d'un cours) : sans ça, le membre ne voyait ce changement que
+  // dans le message de chat automatique, jamais dans sa propre liste de
+  // cours à venir — on les affiche donc ici aussi, en plus des cours de son
+  // groupe habituel.
+  const aujourdhuiPourExceptions = dateISOLocale(new Date());
+  const presencesExceptionnelles = Object.values(presences).filter(p =>
+    p.exceptionnel && p.groupeId !== groupeData.id && p.dateISO >= aujourdhuiPourExceptions
+  );
+  const lignesExceptionnelles = await Promise.all(presencesExceptionnelles.map(async (p) => {
+    const gDoc = await getDoc(doc(db, 'groupes', p.groupeId));
+    const g = gDoc.exists() ? gDoc.data() : null;
+    const cleAnnul = `${p.groupeId}_${p.dateISO}`;
+    const annule = annulations[cleAnnul];
+    const dateLabel = new Date(p.dateISO + 'T00:00:00').toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' });
+
+    if (annule) {
+      return `
+      <div class="data-row">
+        <div class="data-main">
+          <div class="data-title">${capitalize(dateLabel)} — ${g ? escapeHtml(g.nom) : 'Cours exceptionnel'}</div>
+          <div class="data-sub"><span class="badge badge-danger">Cours annulé — ${escapeHtml(annule.motif)}</span></div>
+        </div>
+      </div>`;
+    }
+
+    return `
+    <div class="data-row">
+      <div class="data-main">
+        <div class="data-title">${capitalize(dateLabel)} — ${g ? escapeHtml(g.nom) : 'Cours exceptionnel'}${g ? ` (${g.heureDebut}–${g.heureFin})` : ''}</div>
+        <div class="data-sub">
+          <span class="badge badge-warn">🔁 Ajout exceptionnel dans ce groupe</span>
+          <span class="badge badge-ok">Présence confirmée</span>
+        </div>
+      </div>
+    </div>`;
+  }));
+
+  wrap.innerHTML = lignes.join('') + lignesExceptionnelles.join('');
 }
 
 window.repondrePresence = async (dateISO, statut) => {
