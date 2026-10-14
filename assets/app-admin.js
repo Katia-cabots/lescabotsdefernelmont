@@ -400,6 +400,13 @@ document.querySelectorAll('.tab-btn').forEach(btn => {
     if (btn.dataset.tab === 'dogsitting' && window.marquerDogSittingVuAdmin) {
       window.marquerDogSittingVuAdmin();
     }
+    // Revérifie à chaque retour sur "Ce soir" (pas seulement au chargement
+    // de la page) : sans ça, une demande d'annulation tardive envoyée par
+    // un membre pendant que Katia est déjà sur le site n'apparaissait
+    // jamais tant qu'elle ne rechargeait pas la page entière.
+    if (btn.dataset.tab === 'cesoir') {
+      chargerDemandesAnnulation(true);
+    }
     // Chargement paresseux : ces deux onglets ne lisent leurs données
     // qu'à la première ouverture dans la session, pas à chaque connexion.
     if (btn.dataset.tab === 'compta' && !ongletsChargesUneFois.has('compta')) {
@@ -994,6 +1001,15 @@ function ouvrirModalMembre(membre, prefill) {
         <div id="mm-historiquePresences" style="margin-top:10px; max-height:220px; overflow-y:auto;"><div class="empty-state">...</div></div>
         </div>
         </div>
+
+        <div class="mm-groupeCours">
+        <h3 class="bloc-titre replie" style="margin-top:18px;">Carte d'abonnement (10 + 1 gratuit) <span class="bloc-fleche">▾</span></h3>
+        <div class="bloc-contenu replie">
+        <p style="font-size:0.8rem; color:var(--slate);">Reprend l'ancienne carte papier — chaque cycle de 11 cours, avec ses dates. Se remplit automatiquement pour l'abonnement en cours ; éditable à la main (utile notamment pour les anciens abonnements non suivis par le site).</p>
+        <button class="btn-sm" type="button" onclick="window.ouvrirNouvelAbonnement('${membre.id}')">+ Nouvel abonnement</button>
+        <div id="mm-listeAbonnements" style="margin-top:10px;"><div class="empty-state">...</div></div>
+        </div>
+        </div>
         ` : ''}
 
         <div class="modal-actions">
@@ -1006,7 +1022,7 @@ function ouvrirModalMembre(membre, prefill) {
   activerBlocsRepliables(document.getElementById('modalZone'));
   remplirSelectGroupes();
   if (isEdit && membre.groupeId) document.getElementById('mm-groupe').value = membre.groupeId;
-  if (isEdit) { chargerHistoriquePaiements(membre.id); chargerHistoriquePresencesAdmin(membre.id); }
+  if (isEdit) { chargerHistoriquePaiements(membre.id); chargerHistoriquePresencesAdmin(membre.id); chargerAbonnementsAdmin(membre.id); }
   if (isEdit) {
     document.getElementById('mm-btnChangerMdp')?.addEventListener('click', () => window.changerMotDePasseMembre(membre.id, membre.identifiant, membre.motDePasseInitial));
 
@@ -1338,6 +1354,222 @@ function presenceEstDecomptee(statut) {
   return statut === 'present' || statut === 'absent-auto';
 }
 
+// ==========================================================================
+// CARTE D'ABONNEMENT (10 + 1 gratuit) — reprend l'ancienne carte papier que
+// les membres avaient avant le site : chaque cycle d'abonnement (11 cours)
+// est un document dans la collection "abonnements", avec ses 11 "cases"
+// (date + statut P/NR). Les cases se remplissent automatiquement au fur et
+// à mesure (voir remplirProchaineCaseAbonnement, appelée depuis
+// traiterAbsencesAutomatiques), mais restent éditables à la main depuis
+// l'admin — indispensable pour les anciens abonnements jamais trackés sur
+// le site (le tout premier abonnement d'un membre, par exemple).
+const NB_SEANCES_ABONNEMENT = 11; // 10 cours + 1 gratuit
+function seancesVides() {
+  return Array.from({ length: NB_SEANCES_ABONNEMENT }, () => ({ dateISO: null, statut: null, presenceId: null }));
+}
+
+async function chargerAbonnementsAdmin(membreId) {
+  const zone = document.getElementById('mm-listeAbonnements');
+  if (!zone) return;
+  const snap = await getDocs(query(collection(db, 'abonnements'), where('membreId', '==', membreId)));
+  const cycles = [];
+  snap.forEach(d => cycles.push({ id: d.id, ...d.data() }));
+  cycles.sort((a, b) => (b.numero || 0) - (a.numero || 0));
+
+  if (cycles.length === 0) {
+    zone.innerHTML = '<div class="empty-state">Aucun abonnement enregistré pour l\'instant.</div>';
+    return;
+  }
+  zone.innerHTML = cycles.map(c => {
+    const seances = Array.isArray(c.seances) ? c.seances : [];
+    const remplies = seances.filter(s => s && s.dateISO).length;
+    const dates = seances.filter(s => s && s.dateISO).map(s => s.dateISO).sort();
+    const periode = dates.length ? `du ${dates[0]} au ${dates[dates.length - 1]}` : 'aucune date renseignée';
+    return `
+    <div class="data-row">
+      <div class="data-main">
+        <div class="data-title">Abonnement n°${c.numero} ${c.actif ? '<span class="badge badge-ok">En cours</span>' : ''}</div>
+        <div class="data-sub">${remplies}/${NB_SEANCES_ABONNEMENT} case(s) remplie(s) — ${escapeHtml(periode)}${c.manuel ? ' · <span class="badge badge-neutral">Saisi à la main</span>' : ''}</div>
+      </div>
+      <div class="data-actions">
+        <button class="btn-sm" onclick="window.ouvrirEditionAbonnement('${membreId}','${c.numero}')">Voir / éditer</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+window.ouvrirNouvelAbonnement = async (membreId) => {
+  const snap = await getDocs(query(collection(db, 'abonnements'), where('membreId', '==', membreId)));
+  let maxNumero = 0;
+  snap.forEach(d => { if ((d.data().numero || 0) > maxNumero) maxNumero = d.data().numero; });
+  const prochainNumero = maxNumero + 1;
+
+  const html = `
+    <div class="modal-overlay" id="modalOverlayNouvelAbo">
+      <div class="modal-box">
+        <h3>Nouvel abonnement (10 + 1 gratuit)</h3>
+        <div class="field"><label>Numéro de cet abonnement</label><input type="number" id="na-numero" value="${prochainNumero}" min="1"></div>
+        <label style="display:flex; align-items:flex-start; gap:8px; font-size:0.85rem; margin:10px 0;">
+          <input type="checkbox" id="na-historique" style="margin-top:3px;">
+          <span>Il s'agit d'un abonnement déjà terminé (historique à compléter à la main) — ne pas le marquer comme abonnement en cours, ni toucher au compteur de cours restants actuel.</span>
+        </label>
+        <p style="font-size:0.8rem; color:var(--slate);">Sans la case cochée : ce nouvel abonnement devient l'abonnement "en cours" (les prochains cours remplissent automatiquement ses cases), le compteur "Cours restants" repasse à 11 et "Abonnement payé" passe à Oui.</p>
+        <div class="modal-actions">
+          <button class="btn-sm" type="button" onclick="document.getElementById('modalOverlayNouvelAbo').remove()">Annuler</button>
+          <button class="btn-sm primary" type="button" id="na-save">Créer</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+
+  document.getElementById('na-save').addEventListener('click', async () => {
+    const numero = parseInt(document.getElementById('na-numero').value, 10) || prochainNumero;
+    const historique = document.getElementById('na-historique').checked;
+
+    if (!historique) {
+      // Ferme l'éventuel abonnement actif précédent (un seul cycle "en cours" à la fois).
+      const actifsSnap = await getDocs(query(collection(db, 'abonnements'), where('membreId', '==', membreId), where('actif', '==', true)));
+      for (const d of actifsSnap.docs) {
+        await updateDoc(doc(db, 'abonnements', d.id), { actif: false });
+      }
+    }
+
+    await setDoc(doc(db, 'abonnements', `${membreId}_${numero}`), {
+      membreId, numero, actif: !historique, manuel: historique,
+      dateCreation: new Date().toISOString(),
+      seances: seancesVides()
+    });
+
+    if (!historique) {
+      await updateDoc(doc(db, 'membres', membreId), { coursRestants: 11, abonnementPaye: true });
+      document.getElementById('mm-coursRestants')?.setAttribute('value', '11');
+      if (document.getElementById('mm-coursRestants')) document.getElementById('mm-coursRestants').value = 11;
+      if (document.getElementById('mm-aboPaye')) document.getElementById('mm-aboPaye').value = 'oui';
+    }
+
+    document.getElementById('modalOverlayNouvelAbo').remove();
+    chargerAbonnementsAdmin(membreId);
+    renderMembres();
+  });
+};
+
+window.ouvrirEditionAbonnement = async (membreId, numero) => {
+  const docId = `${membreId}_${numero}`;
+  const snap = await getDoc(doc(db, 'abonnements', docId));
+  if (!snap.exists()) return;
+  const cycle = snap.data();
+  const seances = Array.isArray(cycle.seances) && cycle.seances.length === NB_SEANCES_ABONNEMENT ? cycle.seances : seancesVides();
+
+  const lignes = seances.map((s, i) => `
+    <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; align-items:end; margin-bottom:8px;">
+      <div class="field" style="margin:0;"><label>${i === NB_SEANCES_ABONNEMENT - 1 ? 'Séance 11 (gratuite)' : `Séance ${i + 1}`}</label></div>
+      <div class="field" style="margin:0;"><input type="date" id="ab-date-${i}" value="${s?.dateISO || ''}"></div>
+      <div class="field" style="margin:0;">
+        <select id="ab-statut-${i}">
+          <option value="" ${!s?.statut ? 'selected' : ''}>—</option>
+          <option value="P" ${s?.statut === 'P' ? 'selected' : ''}>P (présent)</option>
+          <option value="NR" ${s?.statut === 'NR' ? 'selected' : ''}>NR (non répondu)</option>
+        </select>
+      </div>
+    </div>`).join('');
+
+  const html = `
+    <div class="modal-overlay" id="modalOverlayAbo">
+      <div class="modal-box" style="max-width:560px;">
+        <h3>Abonnement n°${numero}${cycle.actif ? ' — en cours' : ''}</h3>
+        <p style="font-size:0.8rem; color:var(--slate);">Les cases se remplissent normalement toutes seules au fil des cours de l'abonnement en cours. Modifie-les ici à la main si besoin (notamment pour un ancien abonnement non suivi par le site).</p>
+        ${lignes}
+        <div class="modal-actions" style="justify-content:space-between;">
+          <button class="btn-sm danger" type="button" onclick="window.supprimerAbonnementAdmin('${membreId}','${numero}')">Supprimer cet abonnement</button>
+          <div style="display:flex; gap:10px;">
+            <button class="btn-sm" type="button" onclick="document.getElementById('modalOverlayAbo').remove()">Fermer</button>
+            <button class="btn-sm primary" type="button" id="ab-save">Enregistrer</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+
+  document.getElementById('ab-save').addEventListener('click', async () => {
+    const nouvellesSeances = seances.map((s, i) => ({
+      dateISO: document.getElementById(`ab-date-${i}`).value || null,
+      statut: document.getElementById(`ab-statut-${i}`).value || null,
+      presenceId: s?.presenceId || null
+    }));
+    await updateDoc(doc(db, 'abonnements', docId), { seances: nouvellesSeances });
+    document.getElementById('modalOverlayAbo').remove();
+    chargerAbonnementsAdmin(membreId);
+  });
+};
+
+window.supprimerAbonnementAdmin = async (membreId, numero) => {
+  if (!confirm(`Supprimer définitivement l'abonnement n°${numero} de l'historique ? Cette action ne touche pas au compteur de cours restants actuel.`)) return;
+  await deleteDoc(doc(db, 'abonnements', `${membreId}_${numero}`));
+  document.getElementById('modalOverlayAbo')?.remove();
+  chargerAbonnementsAdmin(membreId);
+};
+
+// Appelée juste après qu'une présence soit réellement décomptée de
+// l'abonnement (compteAbonnement passe à true) : va remplir automatiquement
+// la prochaine case libre de l'abonnement EN COURS du membre. Best-effort :
+// si aucun cycle actif n'est suivi pour ce membre (ex: jamais créé), ou si
+// les 11 cases sont déjà pleines, ne fait simplement rien — ça ne doit
+// jamais bloquer le vrai décompte de l'abonnement, qui reste coursRestants.
+async function remplirProchaineCaseAbonnement(membreId, dateISO, statutPresence, presenceId) {
+  try {
+    const snap = await getDocs(query(collection(db, 'abonnements'), where('membreId', '==', membreId), where('actif', '==', true)));
+    if (snap.empty) return;
+    const cycleDoc = snap.docs[0];
+    const seances = Array.isArray(cycleDoc.data().seances) ? [...cycleDoc.data().seances] : seancesVides();
+    const indexLibre = seances.findIndex(s => !s || !s.dateISO);
+    if (indexLibre === -1) return;
+    seances[indexLibre] = { dateISO, statut: statutPresence === 'present' ? 'P' : 'NR', presenceId };
+    await updateDoc(doc(db, 'abonnements', cycleDoc.id), { seances });
+  } catch (err) {
+    console.error('Erreur lors du remplissage de la carte d\'abonnement :', err);
+  }
+}
+
+// Si une présence déjà liée à une case de la carte change de statut (sans
+// cesser d'être décomptée), on met juste à jour le P/NR affiché.
+async function mettreAJourCaseAbonnement(membreId, presenceId, nouveauStatutCarte) {
+  try {
+    const snap = await getDocs(query(collection(db, 'abonnements'), where('membreId', '==', membreId)));
+    for (const d of snap.docs) {
+      const seances = Array.isArray(d.data().seances) ? d.data().seances : [];
+      const idx = seances.findIndex(s => s && s.presenceId === presenceId);
+      if (idx !== -1) {
+        const copie = [...seances];
+        copie[idx] = { ...copie[idx], statut: nouveauStatutCarte };
+        await updateDoc(doc(db, 'abonnements', d.id), { seances: copie });
+        break;
+      }
+    }
+  } catch (err) {
+    console.error('Erreur lors de la mise à jour de la carte d\'abonnement :', err);
+  }
+}
+
+// Si une présence liée à une case de la carte est supprimée, ou cesse
+// d'être décomptée, on vide cette case (elle redevient disponible).
+async function desassocierPresenceAbonnement(membreId, presenceId) {
+  try {
+    const snap = await getDocs(query(collection(db, 'abonnements'), where('membreId', '==', membreId)));
+    for (const d of snap.docs) {
+      const seances = Array.isArray(d.data().seances) ? d.data().seances : [];
+      const idx = seances.findIndex(s => s && s.presenceId === presenceId);
+      if (idx !== -1) {
+        const copie = [...seances];
+        copie[idx] = { dateISO: null, statut: null, presenceId: null };
+        await updateDoc(doc(db, 'abonnements', d.id), { seances: copie });
+        break;
+      }
+    }
+  } catch (err) {
+    console.error('Erreur lors de la désassociation de la carte d\'abonnement :', err);
+  }
+}
+
 window.editerPresenceAdmin = (presenceId, membreId, statutActuel) => {
   const html = `
     <div class="modal-overlay" id="modalOverlayPresence">
@@ -1383,8 +1615,18 @@ window.editerPresenceAdmin = (presenceId, membreId, statutActuel) => {
     });
     invaliderCachePresences();
 
+    // Répercute le changement sur la carte d'abonnement (10+1) si cette
+    // présence y était associée : met à jour le P/NR si elle reste
+    // décomptée, ou vide la case si elle ne l'est plus.
+    if (decompteApres) {
+      await mettreAJourCaseAbonnement(membreId, presenceId, nouveauStatut === 'present' ? 'P' : 'NR');
+    } else {
+      await desassocierPresenceAbonnement(membreId, presenceId);
+    }
+
     document.getElementById('modalOverlayPresence').remove();
     chargerHistoriquePresencesAdmin(membreId);
+    chargerAbonnementsAdmin(membreId);
     renderMembres();
   });
 };
@@ -1395,9 +1637,11 @@ window.supprimerPresenceAdmin = async (presenceId, membreId) => {
   if (presSnap.exists() && presSnap.data().compteAbonnement === true) {
     await updateDoc(doc(db, 'membres', membreId), { coursRestants: increment(1) });
   }
+  await desassocierPresenceAbonnement(membreId, presenceId);
   await deleteDoc(doc(db, 'presences', presenceId));
   invaliderCachePresences();
   chargerHistoriquePresencesAdmin(membreId);
+  chargerAbonnementsAdmin(membreId);
   renderMembres();
 };
 
@@ -1777,6 +2021,7 @@ window.retirerMembreExceptionnel = async (groupeId, dateISO, uid) => {
   if (presSnap.exists() && presSnap.data().compteAbonnement === true) {
     await updateDoc(doc(db, 'membres', uid), { coursRestants: increment(1) });
   }
+  await desassocierPresenceAbonnement(uid, presenceId);
   await deleteDoc(doc(db, 'presences', presenceId));
   invaliderCachePresences();
   window.voirMembresCours(groupeId, dateISO);
@@ -1853,6 +2098,7 @@ window.annulerCours = (groupeId, dateISO) => {
       if (p.compteAbonnement) {
         await updateDoc(doc(db, 'membres', uid), { coursRestants: increment(1) }).catch(() => {});
         await updateDoc(doc(db, 'presences', p.id), { compteAbonnement: false });
+        await desassocierPresenceAbonnement(uid, p.id); // vide la case de la carte d'abonnement correspondante
       }
       await addDoc(collection(db, 'conversations', uid, 'messages'), {
         texte: texteAuto, expediteur: 'admin', dateEnvoi: new Date().toISOString(), lu: false
@@ -3139,6 +3385,7 @@ async function corrigerAbsencesAvantInscription() {
     try {
       if (p.compteAbonnement) {
         await updateDoc(doc(db, 'membres', p.uid), { coursRestants: increment(1) });
+        await desassocierPresenceAbonnement(p.uid, p.id);
       }
       await deleteDoc(doc(db, 'presences', p.id));
     } catch (err) {
@@ -3332,6 +3579,7 @@ async function traiterAbsencesAutomatiques() {
       await updateDoc(doc(db, 'presences', p.id), { compteAbonnement: true });
       const entree = presencesCache.find(x => x.id === p.id);
       if (entree) entree.compteAbonnement = true;
+      await remplirProchaineCaseAbonnement(p.uid, p.dateISO, p.statut, p.id);
     } catch (err) {
       console.error(`Erreur lors du décompte de la présence ${p.id} :`, err);
     }
@@ -5446,6 +5694,7 @@ document.getElementById('btnNettoyerPresences')?.addEventListener('click', async
       const p = d.data();
       if (p.compteAbonnement === true && p.uid) {
         aRecrediter[p.uid] = (aRecrediter[p.uid] || 0) + 1;
+        await desassocierPresenceAbonnement(p.uid, d.id);
       }
       await deleteDoc(doc(db, 'presences', d.id));
       supprimees++;
@@ -5545,6 +5794,7 @@ document.getElementById('btnRembourserCoursAnnules')?.addEventListener('click', 
     for (const p of aRembourser) {
       parMembre[p.uid] = (parMembre[p.uid] || 0) + 1;
       await updateDoc(doc(db, 'presences', p.id), { compteAbonnement: false });
+      await desassocierPresenceAbonnement(p.uid, p.id);
     }
     for (const uid of Object.keys(parMembre)) {
       await updateDoc(doc(db, 'membres', uid), { coursRestants: increment(parMembre[uid]) });
@@ -5939,12 +6189,12 @@ window.supprimerMessageLivreOr = async (id) => {
   chargerLivreOrAdmin();
 };
 
-async function chargerDemandesAnnulation() {
+async function chargerDemandesAnnulation(forcer = false) {
   const bloc = document.getElementById('blocDemandesAnnulation');
   const wrap = document.getElementById('listeDemandesAnnulation');
   if (!wrap) return;
 
-  const toutes = await chargerPresencesCache();
+  const toutes = await chargerPresencesCache(forcer);
   const demandes = toutes.filter(p => p.demandeAnnulationStatut === 'attente');
 
   if (demandes.length === 0) {
@@ -5982,6 +6232,7 @@ window.validerAnnulationTardive = async (presenceId) => {
   // (incrément atomique Firestore, jamais de valeur périmée).
   if (p.compteAbonnement) {
     await updateDoc(doc(db, 'membres', p.uid), { coursRestants: increment(1) });
+    await desassocierPresenceAbonnement(p.uid, presenceId);
   }
 
   await updateDoc(doc(db, 'presences', presenceId), {

@@ -729,3 +729,72 @@
   .anniv-fond { padding: 36px 16px; }
   .anniv-ligne-fraises { font-size: 1.2rem; letter-spacing: 6px; }
 }
+
+/* ==========================================================================
+   Carte d'abonnement (10 + 1 gratuit) — reprend visuellement l'ancienne
+   carte papier que les membres avaient avant le site. Utilisée côté membre
+   (onglet Historique) et potentiellement réutilisable ailleurs.
+   ========================================================================== */
+.carte-abonnement {
+  background: linear-gradient(135deg, var(--navy) 0%, var(--navy-dark) 100%);
+  border-radius: 16px;
+  padding: 22px;
+  color: var(--white);
+  box-shadow: var(--shadow-card);
+}
+.carte-abonnement-entete {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 18px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.carte-abonnement-entete h3 {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  margin: 0;
+  color: var(--white);
+}
+.carte-abonnement-entete .carte-abonnement-statut {
+  font-size: 0.78rem;
+  color: var(--brass-light);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.carte-stamps {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+@media (min-width: 420px) { .carte-stamps { grid-template-columns: repeat(6, 1fr); } }
+@media (min-width: 640px) { .carte-stamps { grid-template-columns: repeat(11, 1fr); } }
+.stamp {
+  aspect-ratio: 1;
+  border-radius: 50%;
+  border: 2px dashed rgba(255,255,255,0.35);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 4px;
+  font-size: 0.6rem;
+  color: rgba(255,255,255,0.6);
+}
+.stamp .stamp-num { font-size: 0.56rem; opacity: 0.75; }
+.stamp .stamp-icone { font-size: 1.15rem; line-height: 1; margin: 2px 0; }
+.stamp .stamp-date { font-size: 0.56rem; line-height: 1.1; }
+.stamp.rempli-p { border-style: solid; border-color: var(--brass-light); background: rgba(201,164,107,0.22); color: var(--white); }
+.stamp.rempli-nr { border-style: solid; border-color: #C97A6B; background: rgba(201,122,107,0.2); color: var(--white); }
+.stamp.gratuit { border-color: var(--brass); }
+.stamp.gratuit.vide { background: rgba(168,129,60,0.16); }
+.carte-abonnement-legende {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 16px;
+  font-size: 0.74rem;
+  color: rgba(255,255,255,0.75);
+}
+.carte-abonnement-legende span { display: inline-flex; align-items: center; gap: 5px; }

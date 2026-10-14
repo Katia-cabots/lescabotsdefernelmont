@@ -164,6 +164,7 @@ onAuthStateChanged(auth, async (user) => {
   document.getElementById('tabBlogBtn')?.classList.toggle('hidden', !aAccesCours);
   document.getElementById('tabBoutiqueBtn')?.classList.toggle('hidden', !aAccesBoutique);
   document.getElementById('panelHistoriquePresencesWrap')?.classList.toggle('hidden', !aAccesCours);
+  document.getElementById('panelCarteAbonnementWrap')?.classList.toggle('hidden', !aAccesCours);
 
   afficherAccueil();
 
@@ -210,6 +211,7 @@ onAuthStateChanged(auth, async (user) => {
   chargerVideosMembre();
   chargerBlogMembre();
   chargerHistoriquePresencesMembre();
+  if (aAccesCours) chargerCarteAbonnementMembre();
   chargerRoiMembre();
   chargerEnqueteAnonyme();
   initNotifications();
@@ -1555,6 +1557,84 @@ async function chargerHistoriquePresencesMembre() {
 }
 
 // ==========================================================================
+// CARTE D'ABONNEMENT (10 + 1 gratuit) — reprend l'ancienne carte papier.
+// Chaque cycle de 11 cours est un document "abonnements" géré par Katia
+// (auto-rempli au fil des cours pour l'abonnement en cours, ou à la main
+// pour les anciens abonnements non suivis par le site).
+// ==========================================================================
+const NB_SEANCES_ABONNEMENT_MEMBRE = 11;
+let abonnementsMembreCache = [];
+
+async function chargerCarteAbonnementMembre() {
+  const wrap = document.getElementById('panelCarteAbonnementWrap');
+  const selecteur = document.getElementById('ca-selecteur');
+  if (!wrap || !selecteur) return;
+
+  const snap = await getDocs(query(collection(db, 'abonnements'), where('membreId', '==', membreUid)));
+  abonnementsMembreCache = [];
+  snap.forEach(d => abonnementsMembreCache.push({ id: d.id, ...d.data() }));
+  abonnementsMembreCache.sort((a, b) => (b.numero || 0) - (a.numero || 0));
+
+  if (abonnementsMembreCache.length === 0) {
+    wrap.classList.add('hidden'); // rien à montrer tant que Katia n'a pas créé de cycle suivi
+    return;
+  }
+  wrap.classList.remove('hidden');
+
+  selecteur.innerHTML = abonnementsMembreCache.map(c =>
+    `<option value="${c.numero}">Abonnement n°${c.numero}${c.actif ? ' — en cours' : ''}</option>`
+  ).join('');
+  const actif = abonnementsMembreCache.find(c => c.actif);
+  selecteur.value = actif ? actif.numero : abonnementsMembreCache[0].numero;
+
+  afficherCarteAbonnement();
+  selecteur.onchange = afficherCarteAbonnement;
+}
+
+function afficherCarteAbonnement() {
+  const selecteur = document.getElementById('ca-selecteur');
+  const zone = document.getElementById('ca-carte');
+  if (!selecteur || !zone) return;
+  const numero = parseInt(selecteur.value, 10);
+  const cycle = abonnementsMembreCache.find(c => c.numero === numero);
+  if (!cycle) { zone.innerHTML = ''; return; }
+
+  const seances = Array.isArray(cycle.seances) && cycle.seances.length === NB_SEANCES_ABONNEMENT_MEMBRE
+    ? cycle.seances : Array.from({ length: NB_SEANCES_ABONNEMENT_MEMBRE }, () => null);
+
+  const stamps = seances.map((s, i) => {
+    const estGratuite = i === NB_SEANCES_ABONNEMENT_MEMBRE - 1;
+    const classes = ['stamp'];
+    let icone = '';
+    let dateHtml = '';
+    if (estGratuite) classes.push('gratuit');
+    if (s && s.dateISO && s.statut === 'P') { classes.push('rempli-p'); icone = '✅'; dateHtml = `<div class="stamp-date">${s.dateISO}</div>`; }
+    else if (s && s.dateISO && s.statut === 'NR') { classes.push('rempli-nr'); icone = '⏱️'; dateHtml = `<div class="stamp-date">${s.dateISO}</div>`; }
+    else { if (estGratuite) classes.push('vide'); icone = estGratuite ? '🎁' : ''; }
+    return `
+    <div class="${classes.join(' ')}">
+      <div class="stamp-num">${estGratuite ? 'Gratuit' : i + 1}</div>
+      ${icone ? `<div class="stamp-icone">${icone}</div>` : ''}
+      ${dateHtml}
+    </div>`;
+  }).join('');
+
+  zone.innerHTML = `
+    <div class="carte-abonnement">
+      <div class="carte-abonnement-entete">
+        <h3>🐾 Les Cabots de Fernelmont</h3>
+        <span class="carte-abonnement-statut">Abonnement n°${cycle.numero}${cycle.actif ? ' — en cours' : ' — terminé'}</span>
+      </div>
+      <div class="carte-stamps">${stamps}</div>
+      <div class="carte-abonnement-legende">
+        <span>✅ Présent (P)</span>
+        <span>⏱️ Non répondu (NR)</span>
+        <span>🎁 Cours gratuit</span>
+      </div>
+    </div>`;
+}
+
+// ==========================================================================
 // DOG SITTING — visible uniquement si l'admin a donné l'accès. Un seul
 // chien accueilli à la fois : si la période chevauche une réservation déjà
 // validée, la demande part "en attente" et Katia doit valider elle-même.
@@ -2200,6 +2280,22 @@ window.ouvrirDemandeAnnulation = (dateISO) => {
         demandeAnnulationStatut: 'attente',
         demandeAnnulationDate: serverTimestamp()
       });
+
+      // Sans ça, Katia n'avait AUCUN moyen de savoir qu'une demande
+      // existait tant qu'elle ne rouvrait pas l'onglet "Ce soir" par
+      // hasard — on envoie donc un message automatique (même mécanisme
+      // que les autres notifications du site : point rouge sur l'onglet
+      // Messages) en plus de l'enregistrement de la demande elle-même.
+      const dateLabel = new Date(dateISO + 'T00:00:00').toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' });
+      const texteAuto = `🔔 Demande d'annulation tardive : je souhaite annuler ma présence au cours du ${dateLabel} (motif : ${motif}). À valider ou refuser depuis "Ce soir" > "Demandes d'annulation tardive".`;
+      await addDoc(collection(db, 'conversations', membreUid, 'messages'), {
+        texte: texteAuto, expediteur: 'membre', dateEnvoi: new Date().toISOString(), lu: false
+      });
+      await setDoc(doc(db, 'conversations', membreUid), {
+        dernierMessage: texteAuto, dateDernierMessage: new Date().toISOString(), nonLuAdmin: true
+      }, { merge: true });
+      chargerChat();
+
       document.getElementById('modalOverlayAnnulPresence').remove();
       afficherProchainsCours();
     } catch (err) {
