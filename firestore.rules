@@ -1,4 +1,4 @@
-// Projet Firebase : cabots-de-fernelmont-901ee — Site "Les Cabots de Fernelmont" — V01-106
+// Projet Firebase : cabots-de-fernelmont-901ee — Site "Les Cabots de Fernelmont" — V01-109
 // Convention de versionnage des livraisons : VJJ-NNN (JJ = numéro du jour de
 // travail sur ce site, pas la date calendaire ; NNN = numéro de livraison
 // dans cette journée de travail, repart à 001 à chaque nouveau jour de
@@ -175,6 +175,15 @@ service cloud.firestore {
     }
 
     match /paiements/{id} {
+      allow read: if estConnecte() && (resource.data.membreId == request.auth.uid || estAdmin());
+      allow create, update, delete: if estAdmin();
+    }
+
+    // Carte d'abonnement (10 + 1 gratuit) : un cycle de 11 cours par
+    // document. Rempli automatiquement par l'admin au fil des cours, ou à
+    // la main (anciens abonnements non suivis par le site) — jamais
+    // modifiable par un membre, qui peut seulement consulter les siens.
+    match /abonnements/{id} {
       allow read: if estConnecte() && (resource.data.membreId == request.auth.uid || estAdmin());
       allow create, update, delete: if estAdmin();
     }

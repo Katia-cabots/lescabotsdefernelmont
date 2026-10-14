@@ -14,8 +14,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/style.css?v=V01-106">
-<link rel="stylesheet" href="assets/app.css?v=V01-106">
+<link rel="stylesheet" href="assets/style.css?v=V01-109">
+<link rel="stylesheet" href="assets/app.css?v=V01-109">
 </head>
 <body class="app-body">
 
@@ -379,6 +379,11 @@
 
   <!-- ==================== HISTORIQUE ==================== -->
   <div id="panel-historique" class="tab-panel hidden">
+    <div class="app-panel hidden" id="panelCarteAbonnementWrap">
+      <h2>🎫 Ma carte d'abonnement</h2>
+      <div class="field" style="max-width:280px;"><label>Abonnement</label><select id="ca-selecteur"></select></div>
+      <div id="ca-carte" style="margin-top:14px;"></div>
+    </div>
     <div class="app-panel" id="panelHistoriquePresencesWrap">
       <h2>Historique de mes présences</h2>
       <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Les cours marqués "non répondu" ont été comptabilisés dans votre abonnement.</p>
@@ -426,6 +431,6 @@
   });
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script type="module" src="assets/app-membre.js?v=V01-106"></script>
+<script type="module" src="assets/app-membre.js?v=V01-109"></script>
 </body>
 </html>
