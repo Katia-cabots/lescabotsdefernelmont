@@ -28,6 +28,7 @@ new MutationObserver((mutations) => {
       if (node.nodeType !== 1) return;
       const overlays = node.classList?.contains('modal-overlay') ? [node] : Array.from(node.querySelectorAll?.('.modal-overlay') || []);
       overlays.forEach(overlay => {
+        _modifNonSauvee = false; // nouvelle modale : on repart d'un état "propre"
         const box = overlay.querySelector('.modal-box');
         if (!box || box.querySelector('.modal-close-x')) return;
         const btn = document.createElement('button');
@@ -41,6 +42,51 @@ new MutationObserver((mutations) => {
     });
   });
 }).observe(document.body, { childList: true, subtree: true });
+
+// --- Avertissement avant de quitter une page/modale sans sauvegarder ---
+// _modifNonSauvee passe à true dès qu'un champ est modifié dans une modale ou
+// un panneau de saisie (fiche membre, "Mon profil", etc.), et repasse à false
+// dès qu'un bouton de sauvegarde est cliqué. Les champs de recherche/filtre
+// (id commençant par "recherche") sont ignorés pour éviter les faux positifs.
+let _modifNonSauvee = false;
+const MOTS_SAUVEGARDE = /enregistr|sauveg|valider|créer|confirmer|ajouter|chang/i;
+const MESSAGE_QUITTER_SANS_SAUVER = 'Voulez-vous quitter sans sauvegarder vos modifications ?';
+
+function _marqueModifieSiPertinent(e) {
+  if (e.target?.id?.startsWith('recherche')) return;
+  if (e.target?.closest?.('.modal-box, .app-panel')) _modifNonSauvee = true;
+}
+document.addEventListener('input', _marqueModifieSiPertinent, true);
+document.addEventListener('change', _marqueModifieSiPertinent, true);
+
+// Fermeture réelle de la page (onglet fermé, rafraîchi, ou navigation vers
+// une autre URL comme "Retour au site") : avertissement natif du navigateur
+// (son texte exact est imposé par le navigateur, pas personnalisable).
+window.addEventListener('beforeunload', (e) => {
+  if (_modifNonSauvee) { e.preventDefault(); e.returnValue = ''; }
+});
+
+// Fermeture d'une modale (croix, "Fermer"/"Annuler") ou changement d'onglet
+// sans avoir sauvegardé : demande confirmation avant de poursuivre.
+document.addEventListener('click', (e) => {
+  const cible = e.target.closest('button, a, .tab-btn');
+  if (!cible) return;
+  const texte = (cible.textContent || '').trim();
+  if (MOTS_SAUVEGARDE.test(texte)) { _modifNonSauvee = false; return; }
+  if (!_modifNonSauvee) return;
+  const onclickAttr = cible.getAttribute('onclick') || '';
+  const estFermeture = cible.classList.contains('modal-close-x')
+    || cible.classList.contains('tab-btn')
+    || onclickAttr.includes('fermerModal')
+    || onclickAttr.includes('.remove()');
+  if (!estFermeture) return;
+  if (!confirm(MESSAGE_QUITTER_SANS_SAUVER)) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  } else {
+    _modifNonSauvee = false;
+  }
+}, true);
 
 const JOURS = ["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
 
@@ -321,6 +367,27 @@ onAuthStateChanged(auth, async (user) => {
     }
     if (mois === 9 && jour === 3) { // 9 = octobre
       document.getElementById('banniere3OctobreAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 9 && jour === 15) { // 9 = octobre
+      document.getElementById('banniere15OctobreAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 9 && jour === 29) { // 9 = octobre
+      document.getElementById('banniere29OctobreAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 10 && jour === 1) { // 10 = novembre
+      document.getElementById('banniere1NovembreAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 1 && jour === 21) { // 1 = février
+      document.getElementById('banniereCookieAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 2 && jour === 28) { // 2 = mars
+      document.getElementById('bannierePistacheAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 11 && jour === 8) { // 11 = décembre
+      document.getElementById('banniereOlgaAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 8 && jour === 22) { // 8 = septembre
+      document.getElementById('banniereSarahAdmin')?.classList.remove('hidden');
     }
   }
   } catch (err) {
@@ -1371,7 +1438,14 @@ function seancesVides() {
 async function chargerAbonnementsAdmin(membreId) {
   const zone = document.getElementById('mm-listeAbonnements');
   if (!zone) return;
-  const snap = await getDocs(query(collection(db, 'abonnements'), where('membreId', '==', membreId)));
+  let snap;
+  try {
+    snap = await getDocs(query(collection(db, 'abonnements'), where('membreId', '==', membreId)));
+  } catch (err) {
+    console.error('Erreur lecture carte abonnement :', err);
+    zone.innerHTML = `<div class="banner-alert" style="background:#FBEAEA; border-color:#E3B4B4; color:#8A2E2E;">Erreur de lecture : ${escapeHtml(err.message || String(err))}${err.code === 'permission-denied' ? ' — les règles Firestore pour la collection "abonnements" ne sont probablement pas encore déployées sur Firebase.' : ''}</div>`;
+    return;
+  }
   const cycles = [];
   snap.forEach(d => cycles.push({ id: d.id, ...d.data() }));
   cycles.sort((a, b) => (b.numero || 0) - (a.numero || 0));
@@ -1423,33 +1497,40 @@ window.ouvrirNouvelAbonnement = async (membreId) => {
   document.body.insertAdjacentHTML('beforeend', html);
 
   document.getElementById('na-save').addEventListener('click', async () => {
-    const numero = parseInt(document.getElementById('na-numero').value, 10) || prochainNumero;
-    const historique = document.getElementById('na-historique').checked;
+    const btnCreer = document.getElementById('na-save');
+    btnCreer.disabled = true;
+    try {
+      const numero = parseInt(document.getElementById('na-numero').value, 10) || prochainNumero;
+      const historique = document.getElementById('na-historique').checked;
 
-    if (!historique) {
-      // Ferme l'éventuel abonnement actif précédent (un seul cycle "en cours" à la fois).
-      const actifsSnap = await getDocs(query(collection(db, 'abonnements'), where('membreId', '==', membreId), where('actif', '==', true)));
-      for (const d of actifsSnap.docs) {
-        await updateDoc(doc(db, 'abonnements', d.id), { actif: false });
+      if (!historique) {
+        // Ferme l'éventuel abonnement actif précédent (un seul cycle "en cours" à la fois).
+        const actifsSnap = await getDocs(query(collection(db, 'abonnements'), where('membreId', '==', membreId), where('actif', '==', true)));
+        for (const d of actifsSnap.docs) {
+          await updateDoc(doc(db, 'abonnements', d.id), { actif: false });
+        }
       }
+
+      await setDoc(doc(db, 'abonnements', `${membreId}_${numero}`), {
+        membreId, numero, actif: !historique, manuel: historique,
+        dateCreation: new Date().toISOString(),
+        seances: seancesVides()
+      });
+
+      if (!historique) {
+        await updateDoc(doc(db, 'membres', membreId), { coursRestants: 11, abonnementPaye: true });
+        if (document.getElementById('mm-coursRestants')) document.getElementById('mm-coursRestants').value = 11;
+        if (document.getElementById('mm-aboPaye')) document.getElementById('mm-aboPaye').value = 'oui';
+      }
+
+      document.getElementById('modalOverlayNouvelAbo').remove();
+      chargerAbonnementsAdmin(membreId);
+      renderMembres();
+    } catch (err) {
+      console.error('Erreur création abonnement :', err);
+      alert("Erreur lors de la création : " + (err.message || err) + "\n\nSi le message mentionne des permissions, les nouvelles règles Firestore (firestore.rules) n'ont peut-être pas encore été déployées sur Firebase pour la collection \"abonnements\".");
+      btnCreer.disabled = false;
     }
-
-    await setDoc(doc(db, 'abonnements', `${membreId}_${numero}`), {
-      membreId, numero, actif: !historique, manuel: historique,
-      dateCreation: new Date().toISOString(),
-      seances: seancesVides()
-    });
-
-    if (!historique) {
-      await updateDoc(doc(db, 'membres', membreId), { coursRestants: 11, abonnementPaye: true });
-      document.getElementById('mm-coursRestants')?.setAttribute('value', '11');
-      if (document.getElementById('mm-coursRestants')) document.getElementById('mm-coursRestants').value = 11;
-      if (document.getElementById('mm-aboPaye')) document.getElementById('mm-aboPaye').value = 'oui';
-    }
-
-    document.getElementById('modalOverlayNouvelAbo').remove();
-    chargerAbonnementsAdmin(membreId);
-    renderMembres();
   });
 };
 
@@ -1463,9 +1544,9 @@ window.ouvrirEditionAbonnement = async (membreId, numero) => {
   const lignes = seances.map((s, i) => `
     <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; align-items:end; margin-bottom:8px;">
       <div class="field" style="margin:0;"><label>${i === NB_SEANCES_ABONNEMENT - 1 ? 'Séance 11 (gratuite)' : `Séance ${i + 1}`}</label></div>
-      <div class="field" style="margin:0;"><input type="date" id="ab-date-${i}" value="${s?.dateISO || ''}"></div>
+      <div class="field" style="margin:0;"><input type="date" id="car-date-${i}" value="${s?.dateISO || ''}"></div>
       <div class="field" style="margin:0;">
-        <select id="ab-statut-${i}">
+        <select id="car-statut-${i}">
           <option value="" ${!s?.statut ? 'selected' : ''}>—</option>
           <option value="P" ${s?.statut === 'P' ? 'selected' : ''}>P (présent)</option>
           <option value="NR" ${s?.statut === 'NR' ? 'selected' : ''}>NR (non répondu)</option>
@@ -1483,22 +1564,27 @@ window.ouvrirEditionAbonnement = async (membreId, numero) => {
           <button class="btn-sm danger" type="button" onclick="window.supprimerAbonnementAdmin('${membreId}','${numero}')">Supprimer cet abonnement</button>
           <div style="display:flex; gap:10px;">
             <button class="btn-sm" type="button" onclick="document.getElementById('modalOverlayAbo').remove()">Fermer</button>
-            <button class="btn-sm primary" type="button" id="ab-save">Enregistrer</button>
+            <button class="btn-sm primary" type="button" id="car-save">Enregistrer</button>
           </div>
         </div>
       </div>
     </div>`;
   document.body.insertAdjacentHTML('beforeend', html);
 
-  document.getElementById('ab-save').addEventListener('click', async () => {
-    const nouvellesSeances = seances.map((s, i) => ({
-      dateISO: document.getElementById(`ab-date-${i}`).value || null,
-      statut: document.getElementById(`ab-statut-${i}`).value || null,
-      presenceId: s?.presenceId || null
-    }));
-    await updateDoc(doc(db, 'abonnements', docId), { seances: nouvellesSeances });
-    document.getElementById('modalOverlayAbo').remove();
-    chargerAbonnementsAdmin(membreId);
+  document.getElementById('car-save').addEventListener('click', async () => {
+    try {
+      const nouvellesSeances = seances.map((s, i) => ({
+        dateISO: document.getElementById(`car-date-${i}`).value || null,
+        statut: document.getElementById(`car-statut-${i}`).value || null,
+        presenceId: s?.presenceId || null
+      }));
+      await updateDoc(doc(db, 'abonnements', docId), { seances: nouvellesSeances });
+      document.getElementById('modalOverlayAbo').remove();
+      chargerAbonnementsAdmin(membreId);
+    } catch (err) {
+      console.error('Erreur enregistrement carte abonnement :', err);
+      alert("Erreur lors de l'enregistrement : " + (err.message || err) + "\n\nSi le message mentionne des permissions, les nouvelles règles Firestore (firestore.rules) n'ont peut-être pas encore été déployées sur Firebase pour la collection \"abonnements\".");
+    }
   });
 };
 

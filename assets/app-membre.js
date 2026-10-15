@@ -19,6 +19,7 @@ new MutationObserver((mutations) => {
       if (node.nodeType !== 1) return;
       const overlays = node.classList?.contains('modal-overlay') ? [node] : Array.from(node.querySelectorAll?.('.modal-overlay') || []);
       overlays.forEach(overlay => {
+        _modifNonSauvee = false; // nouvelle modale : on repart d'un état "propre"
         const box = overlay.querySelector('.modal-box');
         if (!box || box.querySelector('.modal-close-x')) return;
         const btn = document.createElement('button');
@@ -32,6 +33,51 @@ new MutationObserver((mutations) => {
     });
   });
 }).observe(document.body, { childList: true, subtree: true });
+
+// --- Avertissement avant de quitter une page/modale sans sauvegarder ---
+// _modifNonSauvee passe à true dès qu'un champ est modifié dans une modale ou
+// un panneau de saisie ("Mon profil", "Mon chien", etc.), et repasse à false
+// dès qu'un bouton de sauvegarde est cliqué. Les champs de recherche/filtre
+// (id commençant par "recherche") sont ignorés pour éviter les faux positifs.
+let _modifNonSauvee = false;
+const MOTS_SAUVEGARDE = /enregistr|sauveg|valider|créer|confirmer|ajouter|chang/i;
+const MESSAGE_QUITTER_SANS_SAUVER = 'Voulez-vous quitter sans sauvegarder vos modifications ?';
+
+function _marqueModifieSiPertinent(e) {
+  if (e.target?.id?.startsWith('recherche')) return;
+  if (e.target?.closest?.('.modal-box, .app-panel')) _modifNonSauvee = true;
+}
+document.addEventListener('input', _marqueModifieSiPertinent, true);
+document.addEventListener('change', _marqueModifieSiPertinent, true);
+
+// Fermeture réelle de la page (onglet fermé, rafraîchi, ou navigation vers
+// une autre URL comme "Retour au site") : avertissement natif du navigateur
+// (son texte exact est imposé par le navigateur, pas personnalisable).
+window.addEventListener('beforeunload', (e) => {
+  if (_modifNonSauvee) { e.preventDefault(); e.returnValue = ''; }
+});
+
+// Fermeture d'une modale (croix, "Fermer"/"Annuler") ou changement d'onglet
+// sans avoir sauvegardé : demande confirmation avant de poursuivre.
+document.addEventListener('click', (e) => {
+  const cible = e.target.closest('button, a, .tab-btn');
+  if (!cible) return;
+  const texte = (cible.textContent || '').trim();
+  if (MOTS_SAUVEGARDE.test(texte)) { _modifNonSauvee = false; return; }
+  if (!_modifNonSauvee) return;
+  const onclickAttr = cible.getAttribute('onclick') || '';
+  const estFermeture = cible.classList.contains('modal-close-x')
+    || cible.classList.contains('tab-btn')
+    || onclickAttr.includes('fermerModal')
+    || onclickAttr.includes('.remove()');
+  if (!estFermeture) return;
+  if (!confirm(MESSAGE_QUITTER_SANS_SAUVER)) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  } else {
+    _modifNonSauvee = false;
+  }
+}, true);
 
 const JOURS = ["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
 
@@ -164,7 +210,7 @@ onAuthStateChanged(auth, async (user) => {
   document.getElementById('tabBlogBtn')?.classList.toggle('hidden', !aAccesCours);
   document.getElementById('tabBoutiqueBtn')?.classList.toggle('hidden', !aAccesBoutique);
   document.getElementById('panelHistoriquePresencesWrap')?.classList.toggle('hidden', !aAccesCours);
-  document.getElementById('panelCarteAbonnementWrap')?.classList.toggle('hidden', !aAccesCours);
+  if (!aAccesCours) document.getElementById('tabAbonnementBtn')?.classList.add('hidden');
 
   afficherAccueil();
 
@@ -1566,9 +1612,9 @@ const NB_SEANCES_ABONNEMENT_MEMBRE = 11;
 let abonnementsMembreCache = [];
 
 async function chargerCarteAbonnementMembre() {
-  const wrap = document.getElementById('panelCarteAbonnementWrap');
+  const tabBtn = document.getElementById('tabAbonnementBtn');
   const selecteur = document.getElementById('ca-selecteur');
-  if (!wrap || !selecteur) return;
+  if (!selecteur) return;
 
   const snap = await getDocs(query(collection(db, 'abonnements'), where('membreId', '==', membreUid)));
   abonnementsMembreCache = [];
@@ -1576,10 +1622,10 @@ async function chargerCarteAbonnementMembre() {
   abonnementsMembreCache.sort((a, b) => (b.numero || 0) - (a.numero || 0));
 
   if (abonnementsMembreCache.length === 0) {
-    wrap.classList.add('hidden'); // rien à montrer tant que Katia n'a pas créé de cycle suivi
+    tabBtn?.classList.add('hidden'); // rien à montrer tant que Katia n'a pas créé de cycle suivi
     return;
   }
-  wrap.classList.remove('hidden');
+  tabBtn?.classList.remove('hidden');
 
   selecteur.innerHTML = abonnementsMembreCache.map(c =>
     `<option value="${c.numero}">Abonnement n°${c.numero}${c.actif ? ' — en cours' : ''}</option>`
