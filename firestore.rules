@@ -1,4 +1,4 @@
-// Projet Firebase : cabots-de-fernelmont-901ee — Site "Les Cabots de Fernelmont" — V01-113
+// Projet Firebase : cabots-de-fernelmont-901ee — Site "Les Cabots de Fernelmont" — V01-115
 // Convention de versionnage des livraisons : VJJ-NNN (JJ = numéro du jour de
 // travail sur ce site, pas la date calendaire ; NNN = numéro de livraison
 // dans cette journée de travail, repart à 001 à chaque nouveau jour de
@@ -229,11 +229,20 @@ service cloud.firestore {
       allow read: if estConnecte() && (resource.data.membreId == request.auth.uid || estAdmin());
       allow create: if estAdmin() || (estConnecte() && request.resource.data.membreId == request.auth.uid);
       // Le membre peut mettre à jour SA PROPRE demande, mais seulement pour
-      // signaler un paiement d'acompte ou marquer une notification comme vue
-      // — tout le reste (statut, validation, acompte validé...) reste
-      // réservé à l'admin.
+      // signaler un paiement d'acompte, marquer une notification comme vue,
+      // ou envoyer une demande de modification de dates (uniquement au
+      // statut "attente" — seul l'admin peut la faire passer à
+      // "validee"/"refusee", et c'est elle qui recalcule le prix) — tout le
+      // reste (dates réelles, statut, validation, acompte validé...) reste
+      // réservé à l'admin. Le contrôle "attente uniquement" ne porte que sur
+      // une écriture qui modifie demandeModifStatut, pour ne jamais bloquer
+      // un signalerAcomptePaye/vuParMembre ultérieur une fois la demande
+      // déjà traitée par l'admin.
       allow update: if estAdmin() || (estConnecte() && resource.data.membreId == request.auth.uid &&
-        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['acomptePaye', 'vuParMembre']));
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['acomptePaye', 'vuParMembre', 'vuParAdmin', 'demandeModifStatut', 'demandeModifDateDebut', 'demandeModifDateFin',
+           'demandeModifHeureArrivee', 'demandeModifHeureDepart', 'demandeModifMotif', 'demandeModifDate']) &&
+        (!('demandeModifStatut' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.demandeModifStatut == 'attente'));
       allow delete: if estAdmin();
     }
 
