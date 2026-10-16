@@ -5106,13 +5106,24 @@ window.recalculerTarifDogSitting = async (id) => {
   const membre = currentMembres.find(m => m.id === r.membreId) || currentMembresArchives.find(m => m.id === r.membreId);
   const tarifNuit = membre?.accesCours ? tarifs.membre : tarifs.nonMembre;
   const nbNuits = calculerNuitsDogSittingAdmin(r.dateDebut, r.dateFin, r.heureArrivee, r.heureDepart);
-  const reductionDemiNuits = r.reductionDemiNuits || 0;
+  // Même garde-fou que pour la modification de dates : une réduction fixée
+  // pour un séjour plus long que l'actuel ne doit pas ramener le total à 0€
+  // en silence.
+  let reductionDemiNuits = r.reductionDemiNuits || 0;
+  let reductionLimitee = false;
+  if (reductionDemiNuits > nbNuits * 2) {
+    reductionLimitee = true;
+    reductionDemiNuits = nbNuits * 2;
+  }
   const total = Number(Math.max(0, tarifNuit * nbNuits - reductionDemiNuits * 0.5 * tarifNuit).toFixed(2));
   const maj = { tarifNuit, nbNuits, reductionDemiNuits, total, totalFixeManuellement: false };
   if (r.acompte != null) maj.acompte = Number((total * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
 
   await updateDoc(doc(db, 'dogsitting', id), maj);
   chargerDogSittingAdmin();
+  if (reductionLimitee) {
+    alert(`La réduction déjà enregistrée sur cette réservation (${((r.reductionDemiNuits || 0) / 2)} nuit(s)) dépassait la durée actuelle du séjour (${nbNuits} nuit(s)) — elle a été limitée à ${nbNuits} nuit(s) et le total a été recalculé en conséquence (${total.toFixed(2)} €). Vérifiez la réduction affichée et ajustez-la si besoin.`);
+  }
 };
 
 window.appliquerReductionDogSitting = async (id) => {
@@ -5227,21 +5238,35 @@ async function appliquerNouvellesDatesDogSitting(id, nouvDateDebut, nouvDateFin,
   }
 
   const maj = { dateDebut: nouvDateDebut, dateFin: nouvDateFin, heureArrivee: nouvHeureArrivee, heureDepart: nouvHeureDepart, vuParMembre: false };
+  let reductionLimitee = false;
   if (!r.isBlocage && !r.totalFixeManuellement) {
     const tarifs = await tarifsDogSittingParNuitAdmin();
     const membre = currentMembres.find(m => m.id === r.membreId) || currentMembresArchives.find(m => m.id === r.membreId);
     const tarifNuit = membre?.accesCours ? tarifs.membre : tarifs.nonMembre;
     const nbNuits = calculerNuitsDogSittingAdmin(nouvDateDebut, nouvDateFin, nouvHeureArrivee, nouvHeureDepart);
-    const reductionDemiNuits = r.reductionDemiNuits || 0;
+    // La réduction (en demi-nuits) a été fixée pour la durée précédente du
+    // séjour — si les nouvelles dates raccourcissent le séjour, elle peut
+    // désormais dépasser le nombre de nuits réel et ramener le total à 0€
+    // sans que ce soit voulu. On la limite à la nouvelle durée (gratuit au
+    // maximum, jamais négatif) et on prévient l'admin que ça a été fait.
+    let reductionDemiNuits = r.reductionDemiNuits || 0;
+    if (reductionDemiNuits > nbNuits * 2) {
+      reductionLimitee = true;
+      reductionDemiNuits = nbNuits * 2;
+    }
     const total = Number(Math.max(0, tarifNuit * nbNuits - reductionDemiNuits * 0.5 * tarifNuit).toFixed(2));
     maj.tarifNuit = tarifNuit;
     maj.nbNuits = nbNuits;
+    maj.reductionDemiNuits = reductionDemiNuits;
     maj.total = total;
     if (r.acompte != null) maj.acompte = Number((total * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
   }
 
   await updateDoc(doc(db, 'dogsitting', id), maj);
   await syncDogSittingDates(id, nouvDateDebut, nouvDateFin, r.statut);
+  if (reductionLimitee) {
+    alert(`La réduction déjà enregistrée sur cette réservation (${((r.reductionDemiNuits || 0) / 2)} nuit(s)) dépassait la nouvelle durée du séjour (${maj.nbNuits} nuit(s)) — elle a été limitée à ${maj.nbNuits} nuit(s) et le total a été recalculé en conséquence. Vérifiez la réduction affichée et ajustez-la si besoin.`);
+  }
   return maj;
 }
 
