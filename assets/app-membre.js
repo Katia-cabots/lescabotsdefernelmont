@@ -1758,7 +1758,9 @@ async function chargerMesDemandesDogSitting() {
     } else if (r.statut === 'validee' && r.acompte) {
       const communication = `Dog Sitting ${r.chienNom} ${r.dateDebut}`;
       if (r.acompteValide) {
-        blocAcompte = `<div style="margin-top:8px;"><span class="badge badge-ok">✅ Date bloquée — acompte reçu et validé</span></div>`;
+        const montantPaye = r.montantAcomptePaye ?? r.acompte;
+        blocAcompte = `<div style="margin-top:8px;"><span class="badge badge-ok">✅ Date bloquée — acompte reçu et validé</span></div>
+          <div class="data-sub" style="margin-top:4px;">Montant de l'acompte payé : <strong>${montantPaye.toFixed(2)} €</strong></div>`;
       } else {
         blocAcompte = `
           <div class="banner-alert" style="margin-top:8px;">

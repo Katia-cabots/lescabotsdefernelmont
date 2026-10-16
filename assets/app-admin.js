@@ -4809,6 +4809,27 @@ function calculerNuitsDogSittingAdmin(dateDebut, dateFin, heureArrivee, heureDep
   return nuits;
 }
 
+// Calcul "par défaut" complet (tarif x nuits - réduction) pour une
+// réservation — factorisé ici car utilisé à l'identique à 3 endroits
+// (bouton "Recalculer le tarif" sur une ligne, bouton "Recalculer tout",
+// et application de nouvelles dates). La réduction (en demi-nuits) est
+// toujours plafonnée à la durée du séjour, pour ne jamais produire un
+// total négatif silencieusement ramené à 0€ sans que ce soit voulu.
+async function calculerTotalDogSittingAdmin(r, dateDebut, dateFin, heureArrivee, heureDepart) {
+  const tarifs = await tarifsDogSittingParNuitAdmin();
+  const membre = currentMembres.find(m => m.id === r.membreId) || currentMembresArchives.find(m => m.id === r.membreId);
+  const tarifNuit = membre?.accesCours ? tarifs.membre : tarifs.nonMembre;
+  const nbNuits = calculerNuitsDogSittingAdmin(dateDebut, dateFin, heureArrivee, heureDepart);
+  let reductionDemiNuits = r.reductionDemiNuits || 0;
+  let reductionLimitee = false;
+  if (reductionDemiNuits > nbNuits * 2) {
+    reductionLimitee = true;
+    reductionDemiNuits = nbNuits * 2;
+  }
+  const total = Number(Math.max(0, tarifNuit * nbNuits - reductionDemiNuits * 0.5 * tarifNuit).toFixed(2));
+  return { tarifNuit, nbNuits, reductionDemiNuits, total, reductionLimitee };
+}
+
 async function chargerDogSittingAdmin() {
   const snap = await getDocs(collection(db, 'dogsitting'));
   const tous = [];
@@ -4991,7 +5012,18 @@ function renderListeDogSittingAdmin() {
     let infoAcompte = '';
     if (r.statut === 'validee' && r.acompte) {
       if (r.acompteValide) {
-        infoAcompte = `<div class="data-sub"><span class="badge badge-ok">✅ Acompte validé — date bloquée</span></div>`;
+        // Même une fois l'acompte validé, on garde une trace du montant
+        // réellement payé (modifiable à tout moment — Katia peut avoir
+        // redemandé un autre montant au membre après coup) pour s'en
+        // souvenir, distinct du montant initialement attendu.
+        const montantPaye = r.montantAcomptePaye ?? r.acompte;
+        infoAcompte = `<div class="data-sub"><span class="badge badge-ok">✅ Acompte validé — date bloquée</span></div>
+          <div class="data-sub">Montant payé : <strong>${montantPaye.toFixed(2)} €</strong></div>
+          <div class="data-sub" style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+            Modifier le montant payé (€) :
+            <input type="number" step="0.01" min="0" id="ds-acompte-paye-${r.id}" placeholder="${montantPaye.toFixed(2)}" style="width:90px;">
+            <button class="btn-sm" onclick="window.modifierMontantAcomptePaye('${r.id}')">Enregistrer</button>
+          </div>`;
       } else {
         infoAcompte = `<div class="data-sub">Acompte attendu : <strong>${r.acompte.toFixed(2)} €</strong> ${r.acompteFixeManuellement ? '<span class="badge badge-neutral">Acompte fixé manuellement</span>' : `(30% de ${r.total.toFixed(2)} €)`} ${r.acomptePaye ? '<span class="badge badge-warn">Membre indique avoir payé</span>' : '<span class="badge badge-neutral">Le membre n\'a pas encore signalé avoir payé l\'acompte</span>'}</div>
           <div class="data-sub" style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
@@ -5193,27 +5225,16 @@ window.recalculerTarifDogSitting = async (id) => {
   if (r.acompteValide) message += "\n\n⚠️ L'acompte de cette réservation a déjà été validé — son montant sera recalculé en fonction du nouveau total.";
   if (!confirm(message)) return;
 
-  const tarifs = await tarifsDogSittingParNuitAdmin();
-  const membre = currentMembres.find(m => m.id === r.membreId) || currentMembresArchives.find(m => m.id === r.membreId);
-  const tarifNuit = membre?.accesCours ? tarifs.membre : tarifs.nonMembre;
-  const nbNuits = calculerNuitsDogSittingAdmin(r.dateDebut, r.dateFin, r.heureArrivee, r.heureDepart);
-  // Même garde-fou que pour la modification de dates : une réduction fixée
-  // pour un séjour plus long que l'actuel ne doit pas ramener le total à 0€
-  // en silence.
-  let reductionDemiNuits = r.reductionDemiNuits || 0;
-  let reductionLimitee = false;
-  if (reductionDemiNuits > nbNuits * 2) {
-    reductionLimitee = true;
-    reductionDemiNuits = nbNuits * 2;
-  }
-  const total = Number(Math.max(0, tarifNuit * nbNuits - reductionDemiNuits * 0.5 * tarifNuit).toFixed(2));
+  const anciRedDemiNuits = r.reductionDemiNuits || 0;
+  const { tarifNuit, nbNuits, reductionDemiNuits, total, reductionLimitee } =
+    await calculerTotalDogSittingAdmin(r, r.dateDebut, r.dateFin, r.heureArrivee, r.heureDepart);
   const maj = { tarifNuit, nbNuits, reductionDemiNuits, total, totalFixeManuellement: false };
   if (r.acompte != null && !r.acompteFixeManuellement) maj.acompte = Number((total * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
 
   await updateDoc(doc(db, 'dogsitting', id), maj);
   chargerDogSittingAdmin();
   if (reductionLimitee) {
-    alert(`La réduction déjà enregistrée sur cette réservation (${((r.reductionDemiNuits || 0) / 2)} nuit(s)) dépassait la durée actuelle du séjour (${nbNuits} nuit(s)) — elle a été limitée à ${nbNuits} nuit(s) et le total a été recalculé en conséquence (${total.toFixed(2)} €). Vérifiez la réduction affichée et ajustez-la si besoin.`);
+    alert(`La réduction déjà enregistrée sur cette réservation (${anciRedDemiNuits / 2} nuit(s)) dépassait la durée actuelle du séjour (${nbNuits} nuit(s)) — elle a été limitée à ${nbNuits} nuit(s) et le total a été recalculé en conséquence (${total.toFixed(2)} €). Vérifiez la réduction affichée et ajustez-la si besoin.`);
   }
 };
 
@@ -5242,7 +5263,6 @@ document.getElementById('btnRecalculerDogSitting')?.addEventListener('click', as
   btn.disabled = true;
   zone.textContent = 'Recalcul en cours...';
   try {
-    const tarifs = await tarifsDogSittingParNuitAdmin();
     const snap = await getDocs(collection(db, 'dogsitting'));
     let compte = 0;
     for (const d of snap.docs) {
@@ -5253,11 +5273,8 @@ document.getElementById('btnRecalculerDogSitting')?.addEventListener('click', as
       if (r.totalFixeManuellement) continue; // ni un prix fixé manuellement par l'admin
       if (!r.dateDebut || !r.dateFin) continue;
 
-      const membre = currentMembres.find(m => m.id === r.membreId) || currentMembresArchives.find(m => m.id === r.membreId);
-      const tarifNuit = membre?.accesCours ? tarifs.membre : tarifs.nonMembre;
-      const nbNuits = calculerNuitsDogSittingAdmin(r.dateDebut, r.dateFin, r.heureArrivee, r.heureDepart);
-      const reductionDemiNuits = r.reductionDemiNuits || 0;
-      const total = Number(Math.max(0, tarifNuit * nbNuits - reductionDemiNuits * 0.5 * tarifNuit).toFixed(2));
+      const { tarifNuit, nbNuits, reductionDemiNuits, total } =
+        await calculerTotalDogSittingAdmin(r, r.dateDebut, r.dateFin, r.heureArrivee, r.heureDepart);
       const maj = { tarifNuit, nbNuits, reductionDemiNuits, total };
       if (r.acompte != null && !r.acompteFixeManuellement) maj.acompte = Number((total * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
 
@@ -5279,7 +5296,21 @@ window.validerDogSitting = async (id) => {
   chargerDogSittingAdmin();
 };
 window.validerAcompteDogSitting = async (id) => {
-  await updateDoc(doc(db, 'dogsitting', id), { acompteValide: true, vuParMembre: false });
+  const r = currentDogSitting.find(x => x.id === id);
+  // Le montant payé démarre égal au montant attendu — modifiable ensuite si
+  // Katia a redemandé un autre montant au membre.
+  await updateDoc(doc(db, 'dogsitting', id), { acompteValide: true, vuParMembre: false, montantAcomptePaye: r?.acompte ?? null });
+  chargerDogSittingAdmin();
+};
+
+// Garde en mémoire le montant réellement payé par le membre pour
+// l'acompte — modifiable à tout moment, même après validation, car Katia
+// peut avoir redemandé un autre montant après coup.
+window.modifierMontantAcomptePaye = async (id) => {
+  const inputEl = document.getElementById(`ds-acompte-paye-${id}`);
+  const valeur = parseFloat(inputEl.value);
+  if (isNaN(valeur) || valeur < 0) { alert('Merci d\'indiquer un montant valide.'); return; }
+  await updateDoc(doc(db, 'dogsitting', id), { montantAcomptePaye: Number(valeur.toFixed(2)) });
   chargerDogSittingAdmin();
 };
 window.refuserDogSitting = async (id) => {
@@ -5330,26 +5361,14 @@ async function appliquerNouvellesDatesDogSitting(id, nouvDateDebut, nouvDateFin,
 
   const maj = { dateDebut: nouvDateDebut, dateFin: nouvDateFin, heureArrivee: nouvHeureArrivee, heureDepart: nouvHeureDepart, vuParMembre: false };
   let reductionLimitee = false;
+  const anciRedDemiNuits = r.reductionDemiNuits || 0;
   if (!r.isBlocage && !r.totalFixeManuellement) {
-    const tarifs = await tarifsDogSittingParNuitAdmin();
-    const membre = currentMembres.find(m => m.id === r.membreId) || currentMembresArchives.find(m => m.id === r.membreId);
-    const tarifNuit = membre?.accesCours ? tarifs.membre : tarifs.nonMembre;
-    const nbNuits = calculerNuitsDogSittingAdmin(nouvDateDebut, nouvDateFin, nouvHeureArrivee, nouvHeureDepart);
-    // La réduction (en demi-nuits) a été fixée pour la durée précédente du
-    // séjour — si les nouvelles dates raccourcissent le séjour, elle peut
-    // désormais dépasser le nombre de nuits réel et ramener le total à 0€
-    // sans que ce soit voulu. On la limite à la nouvelle durée (gratuit au
-    // maximum, jamais négatif) et on prévient l'admin que ça a été fait.
-    let reductionDemiNuits = r.reductionDemiNuits || 0;
-    if (reductionDemiNuits > nbNuits * 2) {
-      reductionLimitee = true;
-      reductionDemiNuits = nbNuits * 2;
-    }
-    const total = Number(Math.max(0, tarifNuit * nbNuits - reductionDemiNuits * 0.5 * tarifNuit).toFixed(2));
-    maj.tarifNuit = tarifNuit;
-    maj.nbNuits = nbNuits;
-    maj.reductionDemiNuits = reductionDemiNuits;
-    maj.total = total;
+    const resultat = await calculerTotalDogSittingAdmin(r, nouvDateDebut, nouvDateFin, nouvHeureArrivee, nouvHeureDepart);
+    maj.tarifNuit = resultat.tarifNuit;
+    maj.nbNuits = resultat.nbNuits;
+    maj.reductionDemiNuits = resultat.reductionDemiNuits;
+    maj.total = resultat.total;
+    reductionLimitee = resultat.reductionLimitee;
     // Important : contrairement au total, l'acompte n'est PAS recalculé
     // automatiquement quand on change les dates — en général l'acompte déjà
     // convenu avec le membre ne doit pas bouger. L'admin/Super Admin peut
@@ -5359,7 +5378,7 @@ async function appliquerNouvellesDatesDogSitting(id, nouvDateDebut, nouvDateFin,
   await updateDoc(doc(db, 'dogsitting', id), maj);
   await syncDogSittingDates(id, nouvDateDebut, nouvDateFin, r.statut);
   if (reductionLimitee) {
-    alert(`La réduction déjà enregistrée sur cette réservation (${((r.reductionDemiNuits || 0) / 2)} nuit(s)) dépassait la nouvelle durée du séjour (${maj.nbNuits} nuit(s)) — elle a été limitée à ${maj.nbNuits} nuit(s) et le total a été recalculé en conséquence. Vérifiez la réduction affichée et ajustez-la si besoin.`);
+    alert(`La réduction déjà enregistrée sur cette réservation (${anciRedDemiNuits / 2} nuit(s)) dépassait la nouvelle durée du séjour (${maj.nbNuits} nuit(s)) — elle a été limitée à ${maj.nbNuits} nuit(s) et le total a été recalculé en conséquence. Vérifiez la réduction affichée et ajustez-la si besoin.`);
   }
   return maj;
 }
