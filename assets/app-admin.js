@@ -4777,6 +4777,7 @@ window.facturerPaiement = async (paiementId) => {
 // et Katia doit la valider explicitement (2e chien accepté volontairement).
 // ==========================================================================
 let currentDogSitting = [];
+let currentDogSittingArchives = [];
 
 // Miroir minimal (dates + statut uniquement — jamais de nom de membre, de
 // chien, de notes ou de motif) de chaque entrée Dog Sitting, dans une
@@ -4810,15 +4811,21 @@ function calculerNuitsDogSittingAdmin(dateDebut, dateFin, heureArrivee, heureDep
 
 async function chargerDogSittingAdmin() {
   const snap = await getDocs(collection(db, 'dogsitting'));
-  currentDogSitting = [];
-  snap.forEach(d => currentDogSitting.push({ id: d.id, ...d.data() }));
-  currentDogSitting.sort((a, b) => (a.dateDebut || '').localeCompare(b.dateDebut || ''));
+  const tous = [];
+  snap.forEach(d => tous.push({ id: d.id, ...d.data() }));
+  tous.sort((a, b) => (a.dateDebut || '').localeCompare(b.dateDebut || ''));
+  // Les réservations archivées (pour mémoire, ex : vieilles périodes passées
+  // qu'on ne veut plus voir dans la liste active) restent consultables à
+  // part, mais sortent du calendrier et de la liste principale.
+  currentDogSitting = tous.filter(r => !r.archive);
+  currentDogSittingArchives = tous.filter(r => r.archive);
 
   const nonVues = currentDogSitting.filter(r => r.vuParAdmin === false).length;
   document.getElementById('tabDogSittingBtn')?.classList.toggle('has-unread', nonVues > 0);
 
   renderCalendrierDogSitting();
   renderListeDogSittingAdmin();
+  renderDogSittingArchives();
 }
 
 function joursOccupesDansLeMois(annee, mois) {
@@ -4968,7 +4975,8 @@ function renderListeDogSittingAdmin() {
           <div class="data-title">🚫 ${escapeHtml(r.motifBlocage || 'Indisponible')} <span class="badge badge-neutral">Blocage club</span></div>
           <div class="data-sub">Du ${r.dateDebut} au ${r.dateFin}</div>
         </div>
-        <div class="data-actions">
+        <div class="data-actions ds-actions">
+          <button class="btn-sm" onclick="window.archiverDogSitting('${r.id}')">Archiver</button>
           <button class="btn-sm danger" onclick="window.supprimerBlocage('${r.id}')">Supprimer le blocage</button>
         </div>
       </div>`;
@@ -4985,7 +4993,12 @@ function renderListeDogSittingAdmin() {
       if (r.acompteValide) {
         infoAcompte = `<div class="data-sub"><span class="badge badge-ok">✅ Acompte validé — date bloquée</span></div>`;
       } else {
-        infoAcompte = `<div class="data-sub">Acompte attendu : <strong>${r.acompte.toFixed(2)} €</strong> (30% de ${r.total.toFixed(2)} €) ${r.acomptePaye ? '<span class="badge badge-warn">Membre indique avoir payé</span>' : '<span class="badge badge-neutral">Le membre n\'a pas encore signalé avoir payé l\'acompte</span>'}</div>`;
+        infoAcompte = `<div class="data-sub">Acompte attendu : <strong>${r.acompte.toFixed(2)} €</strong> ${r.acompteFixeManuellement ? '<span class="badge badge-neutral">Acompte fixé manuellement</span>' : `(30% de ${r.total.toFixed(2)} €)`} ${r.acomptePaye ? '<span class="badge badge-warn">Membre indique avoir payé</span>' : '<span class="badge badge-neutral">Le membre n\'a pas encore signalé avoir payé l\'acompte</span>'}</div>
+          <div class="data-sub" style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+            Fixer l'acompte manuellement (€) — ex: dates changées sans changer l'acompte déjà convenu :
+            <input type="number" step="0.01" min="0" id="ds-acompte-manuel-${r.id}" placeholder="${r.acompte.toFixed(2)}" style="width:90px;">
+            <button class="btn-sm" onclick="window.fixerAcompteManuelDogSitting('${r.id}')">Fixer cet acompte</button>
+          </div>`;
       }
     }
     if (r.statut === 'annulee' && r.motifAnnulation) {
@@ -5070,6 +5083,7 @@ function renderListeDogSittingAdmin() {
         ${!r.isBlocage && (r.statut === 'attente' || r.statut === 'validee') ? `<button class="btn-sm" onclick="window.recalculerTarifDogSitting('${r.id}')">🔄 Recalculer le tarif</button>` : ''}
         ${r.statut === 'validee' ? `<button class="btn-sm" onclick="window.ouvrirModifDatesAdmin('${r.id}')">✏️ Modifier les dates</button>` : ''}
         ${r.statut === 'validee' ? `<button class="btn-sm danger" onclick="window.annulerReservationDogSitting('${r.id}')">Annuler cette réservation</button>` : ''}
+        <button class="btn-sm" onclick="window.archiverDogSitting('${r.id}')">Archiver</button>
         <button class="btn-sm danger" onclick="window.supprimerDogSitting('${r.id}')">Supprimer</button>
       </div>
     </div>`;
@@ -5083,10 +5097,87 @@ window.fixerTotalManuelDogSitting = async (id) => {
   if (!confirm(`Fixer le total de cette réservation à ${valeur.toFixed(2)} € ? Ce prix restera figé — il ne sera plus jamais recalculé automatiquement.`)) return;
   const r = currentDogSitting.find(x => x.id === id);
   const data = { total: Number(valeur.toFixed(2)), totalFixeManuellement: true };
-  if (r?.acompte != null) data.acompte = Number((valeur * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
+  // Si l'acompte n'a pas lui-même été fixé manuellement, on le recalcule à
+  // 30% du nouveau total, comme avant.
+  if (r?.acompte != null && !r.acompteFixeManuellement) data.acompte = Number((valeur * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
   await updateDoc(doc(db, 'dogsitting', id), data);
   chargerDogSittingAdmin();
 };
+
+// Fixe le montant de l'acompte indépendamment du total — utile car un
+// changement de dates ne doit généralement PAS changer l'acompte déjà
+// convenu avec le membre. Une fois fixé manuellement, l'acompte ne sera
+// plus jamais recalculé automatiquement (ni par un changement de dates, ni
+// par le bouton "Recalculer le tarif"), jusqu'à ce qu'on le refixe ici.
+window.fixerAcompteManuelDogSitting = async (id) => {
+  const inputEl = document.getElementById(`ds-acompte-manuel-${id}`);
+  const valeur = parseFloat(inputEl.value);
+  if (isNaN(valeur) || valeur < 0) { alert('Merci d\'indiquer un montant valide.'); return; }
+  if (!confirm(`Fixer l'acompte de cette réservation à ${valeur.toFixed(2)} € ? Il ne sera plus recalculé automatiquement (même si les dates ou le total changent ensuite).`)) return;
+  await updateDoc(doc(db, 'dogsitting', id), { acompte: Number(valeur.toFixed(2)), acompteFixeManuellement: true });
+  chargerDogSittingAdmin();
+};
+
+// Archivage "pour mémoire" : la réservation (ou le blocage) sort de la
+// liste active et du calendrier, mais reste consultable dans "Voir les
+// réservations archivées" — à la différence de Supprimer, qui efface
+// définitivement.
+window.archiverDogSitting = async (id) => {
+  if (!confirm('Archiver cette réservation ? Elle disparaîtra de la liste active et du calendrier, mais restera consultable dans les archives.')) return;
+  await updateDoc(doc(db, 'dogsitting', id), { archive: true });
+  chargerDogSittingAdmin();
+};
+window.desarchiverDogSitting = async (id) => {
+  await updateDoc(doc(db, 'dogsitting', id), { archive: false });
+  chargerDogSittingAdmin();
+};
+
+function renderDogSittingArchives() {
+  const wrap = document.getElementById('listeDogSittingArchives');
+  if (!wrap) return;
+  if (currentDogSittingArchives.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucune réservation archivée.</div>';
+    return;
+  }
+  wrap.innerHTML = currentDogSittingArchives.map(r => {
+    if (r.isBlocage) {
+      return `
+      <div class="data-row">
+        <div class="data-main">
+          <div class="data-title">🚫 ${escapeHtml(r.motifBlocage || 'Indisponible')} <span class="badge badge-neutral">Blocage club — archivé</span></div>
+          <div class="data-sub">Du ${r.dateDebut} au ${r.dateFin}</div>
+        </div>
+        <div class="data-actions ds-actions">
+          <button class="btn-sm primary" onclick="window.desarchiverDogSitting('${r.id}')">Désarchiver</button>
+          <button class="btn-sm danger" onclick="window.supprimerBlocage('${r.id}')">Supprimer</button>
+        </div>
+      </div>`;
+    }
+    const m = currentMembres.find(mm => mm.id === r.membreId) || currentMembresArchives.find(mm => mm.id === r.membreId);
+    const badge = r.statut === 'validee' ? '<span class="badge badge-ok">Validé</span>'
+      : r.statut === 'refusee' ? '<span class="badge badge-danger">Refusé</span>'
+      : r.statut === 'annulee' ? '<span class="badge badge-danger">Annulé</span>'
+      : '<span class="badge badge-warn">En attente de validation</span>';
+    return `
+    <div class="data-row">
+      <div class="data-main">
+        <div class="data-title">${escapeHtml(m?.nomMaitre || '?')} — ${escapeHtml(r.chienNom)} ${badge} <span class="badge badge-neutral">Archivé</span></div>
+        <div class="data-sub">Du ${r.dateDebut} ${r.heureArrivee || ''} au ${r.dateFin} ${r.heureDepart || ''}</div>
+        <div class="data-sub"><strong>Total TTC : ${(r.total ?? 0).toFixed(2)} €</strong></div>
+      </div>
+      <div class="data-actions ds-actions">
+        <button class="btn-sm primary" onclick="window.desarchiverDogSitting('${r.id}')">Désarchiver</button>
+        <button class="btn-sm danger" onclick="window.supprimerDogSitting('${r.id}')">Supprimer</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('btnVoirDogSittingArchives')?.addEventListener('click', () => {
+  const wrap = document.getElementById('listeDogSittingArchives');
+  const visible = wrap.style.display !== 'none';
+  wrap.style.display = visible ? 'none' : 'block';
+});
 
 // Relance le calcul par défaut du tarif pour UNE réservation, avec les
 // dates actuellement enregistrées (d'origine ou déjà modifiées) — utile
@@ -5117,7 +5208,7 @@ window.recalculerTarifDogSitting = async (id) => {
   }
   const total = Number(Math.max(0, tarifNuit * nbNuits - reductionDemiNuits * 0.5 * tarifNuit).toFixed(2));
   const maj = { tarifNuit, nbNuits, reductionDemiNuits, total, totalFixeManuellement: false };
-  if (r.acompte != null) maj.acompte = Number((total * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
+  if (r.acompte != null && !r.acompteFixeManuellement) maj.acompte = Number((total * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
 
   await updateDoc(doc(db, 'dogsitting', id), maj);
   chargerDogSittingAdmin();
@@ -5168,7 +5259,7 @@ document.getElementById('btnRecalculerDogSitting')?.addEventListener('click', as
       const reductionDemiNuits = r.reductionDemiNuits || 0;
       const total = Number(Math.max(0, tarifNuit * nbNuits - reductionDemiNuits * 0.5 * tarifNuit).toFixed(2));
       const maj = { tarifNuit, nbNuits, reductionDemiNuits, total };
-      if (r.acompte != null) maj.acompte = Number((total * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
+      if (r.acompte != null && !r.acompteFixeManuellement) maj.acompte = Number((total * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
 
       await updateDoc(doc(db, 'dogsitting', d.id), maj);
       compte++;
@@ -5259,7 +5350,10 @@ async function appliquerNouvellesDatesDogSitting(id, nouvDateDebut, nouvDateFin,
     maj.nbNuits = nbNuits;
     maj.reductionDemiNuits = reductionDemiNuits;
     maj.total = total;
-    if (r.acompte != null) maj.acompte = Number((total * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
+    // Important : contrairement au total, l'acompte n'est PAS recalculé
+    // automatiquement quand on change les dates — en général l'acompte déjà
+    // convenu avec le membre ne doit pas bouger. L'admin/Super Admin peut
+    // toujours le changer à la main via "Fixer cet acompte" si besoin.
   }
 
   await updateDoc(doc(db, 'dogsitting', id), maj);
