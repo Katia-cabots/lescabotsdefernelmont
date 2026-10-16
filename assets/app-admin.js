@@ -5061,12 +5061,12 @@ function renderListeDogSittingAdmin() {
         ${detailFiche}
         ${blocDemandeModif}
       </div>
-      <div class="data-actions">
+      <div class="data-actions ds-actions">
         ${r.statut === 'attente' ? `
           <button class="btn-sm primary" onclick="window.validerDogSitting('${r.id}')">Valider</button>
           <button class="btn-sm danger" onclick="window.refuserDogSitting('${r.id}')">Refuser</button>
         ` : ''}
-        ${r.statut === 'validee' && r.acompte && !r.acompteValide ? `<button class="btn-sm primary" onclick="window.validerAcompteDogSitting('${r.id}')">Valider l'acompte (bloque la date)</button>` : ''}
+        ${r.statut === 'validee' && r.acompte && !r.acompteValide ? `<button class="btn-sm primary" style="line-height:1.25;" onclick="window.validerAcompteDogSitting('${r.id}')">Valider l'acompte<br>(bloque la date)</button>` : ''}
         ${!r.isBlocage && (r.statut === 'attente' || r.statut === 'validee') ? `<button class="btn-sm" onclick="window.recalculerTarifDogSitting('${r.id}')">🔄 Recalculer le tarif</button>` : ''}
         ${r.statut === 'validee' ? `<button class="btn-sm" onclick="window.ouvrirModifDatesAdmin('${r.id}')">✏️ Modifier les dates</button>` : ''}
         ${r.statut === 'validee' ? `<button class="btn-sm danger" onclick="window.annulerReservationDogSitting('${r.id}')">Annuler cette réservation</button>` : ''}

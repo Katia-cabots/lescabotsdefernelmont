@@ -292,6 +292,18 @@
 .ce-soir-membres .data-actions { flex-wrap: wrap; margin-top: 8px; }
 .ce-soir-membres .data-actions .btn-sm { flex: 1 1 calc(50% - 6px); text-align: center; white-space: normal; font-size: 0.76rem; padding: 6px 8px; line-height: 1.2; }
 
+/* Liste "Dog Sitting" (admin) : jusqu'à 5 boutons d'action par réservation
+   (Valider/Refuser, Valider l'acompte, Recalculer le tarif, Modifier les
+   dates, Annuler, Supprimer) — on les range par 3 par ligne (au lieu d'un
+   bouton par ligne en pleine largeur) pour que ça tienne sur 2 lignes
+   plutôt que de déborder ou de s'empiler à l'infini, même sur petit écran. */
+.ds-actions { flex-wrap: wrap; margin-top: 4px; }
+.ds-actions .btn-sm { flex: 1 1 calc(33.33% - 6px); text-align: center; white-space: normal; font-size: 0.78rem; padding: 6px 8px; line-height: 1.25; }
+@media (max-width: 560px) {
+  .data-row .ds-actions.data-actions { flex-direction: row; width: 100%; }
+  .data-row .ds-actions.data-actions .btn-sm { width: auto; flex: 1 1 calc(33.33% - 6px); font-size: 0.74rem; padding: 6px 4px; }
+}
+
 .data-row-left {
   display: flex;
   align-items: center;
