@@ -5067,6 +5067,7 @@ function renderListeDogSittingAdmin() {
           <button class="btn-sm danger" onclick="window.refuserDogSitting('${r.id}')">Refuser</button>
         ` : ''}
         ${r.statut === 'validee' && r.acompte && !r.acompteValide ? `<button class="btn-sm primary" onclick="window.validerAcompteDogSitting('${r.id}')">Valider l'acompte (bloque la date)</button>` : ''}
+        ${!r.isBlocage && (r.statut === 'attente' || r.statut === 'validee') ? `<button class="btn-sm" onclick="window.recalculerTarifDogSitting('${r.id}')">🔄 Recalculer le tarif</button>` : ''}
         ${r.statut === 'validee' ? `<button class="btn-sm" onclick="window.ouvrirModifDatesAdmin('${r.id}')">✏️ Modifier les dates</button>` : ''}
         ${r.statut === 'validee' ? `<button class="btn-sm danger" onclick="window.annulerReservationDogSitting('${r.id}')">Annuler cette réservation</button>` : ''}
         <button class="btn-sm danger" onclick="window.supprimerDogSitting('${r.id}')">Supprimer</button>
@@ -5084,6 +5085,33 @@ window.fixerTotalManuelDogSitting = async (id) => {
   const data = { total: Number(valeur.toFixed(2)), totalFixeManuellement: true };
   if (r?.acompte != null) data.acompte = Number((valeur * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
   await updateDoc(doc(db, 'dogsitting', id), data);
+  chargerDogSittingAdmin();
+};
+
+// Relance le calcul par défaut du tarif pour UNE réservation, avec les
+// dates actuellement enregistrées (d'origine ou déjà modifiées) — utile
+// après un changement de tarif de base, ou pour annuler un prix fixé
+// manuellement. Le total est écrit directement sur le document Firestore,
+// donc il se met à jour aussi côté membre (même document, lu en direct).
+window.recalculerTarifDogSitting = async (id) => {
+  const r = currentDogSitting.find(x => x.id === id);
+  if (!r || r.isBlocage) return;
+
+  let message = `Relancer le calcul par défaut du tarif pour cette réservation, avec les dates actuelles (du ${r.dateDebut} au ${r.dateFin}) ?`;
+  if (r.totalFixeManuellement) message += "\n\n⚠️ Le prix actuel a été fixé manuellement — il sera remplacé par le calcul par défaut.";
+  if (r.acompteValide) message += "\n\n⚠️ L'acompte de cette réservation a déjà été validé — son montant sera recalculé en fonction du nouveau total.";
+  if (!confirm(message)) return;
+
+  const tarifs = await tarifsDogSittingParNuitAdmin();
+  const membre = currentMembres.find(m => m.id === r.membreId) || currentMembresArchives.find(m => m.id === r.membreId);
+  const tarifNuit = membre?.accesCours ? tarifs.membre : tarifs.nonMembre;
+  const nbNuits = calculerNuitsDogSittingAdmin(r.dateDebut, r.dateFin, r.heureArrivee, r.heureDepart);
+  const reductionDemiNuits = r.reductionDemiNuits || 0;
+  const total = Number(Math.max(0, tarifNuit * nbNuits - reductionDemiNuits * 0.5 * tarifNuit).toFixed(2));
+  const maj = { tarifNuit, nbNuits, reductionDemiNuits, total, totalFixeManuellement: false };
+  if (r.acompte != null) maj.acompte = Number((total * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
+
+  await updateDoc(doc(db, 'dogsitting', id), maj);
   chargerDogSittingAdmin();
 };
 
