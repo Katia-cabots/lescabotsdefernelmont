@@ -40,7 +40,7 @@ new MutationObserver((mutations) => {
 // dès qu'un bouton de sauvegarde est cliqué. Les champs de recherche/filtre
 // (id commençant par "recherche") sont ignorés pour éviter les faux positifs.
 let _modifNonSauvee = false;
-const MOTS_SAUVEGARDE = /enregistr|sauveg|valider|créer|confirmer|ajouter|chang/i;
+const MOTS_SAUVEGARDE = /enregistr|sauveg|valider|créer|confirmer|ajouter|chang|envoyer/i;
 const MESSAGE_QUITTER_SANS_SAUVER = 'Voulez-vous quitter sans sauvegarder vos modifications ?';
 
 function _marqueModifieSiPertinent(e) {
@@ -164,6 +164,18 @@ onAuthStateChanged(auth, async (user) => {
     }
     if ((mois === 11 && jour >= 28) || (mois === 0 && jour <= 2)) {
       document.getElementById('banniereNouvelAnMembre')?.classList.remove('hidden');
+    }
+    // Journée mondiale contre l'abandon des animaux de compagnie : dernier
+    // samedi de juin, recalculé chaque année (27/06 en 2026, mais ce n'est
+    // pas une date fixe — ex: 28/06 en 2025, 26/06 en 2027...). On part du
+    // 30 juin et on recule jusqu'au premier samedi rencontré.
+    const finJuin = new Date(aujourdhui.getFullYear(), 5, 30); // juin = mois 5 (0-indexé)
+    finJuin.setDate(finJuin.getDate() - ((finJuin.getDay() + 1) % 7)); // getDay(): dimanche=0..samedi=6
+    if (mois === finJuin.getMonth() && jour === finJuin.getDate()) {
+      document.getElementById('banniereAbandonAnimauxMembre')?.classList.remove('hidden');
+    }
+    if (mois === 6 && jour === 21) { // 6 = juillet — Fête nationale belge
+      document.getElementById('banniere21JuilletFeteNatMembre')?.classList.remove('hidden');
     }
   } catch (err) {
     console.error('Erreur dans l\'affichage des bannières du jour (sans impact sur le reste de la page) :', err);
@@ -1371,6 +1383,7 @@ function alerteVaccinsChien(chien) {
 // ==========================================================================
 let panierLocal = [];
 let mesDemandesDogSittingIds = [];
+let mesDemandesDogSittingCache = [];
 
 async function chargerBoutiqueMembre() {
   const wrap = document.getElementById('zoneArticlesBoutique');
@@ -1725,6 +1738,7 @@ async function chargerMesDemandesDogSitting() {
 
   const nonVues = demandes.filter(r => r.vuParMembre === false);
   mesDemandesDogSittingIds = demandes.map(r => r.id);
+  mesDemandesDogSittingCache = demandes;
   document.getElementById('tabDogSittingBtn')?.classList.toggle('has-unread', nonVues.length > 0);
 
   const wrap = document.getElementById('zoneDogSitting');
@@ -1760,16 +1774,108 @@ async function chargerMesDemandesDogSitting() {
       }
     }
 
+    // Demande de modification de dates : uniquement possible sur une période
+    // déjà validée (pas en attente, refusée ou annulée) — soumise à
+    // l'approbation de Katia, comme la demande d'annulation de présence.
+    let blocModifDates = '';
+    if (r.statut === 'validee') {
+      if (r.demandeModifStatut === 'attente') {
+        blocModifDates = `
+          <div class="banner-alert" style="margin-top:8px;">
+            🔔 Demande de modification envoyée — en attente de validation par Katia.<br>
+            Nouvelles dates demandées : du <strong>${r.demandeModifDateDebut}</strong> ${r.demandeModifHeureArrivee || ''} au <strong>${r.demandeModifDateFin}</strong> ${r.demandeModifHeureDepart || ''}<br>
+            Motif : <em>${escapeHtml(r.demandeModifMotif || '')}</em>
+          </div>`;
+      } else {
+        let infoDerniereDemande = '';
+        if (r.demandeModifStatut === 'refusee') {
+          infoDerniereDemande = `<div class="data-sub" style="margin-top:4px;">Votre dernière demande de modification a été refusée${r.demandeModifMotifRefus ? ` — motif : <em>${escapeHtml(r.demandeModifMotifRefus)}</em>` : ''}.</div>`;
+        }
+        blocModifDates = `
+          ${infoDerniereDemande}
+          <button class="btn-sm" style="margin-top:8px;" onclick="window.ouvrirDemandeModifDogSitting('${r.id}')">✏️ Demander une modification de dates (avec justificatif)</button>`;
+      }
+    }
+
     return `
     <div class="data-row">
       <div class="data-main">
         <div class="data-title">${escapeHtml(r.chienNom)} ${badge}</div>
         <div class="data-sub">Du ${r.dateDebut} ${r.heureArrivee || ''} au ${r.dateFin} ${r.heureDepart || ''}${r.total != null ? ` · <strong>Total : ${r.total.toFixed(2)} € TTC</strong>${r.nbNuits ? ` (${r.nbNuits} nuit${r.nbNuits > 1 ? 's' : ''})` : ''}` : ''}</div>
         ${blocAcompte}
+        ${blocModifDates}
       </div>
     </div>`;
   }).join('');
 }
+
+window.ouvrirDemandeModifDogSitting = (reservationId) => {
+  const resa = mesDemandesDogSittingCache.find(x => x.id === reservationId);
+  if (!resa) return;
+  const html = `
+    <div class="modal-overlay" id="modalOverlayModifDS">
+      <div class="modal-box">
+        <h3>✏️ Demander une modification de dates</h3>
+        <p style="color:var(--slate); font-size:0.85rem;">Katia doit valider votre demande. Tant qu'elle n'a pas validé, les dates actuelles restent en vigueur. Le prix sera automatiquement recalculé si la demande est acceptée.</p>
+        <p style="color:var(--slate); font-size:0.85rem;">Dates actuelles : du <strong>${resa.dateDebut}</strong> ${resa.heureArrivee || ''} au <strong>${resa.dateFin}</strong> ${resa.heureDepart || ''}</p>
+        <div class="form-grid">
+          <div class="field"><label>Nouvelle date d'arrivée</label><input type="date" id="moddS-dateDebut" value="${resa.dateDebut || ''}"></div>
+          <div class="field"><label>Nouvelle date de départ</label><input type="date" id="moddS-dateFin" value="${resa.dateFin || ''}"></div>
+        </div>
+        <div class="form-grid">
+          <div class="field"><label>Nouvelle heure d'arrivée</label><input type="time" id="moddS-heureArrivee" value="${resa.heureArrivee || ''}"></div>
+          <div class="field"><label>Nouvelle heure de départ</label><input type="time" id="moddS-heureDepart" value="${resa.heureDepart || ''}"></div>
+        </div>
+        <div class="field"><label>Motif / justificatif (obligatoire)</label><textarea id="moddS-motif" rows="3" style="width:100%; box-sizing:border-box; resize:vertical;" placeholder="ex: changement de dates de vacances, imprévu familial..."></textarea></div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="document.getElementById('modalOverlayModifDS').remove()">Annuler</button>
+          <button class="btn-sm primary" id="moddS-envoyer">Envoyer la demande</button>
+        </div>
+        <p id="moddS-statut" style="font-size:0.85rem; color:var(--slate); margin-top:8px;"></p>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+
+  document.getElementById('moddS-envoyer').addEventListener('click', async () => {
+    const statutEl = document.getElementById('moddS-statut');
+    const dateDebut = document.getElementById('moddS-dateDebut').value;
+    const dateFin = document.getElementById('moddS-dateFin').value;
+    const heureArrivee = document.getElementById('moddS-heureArrivee').value;
+    const heureDepart = document.getElementById('moddS-heureDepart').value;
+    const motif = document.getElementById('moddS-motif').value.trim();
+
+    if (!dateDebut || !dateFin) { statutEl.textContent = 'Merci de renseigner les deux dates.'; return; }
+    if (dateFin < dateDebut) { statutEl.textContent = 'La date de départ doit être après la date d\'arrivée.'; return; }
+    if (!motif) { statutEl.textContent = 'Merci d\'indiquer un motif/justificatif.'; return; }
+
+    try {
+      await updateDoc(doc(db, 'dogsitting', reservationId), {
+        demandeModifDateDebut: dateDebut, demandeModifDateFin: dateFin,
+        demandeModifHeureArrivee: heureArrivee, demandeModifHeureDepart: heureDepart,
+        demandeModifMotif: motif, demandeModifStatut: 'attente', demandeModifDate: serverTimestamp(),
+        vuParAdmin: false
+      });
+
+      // Même mécanisme que les autres notifications du site : message
+      // automatique dans le chat, sans quoi Katia n'a aucun moyen de savoir
+      // qu'une demande de modification existe tant qu'elle ne rouvre pas
+      // l'onglet Dog Sitting par hasard.
+      const texteAuto = `🔔 Demande de modification de dates Dog Sitting : je souhaite déplacer ma réservation du ${resa.dateDebut} au ${dateDebut}–${dateFin} (motif : ${motif}). À valider ou refuser depuis l'onglet "Dog Sitting".`;
+      await addDoc(collection(db, 'conversations', membreUid, 'messages'), {
+        texte: texteAuto, expediteur: 'membre', dateEnvoi: new Date().toISOString(), lu: false
+      });
+      await setDoc(doc(db, 'conversations', membreUid), {
+        dernierMessage: texteAuto, dateDernierMessage: new Date().toISOString(), nonLuAdmin: true
+      }, { merge: true });
+      chargerChat();
+
+      document.getElementById('modalOverlayModifDS').remove();
+      chargerMesDemandesDogSitting();
+    } catch (err) {
+      statutEl.textContent = 'Erreur : ' + (err.message || err);
+    }
+  });
+};
 
 window.signalerAcomptePaye = async (reservationId) => {
   await updateDoc(doc(db, 'dogsitting', reservationId), { acomptePaye: true });

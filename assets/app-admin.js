@@ -298,7 +298,7 @@ onAuthStateChanged(auth, async (user) => {
     // Katia : 20 mars (printemps), 6 juillet (journée du Baiser),
     // 1er octobre (journée du Café), 13 novembre (journée de la
     // Gentillesse).
-    if (mois === 2 && jour === 20) { // 2 = mars
+    if (mois === 2 && jour === 21) { // 2 = mars — Printemps aligné sur le 21, comme les 3 autres saisons
       document.getElementById('banniere20MarsAdmin')?.classList.remove('hidden');
     }
     if (mois === 6 && jour === 6) { // 6 = juillet
@@ -391,6 +391,82 @@ onAuthStateChanged(auth, async (user) => {
     }
     if (mois === 9 && jour === 4) { // 9 = octobre — Journée nationale des animaux de compagnie
       document.getElementById('banniere4OctobreAnimauxAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 6 && jour === 21) { // 6 = juillet — Fête nationale belge
+      document.getElementById('banniere21JuilletFeteNatAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 0 && jour === 6) { // 0 = janvier — Épiphanie
+      document.getElementById('banniere6JanvierEpiphanieAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 2 && jour === 12) { // 2 = mars — Journée internationale de la Sieste
+      document.getElementById('banniere12MarsSiesteAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 2 && jour === 17) { // 2 = mars — Saint-Patrick
+      document.getElementById('banniere17MarsStPatrickAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 3 && jour === 7) { // 3 = avril — Journée internationale de la Fraise
+      document.getElementById('banniere7AvrilFraiseAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 5 && jour === 21) { // 5 = juin — Journée de la Musique
+      document.getElementById('banniere21JuinMusiqueAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 11 && jour === 21) { // 11 = décembre — Premier jour de l'hiver
+      document.getElementById('banniere21DecembreHiverAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 3 && jour === 1) { // 3 = avril — Poisson d'avril
+      document.getElementById('banniere1AvrilPoissonAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 4 && jour === 1) { // 4 = mai — Fête du Travail
+      document.getElementById('banniere1MaiFeteTravailAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 5 && jour === 21) { // 5 = juin — Premier jour de l'été (en plus de la Journée de la Musique, les deux s'affichent)
+      document.getElementById('banniere21JuinEteAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 6 && jour === 7) { // 6 = juillet — Journée mondiale du Chocolat
+      document.getElementById('banniere7JuilletChocolatAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 8 && jour === 21) { // 8 = septembre — Bienvenue à l'automne (l'équinoxe réel peut tomber le 22 ou 23 selon l'année, mais ce visuel contient "2026" en dur)
+      document.getElementById('banniere21SeptembreAutomneAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 1 && jour === 9) { // 1 = février — Journée mondiale de la Pizza
+      document.getElementById('banniere9FevrierPizzaAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 7 && jour === 10) { // 7 = août — Journée de la Paresse
+      document.getElementById('banniere10AoutParesseAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 8 && jour === 25) { // 8 = septembre — Journée internationale de la Bande Dessinée
+      document.getElementById('banniere25SeptembreBDAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 9 && jour === 18) { // 9 = octobre — petite BD du jour (bouchon de liège)
+      document.getElementById('banniere18OctobreBD2Admin')?.classList.remove('hidden');
+    }
+    if (mois === 3 && jour === 29) { // 3 = avril — Journée Internationale de la Danse
+      document.getElementById('banniere29AvrilDanseAdmin')?.classList.remove('hidden');
+    }
+
+    // Pâques (lundi de Pâques) et Mardi gras : dates mobiles, recalculées
+    // chaque année avec l'algorithme de calcul du dimanche de Pâques
+    // (méthode de Meeus/Jones/Butcher, calendrier grégorien).
+    function dimanchePaques(annee) {
+      const a = annee % 19, b = Math.floor(annee / 100), c = annee % 100;
+      const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+      const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+      const i = Math.floor(c / 4), k = c % 4;
+      const l = (32 + 2 * e + 2 * i - h - k) % 7;
+      const m = Math.floor((a + 11 * h + 22 * l) / 451);
+      const moisP = Math.floor((h + l - 7 * m + 114) / 31) - 1; // 0-indexé
+      const jourP = ((h + l - 7 * m + 114) % 31) + 1;
+      return new Date(annee, moisP, jourP);
+    }
+    const annee = aujourdhui.getFullYear();
+    const paques = dimanchePaques(annee);
+    const lundiPaques = new Date(paques); lundiPaques.setDate(lundiPaques.getDate() + 1);
+    if (mois === lundiPaques.getMonth() && jour === lundiPaques.getDate()) {
+      document.getElementById('bannierePaquesAdmin')?.classList.remove('hidden');
+    }
+    const mardiGras = new Date(paques); mardiGras.setDate(mardiGras.getDate() - 47);
+    if (mois === mardiGras.getMonth() && jour === mardiGras.getDate()) {
+      document.getElementById('banniereMardiGrasAdmin')?.classList.remove('hidden');
     }
 
     // Bannière par défaut : si aucune bannière "date" ci-dessus ne s'est
