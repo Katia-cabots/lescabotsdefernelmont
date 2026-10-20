@@ -2045,8 +2045,8 @@ window.envoyerPrecommande = async (campagneId) => {
 // ==========================================================================
 // 🎂 Petite surprise annuelle — visible UNIQUEMENT côté membre, jamais dans
 // l'admin, pour que Katia ne découvre pas le pot aux roses elle-même.
-// Rappelle son anniversaire (18 novembre) aux membres, dans les 10 jours
-// précédents et le jour même.
+// Rappelle son anniversaire (18 novembre) aux membres, du 10 au 18 novembre
+// inclus (bannière image, remplace l'ancien encart texte).
 // ==========================================================================
 function afficherSurpriseAnniversaireKatia() {
   const aujourdhui = new Date();
@@ -2056,22 +2056,9 @@ function afficherSurpriseAnniversaireKatia() {
   const auj = new Date(aujourdhui); auj.setHours(0, 0, 0, 0);
 
   const joursRestants = Math.round((anniversaire - auj) / (1000 * 60 * 60 * 24));
-  if (joursRestants < 0 || joursRestants > 10) return; // hors fenêtre, rien à afficher
+  if (joursRestants < 0 || joursRestants > 8) return; // hors fenêtre (10 au 18 novembre), rien à afficher
 
-  let texte;
-  if (joursRestants === 0) {
-    texte = "🎉🎂 Aujourd'hui, c'est l'anniversaire de Katia ! Une petite pensée dans son fil de messages lui ferait sûrement très plaisir 🐾";
-  } else if (joursRestants === 1) {
-    texte = "🎂 C'est demain, le 18 novembre — l'anniversaire de Katia ! Chut, c'est une surprise 🤫";
-  } else {
-    texte = `🎂 Dans ${joursRestants} jours (le 18 novembre), c'est l'anniversaire de Katia ! Chut, c'est une surprise 🤫`;
-  }
-
-  const banniere = document.createElement('div');
-  banniere.className = 'alerte-anniversaire';
-  banniere.textContent = texte;
-  const main = document.querySelector('.app-main');
-  if (main) main.insertBefore(banniere, main.firstChild);
+  document.getElementById('banniereAnniversaireKatiaMembre')?.classList.remove('hidden');
 }
 
 // ==========================================================================

@@ -356,6 +356,9 @@ onAuthStateChanged(auth, async (user) => {
     if (mois === 3 && jour === 22) { // 3 = avril
       document.getElementById('banniere22AvrilAdmin')?.classList.remove('hidden');
     }
+    if (mois === 3 && jour === 23) { // 3 = avril — Journée internationale du livre
+      document.getElementById('banniere23AvrilLivreAdmin')?.classList.remove('hidden');
+    }
     if (mois === 7 && jour === 1) { // 7 = août
       document.getElementById('banniere1AoutAdmin')?.classList.remove('hidden');
     }
@@ -416,7 +419,7 @@ onAuthStateChanged(auth, async (user) => {
     if (mois === 3 && jour === 1) { // 3 = avril — Poisson d'avril
       document.getElementById('banniere1AvrilPoissonAdmin')?.classList.remove('hidden');
     }
-    if (mois === 4 && jour === 1) { // 4 = mai — Fête du Travail
+    if (mois === 4 && jour === 1) { // 4 = mai — Fête du Travail / Journée du Muguet (banderole unique)
       document.getElementById('banniere1MaiFeteTravailAdmin')?.classList.remove('hidden');
     }
     if (mois === 5 && jour === 21) { // 5 = juin — Premier jour de l'été (en plus de la Journée de la Musique, les deux s'affichent)
@@ -467,6 +470,17 @@ onAuthStateChanged(auth, async (user) => {
     const mardiGras = new Date(paques); mardiGras.setDate(mardiGras.getDate() - 47);
     if (mois === mardiGras.getMonth() && jour === mardiGras.getDate()) {
       document.getElementById('banniereMardiGrasAdmin')?.classList.remove('hidden');
+    }
+
+    // 3e lundi du mois d'octobre ("Courage, c'est lundi !") — calculé
+    // chaque année : premier lundi d'octobre + 14 jours.
+    const premierOctobre = new Date(annee, 9, 1); // 9 = octobre (0-indexé)
+    const premierLundiOctobre = new Date(premierOctobre);
+    premierLundiOctobre.setDate(1 + ((8 - premierOctobre.getDay()) % 7)); // 8 = (1 + 7), pour tomber sur lundi (getDay()===1)
+    const troisiemeLundiOctobre = new Date(premierLundiOctobre);
+    troisiemeLundiOctobre.setDate(troisiemeLundiOctobre.getDate() + 14);
+    if (mois === troisiemeLundiOctobre.getMonth() && jour === troisiemeLundiOctobre.getDate()) {
+      document.getElementById('banniere3eLundiOctobreAdmin')?.classList.remove('hidden');
     }
 
     // Bannière par défaut : si aucune bannière "date" ci-dessus ne s'est
