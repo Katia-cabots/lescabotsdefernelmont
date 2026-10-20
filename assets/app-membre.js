@@ -1,3 +1,4 @@
+// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V01-136
 // © 2026 Hélène Laruelle. Tous droits réservés.
 // Ce code ne peut être utilisé, copié ou modifié sans autorisation
 // écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt.
@@ -736,10 +737,20 @@ window.repondrePresence = async (dateISO, statut) => {
     return;
   }
   const cle = `${groupeData.id}_${dateISO}_${membreUid}`;
-  await setDoc(doc(db, 'presences', cle), {
-    groupeId: groupeData.id, uid: membreUid, dateISO, statut,
-    repondu: new Date().toISOString()
-  });
+  try {
+    await setDoc(doc(db, 'presences', cle), {
+      groupeId: groupeData.id, uid: membreUid, dateISO, statut,
+      repondu: new Date().toISOString()
+    });
+  } catch (err) {
+    // Avant ce correctif, un échec ici restait totalement invisible pour le
+    // membre : le clic ne semblait "rien faire". On l'affiche clairement
+    // maintenant pour qu'il sache que ça n'a pas marché et puisse réessayer
+    // ou contacter Katia, au lieu de croire (à tort) avoir changé d'avis.
+    console.error('Erreur lors de l\'enregistrement de la réponse de présence :', err);
+    alert('Votre réponse n\'a pas pu être enregistrée (problème de connexion ou de permissions). Merci de réessayer, ou de contacter Katia si ça persiste.');
+    return;
+  }
   afficherProchainsCours();
 };
 
