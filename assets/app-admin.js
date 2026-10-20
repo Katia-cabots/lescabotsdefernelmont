@@ -1,4 +1,4 @@
-// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V01-136
+// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V01-137
 // © 2026 Hélène Laruelle. Tous droits réservés.
 // Ce code ne peut être utilisé, copié ou modifié sans autorisation
 // écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt.
@@ -3738,11 +3738,39 @@ async function traiterAbsencesAutomatiques() {
   // l'annulation.
   const annulations = await chargerAnnulationsCache();
   const annulesCles = new Set(Object.keys(annulations));
+  const exceptionsHoraire = await chargerExceptionsHoraireCache();
+
+  // Un cours "présent" répondu bien à l'avance (ex: 10 jours avant) ne doit
+  // JAMAIS être décompté tout de suite : tant que le délai de 24h de
+  // changement d'avis libre n'est pas dépassé, le membre peut encore
+  // changer d'avis sans justificatif (voir repondrePresence côté membre).
+  // AVANT ce correctif, cette fonction décomptait "present" dès qu'elle
+  // tournait (à chaque connexion admin), sans tenir compte de la date du
+  // cours : un membre ayant répondu "présent" plusieurs jours à l'avance
+  // se voyait déjà décompté avant même d'avoir pu changer d'avis. S'il
+  // revenait ensuite en arrière (toujours à plus de 24h, donc en théorie
+  // libre et gratuit), l'écriture membre (qui réécrit tout le document)
+  // tentait implicitement d'effacer le champ "compteAbonnement" — un champ
+  // qu'un membre n'a pas le droit de toucher — et Firestore refusait la
+  // modification : le bouton "Changer pour absent" ne faisait alors
+  // VISIBLEMENT rien, exactement le bug remonté. Le décompte n'intervient
+  // donc maintenant qu'une fois le délai de 24h réellement dépassé — à ce
+  // moment-là, le membre ne peut plus changer d'avis librement de toute
+  // façon, donc plus aucun conflit possible avec cette écriture-là.
+  function delaiDepasse(groupeId, dateISO) {
+    const g = currentGroupes.find(gr => gr.id === groupeId);
+    if (!g) return true; // groupe introuvable (supprimé) : ne bloque pas le décompte
+    const exception = exceptionsHoraire[`${groupeId}_${dateISO}`];
+    const heureDebutEffective = exception ? exception.nouvelleHeureDebut : (g.heureDebut || '00:00');
+    const heureCours = new Date(`${dateISO}T${heureDebutEffective || '00:00'}:00`);
+    return new Date() >= new Date(heureCours.getTime() - 24 * 60 * 60 * 1000);
+  }
 
   const aTraiter = toutes.filter(p =>
     (p.statut === 'present' || p.statut === 'absent-auto') &&
     !annulesCles.has(`${p.groupeId}_${p.dateISO}`) &&
-    !p.compteAbonnement
+    !p.compteAbonnement &&
+    delaiDepasse(p.groupeId, p.dateISO)
   );
   if (aTraiter.length === 0) return;
 

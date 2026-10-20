@@ -1,4 +1,4 @@
-// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V01-136
+// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V01-137
 // © 2026 Hélène Laruelle. Tous droits réservés.
 // Ce code ne peut être utilisé, copié ou modifié sans autorisation
 // écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt.
@@ -10,4 +10,4 @@
 // Katia ET le Super Admin), l'espace membre (VERSION_SITE interne), et le pied de
 // page de toutes les pages publiques.
 // ==========================================================================
-export const VERSION_SITE = 'V01-136';
+export const VERSION_SITE = 'V01-137';

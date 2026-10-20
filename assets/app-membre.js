@@ -1,4 +1,4 @@
-// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V01-136
+// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V01-137
 // © 2026 Hélène Laruelle. Tous droits réservés.
 // Ce code ne peut être utilisé, copié ou modifié sans autorisation
 // écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt.
@@ -738,10 +738,17 @@ window.repondrePresence = async (dateISO, statut) => {
   }
   const cle = `${groupeData.id}_${dateISO}_${membreUid}`;
   try {
+    // merge:true (et non un setDoc classique qui réécrit tout le document) :
+    // si ce cours a déjà été décompté entre-temps côté admin
+    // (compteAbonnement:true), un setDoc complet effacerait ce champ en
+    // l'absence de merge — un champ qu'un membre n'a pas le droit de
+    // toucher (voir firestore.rules) — et Firestore refuserait toute
+    // l'écriture, laissant le changement d'avis du membre sans effet
+    // visible. Avec merge:true, seuls les champs listés ici sont touchés.
     await setDoc(doc(db, 'presences', cle), {
       groupeId: groupeData.id, uid: membreUid, dateISO, statut,
       repondu: new Date().toISOString()
-    });
+    }, { merge: true });
   } catch (err) {
     // Avant ce correctif, un échec ici restait totalement invisible pour le
     // membre : le clic ne semblait "rien faire". On l'affiche clairement
