@@ -1,4 +1,4 @@
-// Projet Firebase : cabots-de-fernelmont-901ee — Site "Les Cabots de Fernelmont" — V01-134
+// Projet Firebase : cabots-de-fernelmont-901ee — Site "Les Cabots de Fernelmont" — V01-136
 // Convention de versionnage des livraisons : VJJ-NNN (JJ = numéro du jour de
 // travail sur ce site, pas la date calendaire ; NNN = numéro de livraison
 // dans cette journée de travail, repart à 001 à chaque nouveau jour de
@@ -87,7 +87,14 @@ service cloud.firestore {
       allow update: if estAdmin() || (estConnecte() && resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid &&
         request.resource.data.diff(resource.data).affectedKeys().hasOnly(
           ['groupeId','uid','dateISO','statut','repondu','demandeAnnulationMotif','demandeAnnulationStatut','demandeAnnulationDate']) &&
-        (!('demandeAnnulationStatut' in request.resource.data) || request.resource.data.demandeAnnulationStatut == 'attente'));
+        // Important : le contrôle "attente uniquement" ne porte QUE sur un
+        // écrit qui touche réellement demandeAnnulationStatut dans CETTE
+        // écriture précise (diff), jamais sur sa simple présence dans le
+        // document final — sinon un membre qui change librement d'avis à
+        // plus de 24h (repondrePresence, qui réécrit tout le document) se
+        // voyait bloqué si ce même cours avait déjà eu, par le passé, une
+        // demande d'annulation tardive refusée/validée par Katia.
+        (!('demandeAnnulationStatut' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.demandeAnnulationStatut == 'attente'));
       allow delete: if estAdmin();
     }
 
