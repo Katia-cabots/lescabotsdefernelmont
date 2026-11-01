@@ -1,0 +1,451 @@
+<!-- Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V04-001 -->
+<!-- © 2026 Hélène Laruelle. Tous droits réservés. Ce code ne peut être utilisé, copié ou modifié sans autorisation écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt. Contenu du site sous la responsabilité de Katia Renard (LES BEAUX CABOTS SRL). -->
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Espace membre — Les Cabots de Fernelmont</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css?v=V04-001">
+<link rel="stylesheet" href="assets/app.css?v=V04-001">
+</head>
+<body class="app-body">
+
+<div class="app-topbar">
+  <div class="app-title">Bonjour <span id="membreNom">...</span> <small>Espace membre — <span id="chienNom"></span></small></div>
+  <div style="display:flex; align-items:center; gap:8px;">
+    <button class="btn-sm" id="logoutBtn" style="background:transparent; border-color:rgba(255,255,255,0.4); color:#fff;">Déconnexion</button>
+    <a class="app-home-link" href="index.html" title="Retour au site" aria-label="Retour au site">⌂</a>
+  </div>
+</div>
+
+<main class="app-main">
+
+  <!-- Bannières Noël / Nouvel An, visibles de tous les membres :
+       20→25 décembre inclus, puis 28 décembre→2 janvier inclus.
+       Voir onAuthStateChanged / l'init dans app-membre.js. -->
+  <div id="banniereNoelMembre" class="hidden" style="max-width:1120px; margin:0 auto 14px; padding:0 24px;">
+    <img src="assets/anniv-noel-membre.jpg" alt="Joyeux Noël" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+  </div>
+  <div id="banniereNouvelAnMembre" class="hidden" style="max-width:1120px; margin:0 auto 14px; padding:0 24px;">
+    <img src="assets/anniv-nouvelan-membre.jpg" alt="Bonne et heureuse année" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+  </div>
+  <div id="banniereAbandonAnimauxMembre" class="hidden" style="max-width:1120px; margin:0 auto 14px; padding:0 24px;">
+    <img src="assets/journee-abandon-animaux-membre.jpg" alt="Journée mondiale contre l'abandon des animaux de compagnie" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+  </div>
+  <div id="banniere21JuilletFeteNatMembre" class="hidden" style="max-width:1120px; margin:0 auto 14px; padding:0 24px;">
+    <img src="assets/fete-nationale-21juillet.jpg" alt="Fête nationale belge" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+  </div>
+  <div id="banniereAnniversaireKatiaMembre" class="hidden" style="max-width:1120px; margin:0 auto 14px; padding:0 24px;">
+    <img src="assets/anniv-katia-rappel-membre.jpg" alt="N'oubliez pas l'anniversaire de Katia ce 18 novembre !" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+  </div>
+
+  <div id="zoneAlerteMessage"></div>
+
+  <div class="tab-bar">
+    <button class="tab-btn active" data-tab="accueil">Accueil</button>
+    <button class="tab-btn" data-tab="profil">Mon profil</button>
+    <button class="tab-btn" data-tab="chien">Mon chien</button>
+    <button class="tab-btn" data-tab="services">Services</button>
+    <button class="tab-btn" data-tab="reglement" id="tabReglementBtn">Règlement</button>
+    <button class="tab-btn hidden" data-tab="abonnement" id="tabAbonnementBtn">🎫 Abonnement</button>
+    <button class="tab-btn" data-tab="blog" id="tabBlogBtn">Blog</button>
+    <button class="tab-btn" data-tab="messages" id="tabMessagesBtn">Messages</button>
+    <button class="tab-btn" data-tab="rdv" id="tabRdvBtn">RDV</button>
+    <button class="tab-btn" data-tab="boutique" id="tabBoutiqueBtn">Boutique</button>
+    <button class="tab-btn hidden" data-tab="dogsitting" id="tabDogSittingBtn">Dog Sitting</button>
+    <button class="tab-btn" data-tab="videos">Vidéos</button>
+    <button class="tab-btn" data-tab="historique">Historique</button>
+  </div>
+
+  <!-- ==================== ACCUEIL ==================== -->
+  <div id="panel-accueil" class="tab-panel">
+    <div class="app-panel hidden" id="blocPremiereConnexion" style="background:#FFF7E6; border:1px solid #F0D9A0;">
+      <h2>🔒 Bienvenue !</h2>
+      <p style="color:var(--ink); margin-bottom:10px;">C'est votre première connexion. Pour votre sécurité, nous vous recommandons de <strong>changer votre mot de passe</strong> — rendez-vous dans l'onglet "Mon profil", tout en haut ("🔒 Changer mon mot de passe").</p>
+      <button class="btn-sm" id="btnFermerPremiereConnexion">J'ai compris</button>
+    </div>
+
+    <div class="app-panel hidden" id="blocRoiNonSigne" style="background:#FBEAEA; border:2px solid #E3B4B4;">
+      <h2 style="color:#8A2E2E;">⚠️ Règlement d'ordre intérieur non signé</h2>
+      <p style="color:#8A2E2E; margin-bottom:10px;">Merci de lire et d'approuver le règlement du club — c'est nécessaire pour la validité de votre inscription.</p>
+      <button class="btn-sm primary" id="btnAllerAuReglement">Voir le règlement</button>
+    </div>
+
+    <div class="app-panel hidden" id="blocAvertissementMdp" style="background:#FFF7E6; border:1px solid #F0D9A0;">
+      <h2>🔒 Changement de mot de passe bientôt requis</h2>
+      <p style="color:var(--ink); margin-bottom:10px;">Le <strong id="dateLimiteMdpAffichee"></strong>, un changement de mot de passe vous sera demandé (sécurité du club, chaque trimestre). <strong>Assurez-vous de bien vous souvenir de votre mot de passe actuel</strong> avant cette date — sans lui, le changement sera impossible. Vous pouvez aussi le changer dès maintenant, tranquillement, depuis "Mon profil".</p>
+    </div>
+
+    <div class="app-panel" id="blocNotifications">
+      <h2>🔔 Notifications</h2>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:10px;">Recevez une notification de votre navigateur pour les nouveaux messages de Katia et les nouveaux articles du blog — tant que cette page reste ouverte dans un onglet (même en arrière-plan).</p>
+      <button class="btn-sm primary" id="btnActiverNotifs">Activer les notifications</button>
+      <p id="notifsStatut" style="font-size:0.85rem; color:var(--slate); margin-top:8px;"></p>
+    </div>
+
+    <div class="app-panel" id="panelAbonnementWrap">
+      <h2>Mon abonnement</h2>
+      <div id="badgesAbo"></div>
+      <div id="zoneAbonnementRappel" style="margin-top:12px;"></div>
+      <div id="zoneCotisation" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="app-panel" id="panelGroupeWrap">
+      <h2>Mon groupe</h2>
+      <div class="data-list" id="zoneGroupe"><div class="empty-state">...</div></div>
+    </div>
+
+    <div class="app-panel" id="panelCoursWrap">
+      <h2>Mes deux prochains cours</h2>
+      <div class="banner-alert" style="margin-bottom:14px;">
+        ⏱️ Merci de répondre au plus tard <strong>24h avant le début du cours</strong>. Passé ce délai, vous serez automatiquement considéré(e) comme absent(e) et le cours sera comptabilisé dans votre abonnement.
+      </div>
+      <p style="color: var(--slate); font-size: 0.88rem; margin-bottom: 14px;">Une fois votre réponse envoyée, seule Katia peut la modifier.</p>
+      <div class="data-list" id="zoneCours"><div class="empty-state">...</div></div>
+    </div>
+
+    <div class="app-panel hidden" id="blocBoutiqueEnAvant">
+      <h2>🛍️ Notre boutique</h2>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Vous n'êtes pas rattaché(e) à un groupe de cours — voici un aperçu de nos articles disponibles. Retrouvez la boutique complète dans l'onglet dédié.</p>
+      <div class="data-list" id="zoneApercuBoutique"><div class="empty-state">...</div></div>
+      <button class="btn-sm primary" id="btnVoirBoutiqueComplete" style="margin-top:12px;">Voir toute la boutique</button>
+    </div>
+  </div>
+
+  <!-- ==================== MON PROFIL ==================== -->
+  <div id="panel-profil" class="tab-panel hidden">
+    <div class="app-panel">
+      <h2>Mon profil</h2>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">
+        Vos coordonnées. Katia peut les voir, mais seule elle peut modifier votre abonnement et vos paiements.
+      </p>
+      <h3 class="bloc-titre" id="titreChangerMdp">🔒 Changer mon mot de passe <span class="bloc-fleche">▾</span></h3>
+      <div class="bloc-contenu">
+      <div class="field"><label>Mot de passe actuel</label><input type="password" id="mp-mdpActuel" autocomplete="current-password"></div>
+      <div class="form-grid">
+        <div class="field"><label>Nouveau mot de passe</label><input type="password" id="mp-mdpNouveau" autocomplete="new-password"></div>
+        <div class="field"><label>Confirmer le nouveau mot de passe</label><input type="password" id="mp-mdpConfirmer" autocomplete="new-password"></div>
+      </div>
+      <p style="font-size:0.8rem; color:var(--slate); margin:-6px 0 10px;">Au moins 6 caractères. Une fois changé, utilisez ce nouveau mot de passe à votre prochaine connexion.</p>
+      <button class="btn-sm primary" id="btnChangerMdpMembre">Changer mon mot de passe</button>
+      <p id="mp-mdpStatut" style="font-size:0.85rem; margin-top:8px;"></p>
+      </div>
+
+      <h3 class="bloc-titre" style="margin-top:18px;">Coordonnées <span class="bloc-fleche">▾</span></h3>
+      <div class="bloc-contenu">
+      <div class="form-grid">
+        <div class="field"><label>GSM</label><input id="mp-gsm" placeholder="ex: 0032 4XX XX XX XX"></div>
+        <div class="field"><label>E-mail</label><input type="email" id="mp-email" placeholder="ex: nom@exemple.be"></div>
+      </div>
+      <div class="field"><label>Adresse postale</label><input id="mp-adresse" placeholder="rue, numéro, code postal, ville"></div>
+      <div class="field"><label>Date d'anniversaire</label><input type="date" id="mp-anniversaire"></div>
+
+      <div class="form-grid">
+        <div class="field"><label>Vous nous avez trouvé via</label>
+          <select id="mp-trouveVia">
+            <option value="">—</option>
+            <option value="Vétérinaire">Vétérinaire</option>
+            <option value="Internet">Internet</option>
+            <option value="Facebook">Facebook</option>
+            <option value="Amis">Amis</option>
+            <option value="Autre">Autre</option>
+          </select>
+        </div>
+        <div class="field"><label>Précision (optionnel)</label><input id="mp-trouveViaDetail"></div>
+      </div>
+      </div>
+
+      <div class="mp-groupeCours">
+      <h3 class="bloc-titre replie" style="margin-top:18px;">Conducteur du chien <span style="font-weight:400; color:var(--slate);">(si différent de vous)</span> <span class="bloc-fleche">▾</span></h3>
+      <div class="bloc-contenu replie">
+      <div class="form-grid">
+        <div class="field"><label>Nom Prénom</label><input id="mp-conducteurNom"></div>
+        <div class="field"><label>GSM</label><input id="mp-conducteurGsm"></div>
+      </div>
+      <div class="field"><label>E-mail</label><input type="email" id="mp-conducteurEmail"></div>
+      </div>
+      </div>
+
+      <div class="mp-groupeCours">
+      <h3 class="bloc-titre replie" style="margin-top:18px;">Assurance RC familiale <span class="bloc-fleche">▾</span></h3>
+      <div class="bloc-contenu replie">
+      <div class="form-grid">
+        <div class="field"><label>Compagnie</label><input id="mp-rcCompagnie"></div>
+        <div class="field"><label>N° de police</label><input id="mp-rcNumero"></div>
+        <div class="field"><label>Échéance (mois/année)</label><input type="month" id="mp-rcEcheance"></div>
+      </div>
+      </div>
+      </div>
+
+      <p id="mp-statut" style="font-size:0.85rem; color:var(--slate); margin-top:10px;"></p>
+      <button class="btn-sm primary" id="mp-enregistrer" style="margin-top:8px;">Enregistrer mon profil</button>
+    </div>
+
+    <div class="app-panel" id="mp-blocSuppression">
+      <h3 class="bloc-titre replie">🗑️ Supprimer mon compte <span class="bloc-fleche">▾</span></h3>
+      <div class="bloc-contenu replie">
+        <div id="mp-suppressionActive" class="hidden">
+          <p style="color:var(--slate);">Votre demande de suppression de compte a été envoyée à Katia le <span id="mp-dateDemandeSuppression"></span>. Elle sera traitée prochainement.</p>
+        </div>
+        <div id="mp-suppressionFormulaire">
+          <p style="color:var(--slate); font-size:0.85rem; margin-bottom:10px;">Cette demande sera transmise à Katia, qui devra la valider. Une fois validé, vous ne pourrez plus vous connecter à votre espace membre.</p>
+          <div class="field"><label>Motif (obligatoire)</label><textarea id="mp-motifSuppression" rows="3" style="resize:vertical;" placeholder="ex: déménagement, changement de club..."></textarea></div>
+          <button class="btn-sm danger" id="mp-demanderSuppression">Demander la suppression de mon compte</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== MON CHIEN ==================== -->
+  <div id="panel-chien" class="tab-panel hidden">
+    <div class="app-panel">
+      <h2>Mon chien</h2>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">
+        Vous pouvez ajouter plusieurs chiens. En cas de décès, archivez le chien concerné plutôt que de le supprimer — ses informations resteront conservées.
+      </p>
+      <div id="mc-liste"></div>
+      <button class="btn-sm primary" id="mc-ajouter" style="margin-top:6px;">+ Ajouter un chien</button>
+    </div>
+  </div>
+
+  <!-- ==================== SERVICES ==================== -->
+  <div id="panel-services" class="tab-panel hidden">
+    <div class="app-panel">
+      <h2>Services</h2>
+      <div id="zoneServices"><div class="empty-state">...</div></div>
+    </div>
+  </div>
+
+  <!-- ==================== RÈGLEMENT ==================== -->
+  <div id="panel-reglement" class="tab-panel hidden">
+    <div class="app-panel">
+      <h2>Règlement d'Ordre Intérieur</h2>
+      <div id="roi-zoneTexte" style="white-space:pre-wrap; font-size:0.92rem; line-height:1.6; max-height:420px; overflow-y:auto; border:1px solid #E3E7EB; border-radius:8px; padding:16px; background:var(--paper);"></div>
+
+      <div id="roi-zoneApprobation" style="margin-top:16px;"></div>
+    </div>
+
+    <div class="app-panel" id="enqueteWrap">
+      <h2>Fiche de renseignements <span style="font-weight:400; color:var(--slate); font-size:0.85rem;">(anonyme)</span></h2>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Ce petit questionnaire nous aide à mieux connaître nos membres. Il est totalement anonyme — vos réponses ne sont liées ni à votre nom, ni à votre compte.</p>
+      <div id="enquete-form"></div>
+    </div>
+  </div>
+
+  <!-- ==================== BLOG ==================== -->
+  <div id="panel-blog" class="tab-panel hidden">
+    <div class="app-panel">
+      <h2>Le blog du club</h2>
+      <div class="data-list" id="zoneBlog"><div class="empty-state">...</div></div>
+    </div>
+  </div>
+
+  <!-- ==================== MESSAGES ==================== -->
+  <div id="panel-messages" class="tab-panel hidden">
+    <div class="app-panel">
+      <h2>Message à Katia</h2>
+      <div class="chat-thread" id="chatThreadMembre"><div class="empty-state">...</div></div>
+      <div class="chat-input-row">
+        <input type="text" id="chatInputMembre" placeholder="Écrire un message...">
+        <button class="btn-sm primary" id="chatSendMembre">Envoyer</button>
+      </div>
+    </div>
+
+    <div class="app-panel">
+      <h3 style="margin-top:0;">Un souci technique avec le site ?</h3>
+      <p style="color:var(--slate); font-size:0.9rem;">Pour un bug ou un problème lié au fonctionnement du site lui-même (pas une question sur les cours ou le club, à envoyer plutôt ci-dessus à Katia), écrivez directement à Hélène, la développeuse du site : <a href="mailto:helene.laruelle@gmail.com">helene.laruelle@gmail.com</a></p>
+    </div>
+  </div>
+
+  <!-- ==================== RDV ==================== -->
+  <div id="panel-rdv" class="tab-panel hidden">
+    <div class="app-panel">
+      <h2>RDV du club</h2>
+      <div class="data-list" id="zoneRdv"><div class="empty-state">...</div></div>
+    </div>
+  </div>
+
+  <!-- ==================== BOUTIQUE ==================== -->
+  <div id="panel-boutique" class="tab-panel hidden">
+    <div class="app-panel">
+      <h3>Articles disponibles</h3>
+      <div class="data-list" id="zoneArticlesBoutique"><div class="empty-state">...</div></div>
+
+      <h3 style="margin-top:18px;">Mon panier</h3>
+      <div class="data-list" id="zonePanier"><div class="empty-state">Panier vide.</div></div>
+      <p id="panierTotal" style="font-weight:600; margin-top:8px;"></p>
+      <button class="btn-sm primary" id="btnValiderPanier" style="margin-top:6px;">Valider ma commande</button>
+
+      <h3 style="margin-top:18px;">Historique de mes commandes</h3>
+      <div class="data-list" id="zoneMesCommandes"><div class="empty-state">...</div></div>
+    </div>
+    <div class="app-panel">
+      <h2>Commandes groupées en cours</h2>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Ex : commande groupée de croquettes — précommandez avant la date limite indiquée.</p>
+      <div id="zoneCampagnes"><div class="empty-state">...</div></div>
+    </div>
+  </div>
+
+  <!-- ==================== DOG SITTING ==================== -->
+  <div id="panel-dogsitting" class="tab-panel hidden">
+    <div class="app-panel">
+      <h2>Dog Sitting</h2>
+      <div class="banner-alert" style="margin-bottom:16px;">
+        🎒 <strong>À prévoir pour le séjour :</strong> carnet de santé, sa couche habituelle (panier, enclos, cage ou couverture/doudou), sa gamelle et sa nourriture habituelle (pour ne pas en changer), ainsi que son traitement éventuel. Merci de nous prévenir de toute allergie ou particularité de comportement.
+      </div>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Un seul chien est accueilli en Dog Sitting à la fois. Si la période demandée est déjà réservée, votre demande sera soumise à la validation de Katia.</p>
+
+      <h3>Faire une demande</h3>
+      <div class="field"><label>Chien concerné</label><select id="ds-chien"></select></div>
+      <div class="form-grid">
+        <div class="field"><label>Date d'arrivée</label><input type="date" id="ds-dateDebut"></div>
+        <div class="field"><label>Heure d'arrivée</label><input type="time" id="ds-heureArrivee" value="14:00"></div>
+      </div>
+      <div class="form-grid">
+        <div class="field"><label>Date de départ</label><input type="date" id="ds-dateFin"></div>
+        <div class="field"><label>Heure de départ</label><input type="time" id="ds-heureDepart" value="12:00"></div>
+      </div>
+
+      <h3 style="margin-top:18px;">Je confirme apporter</h3>
+      <div class="membre-check-list">
+        <label class="membre-check-row"><input type="checkbox" id="ds-apporte-carnet" checked><span>Le carnet de santé</span></label>
+        <label class="membre-check-row"><input type="checkbox" id="ds-apporte-couche" checked><span>Sa couche (panier, enclos, cage, couverture, doudou...)</span></label>
+        <label class="membre-check-row"><input type="checkbox" id="ds-apporte-gamelle" checked><span>Sa gamelle</span></label>
+        <label class="membre-check-row"><input type="checkbox" id="ds-apporte-nourriture" checked><span>Sa nourriture habituelle</span></label>
+      </div>
+
+      <h3 style="margin-top:18px;">Services en plus souhaités (optionnel)</h3>
+      <div class="membre-check-list">
+        <label class="membre-check-row"><input type="checkbox" id="ds-service-domicile"><span>Prise et remise à domicile (1,80 €/km)</span></label>
+        <label class="membre-check-row"><input type="checkbox" id="ds-service-balades"><span>Balades supplémentaires (3,00 €/jour)</span></label>
+        <label class="membre-check-row"><input type="checkbox" id="ds-service-reeducation"><span>Rééducation / réapprentissage (5,00 €/jour, forfait min. 50 €/semaine)</span></label>
+      </div>
+      <div class="field"><label>Toilettage souhaité</label>
+        <select id="ds-service-toilettage">
+          <option value="">Aucun</option>
+          <option value="Bain + séchage">Bain + séchage</option>
+          <option value="Bain + démêlage, débourrage et séchage">Bain + démêlage, débourrage et séchage</option>
+        </select>
+      </div>
+
+      <h3 style="margin-top:18px;">Habitudes de vie de votre chien</h3>
+      <p style="color:var(--slate); font-size:0.82rem; margin-bottom:6px;">Comment se passe une journée et une nuit à la maison ? (ex : pleure la nuit, dort en cage, ne mange pas facilement, a tendance à déchiqueter si seul...)</p>
+      <textarea id="ds-habitudes" rows="4" style="width:100%; box-sizing:border-box; resize:vertical;"></textarea>
+
+      <div class="app-panel" style="margin-top:18px; padding:0; overflow:hidden;">
+        <div id="ds-conditions-toggle" style="padding:14px 16px; cursor:pointer; display:flex; align-items:center; justify-content:space-between; background:var(--paper);">
+          <strong>📋 Conditions du Dog Sitting — à lire avant de réserver</strong>
+          <span id="ds-conditions-chevron" style="color:var(--brass);">▾</span>
+        </div>
+        <div id="ds-conditions-texte" class="hidden" style="padding:16px; font-size:0.88rem; color:var(--ink); line-height:1.6;">
+          <p><strong>Pour que votre chien soit accepté :</strong></p>
+          <ul style="margin:0 0 12px 18px; padding:0;">
+            <li>Être en ordre de tous ses vaccins obligatoires (L4, DHPPi), ainsi que contre la toux du chenil (Pneumodog en 2 injections, ou spray nasal BBpi efficace après 72h).</li>
+            <li>Être régulièrement vermifugé (preuve sur le carnet de santé).</li>
+            <li>Être pucé (preuve via le carnet de santé).</li>
+            <li>Femelles stérilisées / mâles castrés : une femelle non stérilisée ne peut venir pendant les 4 semaines de ses chaleurs. Un mâle non castré est accepté s'il fait partie du club et si la cohabitation se passe bien.</li>
+          </ul>
+          <p><strong>Horaires et suppléments :</strong></p>
+          <ul style="margin:0 0 12px 18px; padding:0;">
+            <li>Arrivée entre 14h et 17h. Si le chien est déposé le matin avant midi, la journée complète est comptée ; à partir de 14h, seule la demi-journée est comptée.</li>
+            <li>Reprise avant midi : demi-journée comptée. Reprise l'après-midi avant 17h : journée complète. Reprise après 19h : supplément demandé.</li>
+          </ul>
+          <p><strong>Acompte et annulation :</strong></p>
+          <p style="margin:0 0 12px 0;">Un acompte de 30% est demandé pour confirmer la réservation, à verser sur le compte communiqué (voir votre demande une fois approuvée). En cas d'annulation, cet acompte reste acquis au club.</p>
+          <p><strong>Séjour :</strong></p>
+          <p style="margin:0;">Pendant son séjour, votre chien sera traité comme nos propres chiens de famille, dans le plus grand respect de son rythme : soigné, nourri, chouchouté, baladé. Si votre chien présente des troubles de comportement (tire en laisse, n'écoute pas les ordres de base, grogne, mordille...) et que vous souhaitez un travail spécifique pendant le séjour, un supplément peut être demandé — à convenir avec Katia.</p>
+        </div>
+      </div>
+
+      <label class="membre-check-row" style="margin-top:14px;">
+        <input type="checkbox" id="ds-consentement">
+        <span>Je déclare avoir pris connaissance des conditions du Dog Sitting ci-dessus et j'accepte de verser un acompte de 30% pour confirmer ma réservation (non remboursable en cas d'annulation).</span>
+      </label>
+
+      <button class="btn-sm primary" id="ds-envoyer" style="margin-top:14px;">Envoyer la demande</button>
+      <p id="ds-statut" style="font-size:0.85rem; color:var(--slate); margin-top:8px;"></p>
+
+      <h3 style="margin-top:20px;">Mes demandes</h3>
+      <div class="data-list" id="zoneDogSitting"><div class="empty-state">...</div></div>
+    </div>
+  </div>
+
+  <!-- ==================== VIDÉOS ==================== -->
+  <div id="panel-videos" class="tab-panel hidden">
+    <div class="app-panel">
+      <h2>Vidéos d'apprentissage</h2>
+      <div class="data-list" id="zoneVideos"><div class="empty-state">...</div></div>
+    </div>
+  </div>
+
+  <!-- ==================== HISTORIQUE ==================== -->
+  <!-- ==================== MON ABONNEMENT (carte 10+1) ==================== -->
+  <div id="panel-abonnement" class="tab-panel hidden">
+    <div class="app-panel" id="panelCarteAbonnementWrap">
+      <h2>🎫 Ma carte d'abonnement</h2>
+      <div class="field" style="max-width:280px;"><label>Abonnement</label><select id="ca-selecteur"></select></div>
+      <div id="ca-carte" style="margin-top:14px;"></div>
+    </div>
+  </div>
+
+  <div id="panel-historique" class="tab-panel hidden">
+    <div class="app-panel" id="panelHistoriquePresencesWrap">
+      <h2>Historique de mes présences</h2>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Les cours marqués "non répondu" ont été comptabilisés dans votre abonnement.</p>
+      <div class="data-list" id="zonePresences"><div class="empty-state">...</div></div>
+    </div>
+    <div class="app-panel">
+      <h2>Historique de mes paiements</h2>
+      <div class="data-list" id="zonePaiements"><div class="empty-state">...</div></div>
+    </div>
+  </div>
+
+</main>
+
+<script>
+  document.querySelectorAll('.tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+      btn.classList.add('active');
+      document.getElementById('panel-' + btn.dataset.tab).classList.remove('hidden');
+      if (btn.dataset.tab === 'messages' && window.marquerMessagesLusDepuisAccordeon) {
+        window.marquerMessagesLusDepuisAccordeon();
+      }
+      if (btn.dataset.tab === 'blog' && window.marquerBlogLu) {
+        window.marquerBlogLu();
+      }
+      if (btn.dataset.tab === 'dogsitting' && window.marquerDogSittingVu) {
+        window.marquerDogSittingVu();
+      }
+      if (btn.dataset.tab === 'rdv' && window.marquerRdvVu) {
+        window.marquerRdvVu();
+      }
+    });
+  });
+
+  document.getElementById('ds-conditions-toggle').addEventListener('click', () => {
+    const texte = document.getElementById('ds-conditions-texte');
+    const chevron = document.getElementById('ds-conditions-chevron');
+    texte.classList.toggle('hidden');
+    chevron.textContent = texte.classList.contains('hidden') ? '▾' : '▴';
+  });
+
+  document.getElementById('btnVoirBoutiqueComplete')?.addEventListener('click', () => {
+    document.querySelector('.tab-btn[data-tab="boutique"]').click();
+  });
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script type="module" src="assets/app-membre.js?v=V04-001"></script>
+</body>
+</html>

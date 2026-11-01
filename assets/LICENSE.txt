@@ -1,0 +1,36 @@
+Les Cabots de Fernelmont — Site web et module de gestion
+Copyright © 2026 Hélène Laruelle. Tous droits réservés.
+
+------------------------------------------------------------------------
+
+PROPRIÉTÉ DU CODE
+Le code source de ce site (fichiers HTML, CSS, JavaScript, et tout autre
+fichier de ce dépôt), sa structure, son architecture technique et son
+design sont la propriété exclusive d'Hélène Laruelle, développeuse du
+site pour le compte du club canin "Les Cabots de Fernelmont".
+
+Sauf autorisation écrite préalable et explicite d'Hélène Laruelle,
+toute personne n'est PAS autorisée à :
+  - copier, réutiliser, redistribuer ou publier tout ou partie de ce
+    code source, sur ce projet ou tout autre projet ;
+  - modifier, adapter ou créer une œuvre dérivée de ce code source ;
+  - déployer ce code, ou une version modifiée de celui-ci, sur un
+    autre site, domaine ou hébergement que celui autorisé par
+    Hélène Laruelle.
+
+Le seul fait de pouvoir consulter, télécharger ou cloner ce dépôt
+(par exemple parce qu'il est hébergé sur une plateforme publique) ne
+constitue en aucun cas une autorisation d'utilisation ou de
+modification. Tous droits réservés au sens du droit d'auteur.
+
+RESPONSABILITÉ DU CONTENU
+Le contenu affiché sur ce site (textes, informations sur le club, ses
+activités, ses tarifs, ses conditions, et toute donnée relative aux
+membres et à leurs animaux) relève de la seule responsabilité de
+Katia Renard, en sa qualité de gérante du club "Les Cabots de
+Fernelmont" (LES BEAUX CABOTS SRL).
+
+CONTACT
+Pour toute demande d'autorisation d'utilisation, de modification, ou
+toute question relative aux droits sur ce code, contactez
+Hélène Laruelle (helene.laruelle@gmail.com).

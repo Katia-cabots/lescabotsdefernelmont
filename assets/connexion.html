@@ -1,0 +1,159 @@
+<!-- Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V04-001 -->
+<!-- © 2026 Hélène Laruelle. Tous droits réservés. Ce code ne peut être utilisé, copié ou modifié sans autorisation écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt. Contenu du site sous la responsabilité de Katia Renard (LES BEAUX CABOTS SRL). -->
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Connexion — Les Cabots de Fernelmont</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css?v=V04-001">
+<link rel="stylesheet" href="assets/app.css?v=V04-001">
+</head>
+<body class="app-body">
+
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-logo"><img src="assets/logo.png" alt="Logo Les Cabots de Fernelmont"></div>
+    <h1>Espace club</h1>
+    <p class="login-sub">Connexion membres &amp; administration</p>
+
+    <div class="login-error" id="loginError">Identifiant ou mot de passe incorrect.</div>
+
+    <form id="loginForm" autocomplete="on">
+      <div class="field">
+        <label for="identifiant">Identifiant</label>
+        <input type="text" id="identifiant" name="username" autocomplete="username" required>
+      </div>
+      <div class="field">
+        <label for="motdepasse">Mot de passe</label>
+        <div class="field-input-row">
+          <input type="password" id="motdepasse" name="password" autocomplete="current-password" required>
+          <button type="button" class="toggle-pw" id="togglePw">Afficher</button>
+        </div>
+        <p style="font-size:0.82rem; margin-top:6px;">
+          Mot de passe oublié ? <a href="https://wa.me/32494051796" target="_blank" rel="noopener">Demandez de l'aide à Katia sur WhatsApp</a>
+        </p>
+      </div>
+      <button type="submit" class="btn btn-primary btn-block" id="loginBtn">Se connecter</button>
+    </form>
+
+    <p style="text-align:center; margin-top:18px;">
+      <a href="index.html" style="color: var(--slate); font-size: 0.85rem; text-decoration: underline;">← Retour au site</a>
+    </p>
+  </div>
+
+  <div class="boutique-promo">
+    <div class="bp-eyebrow">🛍️ La boutique du club</div>
+    <h3>Envie de gâter votre chien ?</h3>
+    <p>Croquettes Arion et accessoires Trixie : les marques que Katia utilise elle-même au quotidien avec ses propres chiens.<br>Toute la sélection vous attend dans votre espace membre.</p>
+    <p class="bp-note">Pas besoin de venir aux cours pour profiter de la boutique : devenez membre et gâtez votre chien dès aujourd'hui !</p>
+    <a class="btn" href="contact.html">Pas encore membre ? Contactez-nous</a>
+  </div>
+</div>
+
+<script type="module">
+  import { auth, signInWithEmailAndPassword, onAuthStateChanged, identifiantVersEmail, db, doc, getDocFromServer, collection, getDocs, query, where, updateDoc }
+    from "./assets/firebase-config.js";
+
+  const form = document.getElementById('loginForm');
+  const errorBox = document.getElementById('loginError');
+  const loginBtn = document.getElementById('loginBtn');
+  const pwInput = document.getElementById('motdepasse');
+  const togglePw = document.getElementById('togglePw');
+
+  togglePw.addEventListener('click', () => {
+    const isPw = pwInput.type === 'password';
+    pwInput.type = isPw ? 'text' : 'password';
+    togglePw.textContent = isPw ? 'Masquer' : 'Afficher';
+  });
+
+  // Se souvenir du dernier identifiant utilisé (jamais du mot de passe)
+  const savedUser = localStorage.getItem('cabots_dernier_identifiant');
+  if (savedUser) document.getElementById('identifiant').value = savedUser;
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.classList.remove('show');
+    loginBtn.disabled = true;
+    loginBtn.textContent = 'Connexion...';
+
+    let identifiant = document.getElementById('identifiant').value.trim();
+    // Le premier caractère doit être en majuscule
+    identifiant = identifiant.charAt(0).toUpperCase() + identifiant.slice(1);
+    const motdepasse = pwInput.value;
+
+    let cred;
+    try {
+      const email = identifiantVersEmail(identifiant);
+      cred = await signInWithEmailAndPassword(auth, email, motdepasse);
+      localStorage.setItem('cabots_dernier_identifiant', identifiant);
+    } catch (err) {
+      errorBox.textContent = "Identifiant ou mot de passe incorrect. (" + err.code + ")";
+      errorBox.classList.add('show');
+      loginBtn.disabled = false;
+      loginBtn.textContent = 'Se connecter';
+      return;
+    }
+
+    try {
+      // On force le rafraîchissement du jeton d'authentification, puis on
+      // réessaie plusieurs fois avec un court délai : certains délais de
+      // propagation Firestore font qu'un document tout juste modifié
+      // n'est pas immédiatement lisible par toutes les requêtes.
+      await cred.user.getIdToken(true);
+
+      let membreDoc = null;
+      const maxEssais = 4;
+      for (let essai = 1; essai <= maxEssais; essai++) {
+        membreDoc = await getDocFromServer(doc(db, 'membres', cred.user.uid));
+        if (membreDoc.exists()) break;
+        if (essai < maxEssais) {
+          loginBtn.textContent = `Connexion... (tentative ${essai + 1}/${maxEssais})`;
+          await new Promise(r => setTimeout(r, 1200));
+        }
+      }
+
+      if (!membreDoc.exists()) {
+        errorBox.textContent = "Compte non configuré. UID recherché : " + cred.user.uid + " (après " + maxEssais + " tentatives)";
+        errorBox.classList.add('show');
+        loginBtn.disabled = false;
+        loginBtn.textContent = 'Se connecter';
+        return;
+      }
+      const role = membreDoc.data().role;
+
+      // Garde toujours une référence à jour du mot de passe actuel — utile
+      // pour dépanner quelqu'un qui l'oublie, quelle que soit la façon
+      // dont il a été défini ou changé.
+      const estPremiereConnexion = !membreDoc.data().derniereConnexion;
+      const misesAJour = {};
+      if (membreDoc.data().motDePasseInitial !== motdepasse) {
+        misesAJour.motDePasseInitial = motdepasse;
+      }
+      misesAJour.derniereConnexion = new Date().toISOString();
+      updateDoc(doc(db, 'membres', cred.user.uid), misesAJour).catch(() => {});
+
+      if (role !== 'admin' && estPremiereConnexion) {
+        sessionStorage.setItem('cabots_premiere_connexion', '1');
+      }
+      window.location.href = role === 'admin' ? 'admin.html' : 'espace-membre.html';
+    } catch (err) {
+      errorBox.textContent = "Erreur Firestore : " + err.code + " — " + err.message;
+      errorBox.classList.add('show');
+      loginBtn.disabled = false;
+      loginBtn.textContent = 'Se connecter';
+    }
+  });
+</script>
+<!-- version-diagnostic: 2026-08-24-restcheck -->
+</body>
+</html>

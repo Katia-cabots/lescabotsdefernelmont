@@ -1,0 +1,647 @@
+<!-- Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V04-001 -->
+<!-- © 2026 Hélène Laruelle. Tous droits réservés. Ce code ne peut être utilisé, copié ou modifié sans autorisation écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt. Contenu du site sous la responsabilité de Katia Renard (LES BEAUX CABOTS SRL). -->
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Administration — Les Cabots de Fernelmont</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&family=Great+Vibes&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css?v=V04-001">
+<link rel="stylesheet" href="assets/app.css?v=V04-001">
+</head>
+<body class="app-body">
+
+<div class="app-topbar">
+  <div class="app-title">Bonjour <span id="adminNom">Katia</span> <span class="fraise-discrete" id="fraiseDiscrete" title="🍓">🍓</span> <small>Espace administrateur · <span id="versionTag" style="opacity:0.7;"></span></small></div>
+  <div style="display:flex; align-items:center; gap:8px;">
+    <button class="btn-sm" id="btnMonCompte" style="background:transparent; border-color:rgba(255,255,255,0.4); color:#fff;">🔑 Mon compte</button>
+    <button class="btn-sm" id="logoutBtn" style="background:transparent; border-color:rgba(255,255,255,0.4); color:#fff;">Déconnexion</button>
+    <a class="app-home-link" href="index.html" title="Retour au site" aria-label="Retour au site">⌂</a>
+  </div>
+</div>
+
+<div id="banniereAnniversaireKatia" class="hidden">
+  <div class="anniv-fond">
+    <div class="anniv-ligne-fraises">🍓 💖 ✨ 🍓 💕 ✨ 🍓 💖 🍓</div>
+    <div class="anniv-contenu">
+      <div class="anniv-titre">Joyeux Anniversaire</div>
+      <div class="anniv-surnom">Ma petite Fraise d'Amour</div>
+      <div class="anniv-message">Je t'aime !!!! 🍓💕</div>
+    </div>
+    <div class="anniv-ligne-fraises">🍓 💕 ✨ 🍓 💖 ✨ 🍓 💕 🍓</div>
+  </div>
+</div>
+
+<div id="banniereAnniversaireOctobre" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <!-- Une vraie photo par jour (assets/anniv-compte-JN.jpg, N = nombre de
+       jours restants) : le chiffre "J-N" est dans la photo elle-même, pas de
+       retouche/overlay. Le choix du fichier est calculé par JS (voir
+       onAuthStateChanged dans app-admin.js) — fonctionne pour n'importe quel
+       nombre de jours tant que le fichier assets/anniv-compte-JN.jpg existe. -->
+  <img id="imgAnniversaireOctobre" src="" alt="Joyeux anniversaire, ma petite fraise d'amour" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+
+<!-- Bannières Noël / Nouvel An côté admin, réservées à Katia (comme la
+     bannière d'anniversaire ci-dessus) : 20→25 décembre inclus, puis
+     28 décembre→2 janvier inclus. Voir onAuthStateChanged dans app-admin.js. -->
+<div id="banniereNoelAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-noel-admin.jpg" alt="Joyeux Noël, ma petite fraise d'amour" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniereNouvelAnAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-nouvelan-admin.jpg" alt="Bonne et heureuse année, ma petite fraise" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+
+<!-- Bannières "dates à nous" côté admin, réservées à Katia (même principe
+     que ci-dessus) : 3→4 septembre inclus (soir du RDV restaurant), puis
+     14 février (Saint-Valentin) et 26 juillet (anniversaire de leur
+     première conversation). Voir onAuthStateChanged dans app-admin.js. -->
+<div id="banniereSeptAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-sept-admin.jpg" alt="RDV au Bon Plan à Andenne" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere14FevAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-14fev-admin.jpg" alt="Joyeuse Saint-Valentin, ma petite fraise d'amour" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere26JuilletAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-26juillet-admin.jpg" alt="26 juillet, première papote entre nous deux" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+
+<!-- Bannière générique "14 du mois" côté admin, réservée à Katia : une
+     vraie photo par mois (assets/anniv-14-{mois}-admin.jpg, le "14" est
+     dans la photo), pour chaque 14 du mois SAUF le 14 octobre (bannière
+     dédiée ci-dessus) et le 14 février (bannière Saint-Valentin dédiée
+     ci-dessus). Le choix du fichier est calculé par JS. -->
+<div id="banniere14MoisAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img id="imgBanniere14Mois" src="" alt="Le 14 du mois, ma petite fraise" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+
+<!-- Autres dates ponctuelles côté admin, réservées à Katia (même
+     principe) : 20 mars (printemps), 6 juillet (journée du baiser),
+     1er octobre (journée du café), 13 novembre (journée de la
+     gentillesse). Voir onAuthStateChanged dans app-admin.js. -->
+<div id="banniere20MarsAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-20mars-admin.jpg" alt="Le printemps arrive" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere6JuilletAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-6juillet-admin.jpg" alt="Journée internationale du Baiser" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere1OctobreAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-1octobre-admin.jpg" alt="Journée internationale du Café" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere13NovembreAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-13novembre-admin.jpg" alt="Journée mondiale de la Gentillesse" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere11JuilletAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-11juillet-admin.jpg" alt="Journée nationale du Mojito" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere25NovembreAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-25novembre-admin.jpg" alt="Sainte-Katia" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere26AoutAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-26aout-chien-admin.jpg" alt="Journée internationale du Chien" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere4DecAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-4dec-saintecookie-admin.jpg" alt="Sainte Cookie" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere11JuilletOlgaAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-11juillet-sainteolga-admin.jpg" alt="Sainte Olga" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere26FevAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-26fev-saintepistache-admin.jpg" alt="Sainte Pistache" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere19AoutAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-19aout-saintesarah-admin.jpg" alt="Sainte Sarah" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+
+<!-- Fête des Mères (Belgique) côté admin, réservée à Katia : la date
+     varie chaque année (2e dimanche de mai), donc une vraie photo par
+     année (assets/anniv-fetedesmeres-{année}-admin.jpg) plutôt qu'une
+     seule date fixe. Rien ne s'affiche pour une année non couverte —
+     ajouter le fichier correspondant pour l'étendre. Voir
+     onAuthStateChanged dans app-admin.js. -->
+<div id="banniereFeteDesMeresAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img id="imgBanniereFeteDesMeres" src="" alt="Bonne fête à toutes les Mamans" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere27FevAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-27fev-fraise-admin.jpg" alt="Journée internationale de la Fraise" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere21JanvierAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-21janvier-calin-admin.jpg" alt="Journée internationale du Câlin" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere16AoutAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-16aout-rhum-admin.jpg" alt="Journée internationale du Rhum" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere22AvrilAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-22avril-amour-admin.jpg" alt="Journée internationale de l'Amour" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere1AoutAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-1aout-petiteamie-admin.jpg" alt="Journée internationale de la Petite Amie" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere9AoutAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-9aout-saintamour-admin.jpg" alt="La Saint-Amour" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere18AoutAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-18aout-couples-admin.jpg" alt="Journée nationale des Couples" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere3OctobreAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-3octobre-couples-admin.jpg" alt="Journée internationale des Couples" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere29OctobreAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-29octobre-admin.jpg" alt="Attention à la marche !" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere1NovembreAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-1novembre-halloween-admin.jpg" alt="Halloween" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere15OctobreAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-15octobre-admin.jpg" alt="Je t'aime de plouf de dingue" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniereOlgaAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-olga-08dec-admin.jpg" alt="Joyeux anniversaire Olga" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="bannierePistacheAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-pistache-28mars-admin.jpg" alt="Joyeux anniversaire Pistache" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniereCookieAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-cookie-21fev-admin.jpg" alt="Joyeux anniversaire Cookie" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniereSarahAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-sarah-22sept-admin.jpg" alt="Joyeux anniversaire Sarah" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere4OctobreAnimauxAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-4octobre-animaux-admin.jpg" alt="Journée nationale des animaux de compagnie" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere3eLundiOctobreAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-3elundi-octobre-courage-admin.jpg" alt="Courage, c'est lundi !" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere23AvrilLivreAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-23avril-journeedulivre-admin.jpg" alt="Journée internationale du livre" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere5NovembreAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-5novembre-fraiselove-admin.jpg" alt="Fraise Love" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere31JuilletAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-31juillet-weshflemme-admin.jpg" alt="Wesh la flemme !" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere25MarsGaufresAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-25mars-gaufres-admin.jpg" alt="Journée mondiale de la gaufre" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere8MarsAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-8mars-droitsfemmes-admin.jpg" alt="8 mars — Journée internationale des droits des femmes" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere2eDimancheFevrierAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-2edimanchefevrier-mariage-admin.jpg" alt="2e dimanche de février — Mariage" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniereParDefautAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-par-defaut-admin.jpg" alt="I love you" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere21JuilletFeteNatAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/fete-nationale-21juillet.jpg" alt="Fête nationale belge" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere6JanvierEpiphanieAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-6janvier-epiphanie-admin.jpg" alt="Épiphanie" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere12MarsSiesteAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-12mars-sieste-admin.jpg" alt="Journée internationale de la Sieste" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere17MarsStPatrickAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-17mars-stpatrick-admin.jpg" alt="Saint-Patrick" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere7AvrilFraiseAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-7avril-fraise-admin.jpg" alt="Journée du Fruit Rouge" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere21JuinMusiqueAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-21juin-musique-admin.jpg" alt="Journée de la Musique" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere21DecembreHiverAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-21decembre-hiver-admin.jpg" alt="Premier jour de l'hiver" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere1AvrilPoissonAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-1avril-poisson-admin.jpg" alt="Poisson d'avril" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="bannierePaquesAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-paques-admin.jpg" alt="Joyeuses Pâques" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere1MaiFeteTravailAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-1mai-fetetravail-admin.jpg" alt="1er mai — Fête du Travail" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere21JuinEteAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-21juin-ete-admin.jpg" alt="Premier jour de l'été" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere7JuilletChocolatAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-7juillet-chocolat-admin.jpg" alt="Journée mondiale du Chocolat" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere21SeptembreAutomneAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-21septembre-automne-admin.jpg" alt="Bienvenue à l'automne" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere9FevrierPizzaAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-9fevrier-pizza-admin.jpg" alt="Journée mondiale de la Pizza" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere10AoutParesseAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-10aout-paresse-admin.jpg" alt="Journée de la Paresse" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniereMardiGrasAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-mardigras-admin.jpg" alt="Mardi gras" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere25SeptembreBDAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-25septembre-bd-admin.jpg" alt="Journée internationale de la Bande Dessinée" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere18OctobreBD2Admin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-18octobre-bd2-admin.jpg" alt="Petite bande dessinée du jour" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+<div id="banniere29AvrilDanseAdmin" class="hidden" style="max-width:1120px; margin:14px auto 0; padding:0 24px;">
+  <img src="assets/anniv-29avril-danse-admin.jpg" alt="Journée Internationale de la Danse" loading="lazy" style="width:100%; height:auto; border-radius:20px; display:block;">
+</div>
+
+<main class="app-main">
+
+  <div class="tab-bar">
+    <button class="tab-btn active" data-tab="cesoir">Ce soir</button>
+    <button class="tab-btn" data-tab="groupes">Groupes</button>
+    <button class="tab-btn" data-tab="membres" id="tabMembresBtn">Membres</button>
+    <button class="tab-btn" data-tab="services">Services</button>
+    <button class="tab-btn" data-tab="rdv">RDV</button>
+    <button class="tab-btn" data-tab="messages" id="tabMessagesBtn">Messages</button>
+    <button class="tab-btn" data-tab="blog">Blog</button>
+    <button class="tab-btn" data-tab="partenaires">Partenaires</button>
+    <button class="tab-btn" data-tab="videos">Vidéos</button>
+    <button class="tab-btn" data-tab="boutique" id="tabBoutiqueBtn">Boutique</button>
+    <button class="tab-btn" data-tab="dogsitting" id="tabDogSittingBtn">Dog Sitting</button>
+    <button class="tab-btn" data-tab="compta" id="tabComptaBtn">Compta</button>
+    <button class="tab-btn" data-tab="contenu" id="tabContenuBtn">Contenu du site</button>
+    <button class="tab-btn hidden" data-tab="maintenance" id="tabMaintenanceBtn">🔧 Maintenance</button>
+    <button class="tab-btn hidden" data-tab="motsdepasse" id="tabMotsDePasseBtn">🔑 Mots de passe</button>
+  </div>
+
+  <div id="panel-cesoir" class="tab-panel">
+    <div class="app-panel">
+      <div class="section-heading"><h2>Cours de la semaine</h2></div>
+      <div id="meteoDuJour" style="margin-bottom:16px;"></div>
+      <div id="anniversairesDuJour" style="margin-bottom:16px;"></div>
+      <div id="cotisationsARenouveler" style="margin-bottom:16px;"></div>
+      <div id="abonnementsARenouveler" style="margin-bottom:16px;"></div>
+      <div id="vaccinsARappeler" style="margin-bottom:16px;"></div>
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+        <button class="btn-sm" id="btnSemainePrecedente">◀ Semaine précédente</button>
+        <span id="libelleSemaineCeSoir" style="font-weight:600; color:var(--navy-dark);"></span>
+        <button class="btn-sm" id="btnSemaineSuivante">Semaine suivante ▶</button>
+      </div>
+      <div class="data-list" id="listeCeSoir"><div class="empty-state">...</div></div>
+    </div>
+    <div class="app-panel" id="blocDemandesAnnulation" style="display:none;">
+      <h2>Demandes d'annulation tardive</h2>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Un membre a déjà validé sa présence mais demande à annuler (avec justificatif). Si tu valides, le cours ne sera pas décompté de son abonnement.</p>
+      <div class="data-list" id="listeDemandesAnnulation"></div>
+    </div>
+  </div>
+
+  <div id="panel-groupes" class="tab-panel hidden">
+    <div class="app-panel">
+      <div class="section-heading">
+        <h2>Groupes</h2>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-sm" id="btnImportGroupes">Import groupé</button>
+          <button class="btn-sm primary" id="btnAjouterGroupe">+ Ajouter un groupe</button>
+        </div>
+      </div>
+      <div class="data-list" id="listeGroupes"><div class="empty-state">...</div></div>
+    </div>
+  </div>
+
+  <div id="panel-membres" class="tab-panel hidden">
+    <div class="app-panel">
+      <h3 class="bloc-titre" id="titreDemandesInfo" style="margin-top:0;">📩 Demandes d'information (page "Nous contacter") <span class="bloc-fleche">▾</span></h3>
+      <div class="bloc-contenu" id="blocDemandesInfo">
+        <p style="font-size:0.85rem; color:var(--slate); margin-bottom:10px;">Demandes envoyées depuis le formulaire public de la page "Nous contacter".</p>
+        <div class="data-list" id="listeDemandesInfo"><div class="empty-state">...</div></div>
+      </div>
+    </div>
+    <div class="app-panel">
+      <h3 class="bloc-titre" id="titreDemandesSuppression" style="margin-top:0;">🗑️ Demandes de suppression de compte <span class="bloc-fleche">▾</span></h3>
+      <div class="bloc-contenu" id="blocDemandesSuppression">
+        <p style="font-size:0.85rem; color:var(--slate); margin-bottom:10px;">Un membre a demandé la suppression de son compte. Valider archive son compte (il ne pourra plus se connecter, ses données restent conservées) ; refuser annule sa demande.</p>
+        <div class="data-list" id="listeDemandesSuppression"><div class="empty-state">...</div></div>
+      </div>
+    </div>
+    <div class="app-panel">
+      <h3 class="bloc-titre" id="titreLivreOr" style="margin-top:0;">📖 Livre d'or (page publique) <span class="bloc-fleche">▾</span></h3>
+      <div class="bloc-contenu" id="blocLivreOr">
+        <p style="font-size:0.85rem; color:var(--slate); margin-bottom:10px;">Messages envoyés depuis le livre d'or public — à approuver avant qu'ils deviennent visibles sur le site.</p>
+        <div class="data-list" id="listeLivreOr"><div class="empty-state">...</div></div>
+      </div>
+    </div>
+    <div class="app-panel">
+      <div class="section-heading">
+        <h2>Membres</h2>
+        <div style="display:flex; gap:8px;">
+          <button class="btn-sm" id="btnImportMembres">Import groupé</button>
+          <button class="btn-sm primary" id="btnAjouterMembre">+ Ajouter un membre</button>
+        </div>
+      </div>
+      <input type="text" id="rechercheMembre" placeholder="🔍 Rechercher un membre (nom, chien)..." style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #D4DAE0; border-radius:6px; margin-bottom:14px; font-size:0.95rem;">
+      <div class="data-list" id="listeMembres"><div class="empty-state">...</div></div>
+      <button class="btn-sm" id="btnVoirArchives" style="margin-top:14px;">Voir les membres archivés</button>
+      <div class="data-list" id="listeMembresArchives" style="margin-top:10px; display:none;"></div>
+    </div>
+  </div>
+
+  <div id="panel-services" class="tab-panel hidden">
+    <div class="app-panel">
+      <div class="section-heading">
+        <h2>Services (TTC, TVA 21% incluse)</h2>
+        <button class="btn-sm primary" id="btnAjouterService">+ Ajouter un service</button>
+      </div>
+      <div id="listeServices"><div class="empty-state">...</div></div>
+      <button class="btn-sm" id="btnInitServices" style="margin-top:14px;">Initialiser les services par défaut</button>
+    </div>
+  </div>
+
+  <div id="panel-rdv" class="tab-panel hidden">
+    <div class="app-panel">
+      <h3>Compte bancaire du club (pour les virements RDV)</h3>
+      <div class="form-grid">
+        <div class="field"><label>IBAN</label><input id="rdv-iban" placeholder="ex: BE00 0000 0000 0000"></div>
+      </div>
+      <button class="btn-sm" id="btnSauverIban">Enregistrer</button>
+    </div>
+    <div class="app-panel">
+      <div class="section-heading">
+        <h2>Rendez-vous</h2>
+        <button class="btn-sm primary" id="btnAjouterRdv">+ Créer un RDV</button>
+      </div>
+      <div class="data-list" id="listeRdv"><div class="empty-state">...</div></div>
+    </div>
+  </div>
+
+  <div id="panel-messages" class="tab-panel hidden">
+    <div class="app-panel">
+      <div class="section-heading">
+        <h2>Messages</h2>
+        <button class="btn-sm primary" id="btnMessageGroupe">Écrire à un groupe / tous</button>
+      </div>
+      <button class="btn-sm" id="btnSupprimerMessagePartout" style="margin-bottom:14px;">🗑️ Supprimer un message envoyé à tout le monde</button>
+      <input type="text" id="rechercheMessage" placeholder="🔍 Rechercher un membre..." style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #D4DAE0; border-radius:6px; margin-bottom:14px; font-size:0.95rem;">
+      <div class="data-list" id="listeConversations"><div class="empty-state">...</div></div>
+    </div>
+  </div>
+
+  <div id="panel-blog" class="tab-panel hidden">
+    <div class="app-panel">
+      <div class="section-heading">
+        <h2>Blog — Infos canines</h2>
+        <button class="btn-sm primary" id="btnAjouterArticle">+ Nouvel article</button>
+      </div>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Ces articles sont visibles uniquement par les membres connectés, dans l'onglet "Blog" de leur espace.</p>
+      <div class="data-list" id="listeArticles"><div class="empty-state">...</div></div>
+      <button class="btn-sm" id="btnVoirArticlesArchives" style="margin-top:14px;">Voir les articles archivés</button>
+      <div class="data-list" id="listeArticlesArchives" style="margin-top:10px; display:none;"></div>
+    </div>
+  </div>
+
+  <div id="panel-partenaires" class="tab-panel hidden">
+    <div class="app-panel">
+      <div class="section-heading">
+        <h2>Partenaires de confiance</h2>
+        <button class="btn-sm primary" id="btnAjouterPartenaire">+ Ajouter un partenaire</button>
+      </div>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Affichés sur la page publique "Partenaires" (croquettes, accessoires, vétérinaire, ostéopathe...).</p>
+      <div class="data-list" id="listePartenaires"><div class="empty-state">...</div></div>
+    </div>
+  </div>
+
+  <div id="panel-videos" class="tab-panel hidden">
+    <div class="app-panel">
+      <div class="section-heading">
+        <h2>Vidéos d'apprentissage</h2>
+        <button class="btn-sm primary" id="btnAjouterVideo">+ Ajouter une vidéo</button>
+      </div>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Visibles uniquement par les membres connectés.</p>
+      <div class="data-list" id="listeVideos"><div class="empty-state">...</div></div>
+    </div>
+  </div>
+
+  <div id="panel-boutique" class="tab-panel hidden">
+    <div class="app-panel">
+      <div class="section-heading">
+        <h2>Articles</h2>
+        <button class="btn-sm primary" id="btnAjouterArticleBoutique">+ Ajouter un article</button>
+      </div>
+      <div class="data-list" id="listeArticlesBoutique"><div class="empty-state">...</div></div>
+      <button class="btn-sm" id="btnInitArticles" style="margin-top:14px;">Initialiser des articles de base</button>
+    </div>
+    <div class="app-panel">
+      <h2>Commandes</h2>
+      <input type="text" id="rechercheCommande" placeholder="🔍 Rechercher un membre..." style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #D4DAE0; border-radius:6px; margin-bottom:14px; font-size:0.95rem;">
+      <div class="data-list" id="listeCommandes"><div class="empty-state">...</div></div>
+    </div>
+    <div class="app-panel">
+      <div class="section-heading">
+        <h2>Commandes groupées (précommandes)</h2>
+        <button class="btn-sm primary" id="btnCreerCampagne">+ Créer une commande groupée</button>
+      </div>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Ex : commande groupée de croquettes — les membres précommandent avant une date limite, tu passes ensuite une seule commande globale au fournisseur.</p>
+      <div class="data-list" id="listeCampagnes"><div class="empty-state">...</div></div>
+    </div>
+  </div>
+
+  <div id="panel-dogsitting" class="tab-panel hidden">
+    <div class="app-panel">
+      <div class="section-heading">
+        <h2>Calendrier</h2>
+        <button class="btn-sm danger" id="btnBloquerPeriode">🚫 Bloquer une période</button>
+      </div>
+      <div id="dsCalendrier"></div>
+    </div>
+    <div class="app-panel">
+      <h2>Demandes de Dog Sitting</h2>
+      <div class="data-list" id="listeDogSitting"><div class="empty-state">...</div></div>
+      <button class="btn-sm" id="btnVoirDogSittingArchives" style="margin-top:14px;">Voir les réservations archivées</button>
+      <div class="data-list" id="listeDogSittingArchives" style="margin-top:10px; display:none;"></div>
+    </div>
+  </div>
+
+  <div id="panel-compta" class="tab-panel hidden">
+    <div class="app-panel">
+      <h2>Récapitulatif du chiffre d'affaires</h2>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Pour reconstituer le chiffre d'affaires en cas de contrôle fiscal : total facturé par mois et par type (cours/abonnement, cotisation, Dog Sitting, boutique, toilettage...), à partir des paiements enregistrés et des commandes validées.</p>
+      <div class="field" style="max-width:160px;"><label>Année</label><input type="number" id="cptRecapAnnee"></div>
+      <button class="btn-sm primary" id="btnChargerRecapCA">Afficher</button>
+      <button class="btn-sm" id="btnExporterRecapCA" style="margin-left:8px;">📊 Exporter en Excel</button>
+      <div id="cptRecapTableau" style="margin-top:16px; overflow-x:auto;"></div>
+
+      <h3 style="margin-top:24px;">Détail par membre</h3>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:10px;">Pour un type et une période donnés, voir qui a payé quoi (utile notamment pour détailler les cours par personne).</p>
+      <div class="form-grid">
+        <div class="field"><label>Type</label>
+          <select id="cptDetailType">
+            <option value="Cotisation">Cotisation</option>
+            <option value="Abonnement">Abonnement (cours)</option>
+            <option value="Cours individuel">Cours individuel</option>
+            <option value="Séance de comportement">Séance de comportement</option>
+            <option value="Dog Sitting">Dog Sitting</option>
+            <option value="Toilettage">Toilettage</option>
+            <option value="Vente diverse">Vente diverse</option>
+            <option value="Autre">Autre</option>
+            <option value="Boutique">Boutique (commandes)</option>
+          </select>
+        </div>
+        <div class="field"><label>Mois</label><input type="month" id="cptDetailMois"></div>
+      </div>
+      <button class="btn-sm primary" id="btnDetailParMembre">Voir le détail</button>
+      <button class="btn-sm" id="btnExporterDetailMembre" style="margin-left:8px;">📊 Exporter en Excel</button>
+      <div id="cptDetailTableau" style="margin-top:14px;"></div>
+
+      <h3 style="margin-top:24px;">Total par type sur une période personnalisée</h3>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:10px;">Pour une période précise (pas forcément une année civile complète) : total par type sur ces dates.</p>
+      <div class="form-grid">
+        <div class="field"><label>Du</label><input type="date" id="cptPeriodeDu"></div>
+        <div class="field"><label>Au</label><input type="date" id="cptPeriodeAu"></div>
+      </div>
+      <button class="btn-sm primary" id="btnCalculerPeriodeCA">Calculer</button>
+      <button class="btn-sm" id="btnExporterPeriodeCA" style="margin-left:8px;">📊 Exporter en Excel</button>
+      <div id="cptPeriodeTableau" style="margin-top:14px;"></div>
+
+      <h3 style="margin-top:24px;">Cours utilisés par membre sur une période</h3>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:10px;">Nombre de cours réellement décomptés de l'abonnement de chaque membre (présences validées ou absences non répondues) sur la période choisie.</p>
+      <div class="form-grid">
+        <div class="field"><label>Du</label><input type="date" id="cptCoursDu"></div>
+        <div class="field"><label>Au</label><input type="date" id="cptCoursAu"></div>
+      </div>
+      <button class="btn-sm primary" id="btnCalculerCoursMembre">Calculer</button>
+      <button class="btn-sm" id="btnExporterCoursMembre" style="margin-left:8px;">📊 Exporter en Excel</button>
+      <div id="cptCoursTableau" style="margin-top:14px;"></div>
+    </div>
+
+    <div class="app-panel">
+      <h2>Numérotation</h2>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Indique le dernier numéro déjà utilisé (avant le site, ou l'an dernier) — le prochain document généré prendra automatiquement le numéro suivant.</p>
+      <h3>Factures de vente</h3>
+      <div class="form-grid">
+        <div class="field"><label>Année</label><input type="number" id="cpt-facture-annee"></div>
+        <div class="field"><label>Dernier numéro déjà utilisé cette année</label><input type="number" id="cpt-facture-dernier" placeholder="ex: 114"></div>
+      </div>
+      <button class="btn-sm primary" id="btnSauverNumFacture">Enregistrer</button>
+
+      <h3 style="margin-top:22px;">Notes de crédit</h3>
+      <div class="form-grid">
+        <div class="field"><label>Année</label><input type="number" id="cpt-nc-annee"></div>
+        <div class="field"><label>Dernier numéro déjà utilisé cette année</label><input type="number" id="cpt-nc-dernier" placeholder="ex: 2"></div>
+      </div>
+      <button class="btn-sm primary" id="btnSauverNumNC">Enregistrer</button>
+    </div>
+
+    <div class="app-panel">
+      <h2>Historique des factures et notes de crédit</h2>
+      <input type="text" id="rechercheCompta" placeholder="🔍 Rechercher un membre ou un numéro..." style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #D4DAE0; border-radius:6px; margin-bottom:14px; font-size:0.95rem;">
+      <div class="data-list" id="listeCompta"><div class="empty-state">...</div></div>
+    </div>
+
+    <div class="app-panel">
+      <h2>Export pour Odoo</h2>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Génère un fichier CSV prêt à importer dans Odoo (Comptabilité → Clients → Factures → Importer des enregistrements). Toutes les mentions légales sont incluses (numéro d'origine en référence, dates, client, lignes, TVA).</p>
+      <div class="form-grid">
+        <div class="field"><label>Du</label><input type="date" id="odoo-dateDebut"></div>
+        <div class="field"><label>Au</label><input type="date" id="odoo-dateFin"></div>
+      </div>
+      <button class="btn-sm primary" id="btnExporterOdoo">📤 Exporter les factures (CSV)</button>
+      <button class="btn-sm" id="btnExporterOdooNC" style="margin-left:8px;">📤 Exporter les notes de crédit (CSV)</button>
+      <p id="odoo-statut" style="font-size:0.85rem; color:var(--slate); margin-top:8px;"></p>
+    </div>
+  </div>
+
+  <div id="panel-contenu" class="tab-panel hidden">
+    <div class="app-panel">
+      <h2>Modifier les textes du site</h2>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Modifie ici les textes affichés sur les pages publiques du site (Accueil, Le Club, Activités, Katia). Un champ laissé tel quel garde son texte d'origine. La mise à jour est visible sur le site en quelques secondes après enregistrement.</p>
+      <div id="zoneContenu"><div class="empty-state">...</div></div>
+    </div>
+
+    <div class="app-panel">
+      <h2>Règlement d'Ordre Intérieur (ROI)</h2>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">
+        Ce texte est celui que chaque membre doit lire et approuver depuis son espace. Version actuelle : <strong id="roi-versionActuelle">—</strong>.<br>
+        <strong>Enregistrer</strong> = corrige une coquille sans redemander l'accord aux membres.<br>
+        <strong>Publier une nouvelle version</strong> = pour un vrai changement de règlement — tous les membres devront réapprouver.
+      </p>
+      <textarea id="roi-texte" rows="16" style="width:100%; box-sizing:border-box; resize:vertical; font-family:inherit;"></textarea>
+      <div style="display:flex; gap:8px; margin-top:10px; flex-wrap:wrap;">
+        <button class="btn-sm" id="btnSauverRoiSansVersion">Enregistrer (sans nouvelle version)</button>
+        <button class="btn-sm primary" id="btnPublierNouvelleVersionRoi">Publier une nouvelle version</button>
+      </div>
+      <p id="roi-statut" style="font-size:0.85rem; color:var(--slate); margin-top:8px;"></p>
+
+      <h3 style="margin-top:22px;">Membres n'ayant pas encore approuvé la version actuelle</h3>
+      <div class="data-list" id="listeRoiNonApprouve"><div class="empty-state">...</div></div>
+    </div>
+
+    <div class="app-panel">
+      <h2>Fiche de renseignements — réponses</h2>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Identifiant et nom du chien visibles par défaut, sauf si le membre a choisi de répondre anonymement.</p>
+      <div class="data-list" id="listeEnquetesAnonymes"><div class="empty-state">...</div></div>
+    </div>
+  </div>
+
+  <div id="panel-maintenance" class="tab-panel hidden">
+    <div class="app-panel">
+      <h2>🔧 Maintenance</h2>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Onglet visible uniquement pour toi.</p>
+      <button class="btn-sm primary" id="btnMigrationAcces">Activer les 3 accès (Cours/Dog Sitting/Boutique) pour tous les membres existants</button>
+      <p id="migrationAccesResultat" style="font-size:0.85rem; color:var(--slate); margin-top:10px;"></p>
+      <hr style="margin:18px 0; border:none; border-top:1px solid #E3E7EB;">
+      <label style="font-size:0.9rem; font-weight:600; color:var(--navy-dark); display:block; margin-bottom:6px;">Nettoyer les présences d'avant une date (ex: avant le lancement du site)</label>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:10px;">Supprime toutes les présences/absences enregistrées avant cette date. Si l'une d'elles avait déjà été décomptée d'un abonnement, le cours est automatiquement recrédité au membre concerné.</p>
+      <div style="display:flex; gap:8px; align-items:flex-end; flex-wrap:wrap;">
+        <div class="field" style="margin:0;"><label>Supprimer avant le</label><input type="date" id="nettoyagePresencesDate" value="2026-09-04"></div>
+        <button class="btn-sm danger" id="btnNettoyerPresences">Nettoyer</button>
+      </div>
+      <p id="nettoyagePresencesResultat" style="font-size:0.85rem; color:var(--slate); margin-top:10px;"></p>
+      <hr style="margin:18px 0; border:none; border-top:1px solid #E3E7EB;">
+      <label style="font-size:0.9rem; font-weight:600; color:var(--navy-dark); display:block; margin-bottom:6px;">Réparer les aperçus de messages figés</label>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:10px;">À utiliser une fois : recalcule "le dernier message" affiché dans la liste des conversations, pour toutes les conversations — corrige les aperçus restés bloqués sur un message déjà supprimé avant le correctif.</p>
+      <button class="btn-sm danger" id="btnRepararApercusMessages">Réparer tous les aperçus de messages</button>
+      <p id="repararApercusResultat" style="font-size:0.85rem; color:var(--slate); margin-top:10px;"></p>
+      <hr style="margin:18px 0; border:none; border-top:1px solid #E3E7EB;">
+      <label style="font-size:0.9rem; font-weight:600; color:var(--navy-dark); display:block; margin-bottom:6px;">Rembourser les cours annulés mal décomptés</label>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:10px;">À utiliser une fois : cherche toute présence encore décomptée de l'abonnement alors que le cours correspondant a été annulé, et rembourse le cours. Corrige un bug déjà présent avant ce correctif.</p>
+      <button class="btn-sm danger" id="btnRembourserCoursAnnules">Rechercher et rembourser</button>
+      <p id="rembourserCoursAnnulesResultat" style="font-size:0.85rem; color:var(--slate); margin-top:10px;"></p>
+      <hr style="margin:18px 0; border:none; border-top:1px solid #E3E7EB;">
+      <label style="font-size:0.9rem; font-weight:600; color:var(--navy-dark); display:block; margin-bottom:6px;">Compte de démonstration "Hexelya"</label>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:10px;">À créer une seule fois : compte membre vide (sans donnée réelle), identifiant "Hexelya", mot de passe "hexelya", utilisable comme exemple du site en portfolio. Protégé — ni l'archivage ni le changement de mot de passe ne sont possibles depuis le compte Admin de Katia.</p>
+      <button class="btn-sm primary" id="btnCreerCompteDemoHexelya">Créer le compte démo Hexelya</button>
+      <p id="creerCompteDemoHexelyaResultat" style="font-size:0.85rem; color:var(--slate); margin-top:10px;"></p>
+      <hr style="margin:18px 0; border:none; border-top:1px solid #E3E7EB;">
+      <label style="font-size:0.9rem; font-weight:600; color:var(--navy-dark); display:block; margin-bottom:6px;">Recalculer les réservations Dog Sitting en cours (nouvelles règles de tarif)</label>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:10px;">À utiliser une fois : recalcule le tarif (22€/25€ selon accès cours), le nombre de nuits (avec suppléments arrivée avant 14h / départ après 12h) et le total pour les réservations en attente ou validées dont l'acompte n'est pas encore validé. Les réservations déjà bloquées (acompte validé), refusées ou annulées ne sont jamais touchées.</p>
+      <button class="btn-sm danger" id="btnRecalculerDogSitting">Recalculer</button>
+      <p id="recalculerDogSittingResultat" style="font-size:0.85rem; color:var(--slate); margin-top:10px;"></p>
+    </div>
+  </div>
+
+  <div id="panel-motsdepasse" class="tab-panel hidden">
+    <div class="app-panel">
+      <h2>🔑 Mots de passe — tous les membres</h2>
+      <p style="color:var(--slate); font-size:0.85rem; margin-bottom:14px;">Onglet visible uniquement pour toi. Toujours à jour : ce mot de passe est le vrai mot de passe de connexion, synchronisé automatiquement dès qu'il est créé ou changé.</p>
+      <input type="text" id="rechercheMdp" placeholder="🔍 Rechercher un membre..." style="width:100%; box-sizing:border-box; padding:10px 12px; border:1px solid #D4DAE0; border-radius:6px; margin-bottom:14px; font-size:0.95rem;">
+      <button class="btn-sm" id="btnExporterMdpExcel" style="margin-bottom:14px;">📊 Exporter en Excel (.xlsx)</button>
+      <div class="data-list" id="listeMotsDePasse"><div class="empty-state">...</div></div>
+    </div>
+  </div>
+
+</main>
+
+<div id="modalZone"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script type="module" src="assets/app-admin.js?v=V04-001"></script>
+<div id="versionTagCoin" style="position:fixed; bottom:10px; right:14px; font-size:0.72rem; color:var(--slate-light); opacity:0.55; z-index:30; pointer-events:none; background:var(--white); padding:2px 6px; border-radius:4px;"></div>
+</body>
+</html>

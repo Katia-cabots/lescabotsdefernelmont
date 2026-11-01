@@ -1,0 +1,349 @@
+// Projet Firebase : cabots-de-fernelmont-901ee — Site "Les Cabots de Fernelmont" — V04-001
+// Convention de versionnage des livraisons : VJJ-NNN (JJ = numéro du jour de
+// travail sur ce site, pas la date calendaire ; NNN = numéro de livraison
+// dans cette journée de travail, repart à 001 à chaque nouveau jour de
+// travail). Voir CONVENTION-VERSIONS.md à la racine du dépôt.
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function estConnecte() {
+      return request.auth != null;
+    }
+    function estAdmin() {
+      return estConnecte() &&
+        get(/databases/$(database)/documents/membres/$(request.auth.uid)).data.role == 'admin';
+    }
+    function estSuperAdmin() {
+      return estAdmin() &&
+        get(/databases/$(database)/documents/membres/$(request.auth.uid)).data.identifiant == 'HeleneL';
+    }
+
+    function champsAutorisesMembre() {
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(['nomMaitre','gsm','email','adressePostale','dateAnniversaire',
+                  'chiens','assuranceRC',
+                  'cotisationRenouvellement','abonnementRenouvellement','dernierBlogVu',
+                  'trouveVia','trouveViaDetail','conducteurNom','conducteurGsm','conducteurEmail',
+                  'reglementApprouve','reglementApprouveLe','reglementVersionApprouvee',
+                  'enqueteRenseignementsSoumise','motDePasseInitial','derniereConnexion','derniereActivite',
+                  'dateDernierChangementMdp','dernierRdvVu',
+                  'demandeSuppression','motifSuppression','dateDemandeSuppression']);
+    }
+
+    match /membres/{uid} {
+      // Le compte de démonstration "Hexelya" (identifiant "Hexelya") ne
+      // peut être modifié (archivage compris) ou supprimé que par le
+      // Super Admin — un Admin simple (Katia) ne peut ni l'archiver ni en
+      // changer le mot de passe.
+      // La fiche du Super Admin (identifiant "HeleneL") n'est lisible par
+      // un Admin simple que si c'est sa propre fiche (uid == uid) — jamais
+      // via une lecture CIBLÉE (get) sur la fiche d'un autre membre, pour
+      // qu'un Admin ne puisse jamais lire le mot de passe en clair
+      // (motDePasseInitial) du Super Admin.
+      // IMPORTANT : cette restriction est volontairement limitée au "get"
+      // (lecture d'une fiche précise par son uid) et ne s'applique PAS au
+      // "list" (requête sur toute la collection, ex: chargement de la
+      // liste des membres côté admin). Firestore ne peut pas prouver une
+      // condition basée sur resource.data pour une requête qui ne filtre
+      // pas sur ce champ : si elle était appliquée au "list", la requête
+      // entière échouait pour Katia (bug corrigé : plus aucun membre ne
+      // s'affichait côté Admin, alors que ça fonctionnait côté Super
+      // Admin). Ce n'est pas un problème de sécurité : la fiche du Super
+      // Admin a role == 'admin', donc elle ne ressort jamais d'une requête
+      // filtrée sur role == 'membre' (chargerMembres()) ni des autres
+      // requêtes en liste de l'admin.
+      allow get: if estConnecte() && (request.auth.uid == uid || estSuperAdmin() ||
+        (estAdmin() && resource.data.identifiant != 'HeleneL'));
+      allow list: if estConnecte() && (estSuperAdmin() || estAdmin());
+      allow create: if estAdmin();
+      allow update: if estSuperAdmin()
+        || (estAdmin() && resource.data.identifiant != 'Hexelya')
+        || (estConnecte() && request.auth.uid == uid && champsAutorisesMembre());
+      allow delete: if estSuperAdmin() || (estAdmin() && resource.data.identifiant != 'Hexelya');
+    }
+
+    match /groupes/{id} {
+      allow read: if estConnecte();
+      allow write: if estAdmin();
+    }
+
+    match /presences/{id} {
+      // Un membre ne peut lire/écrire QUE ses propres présences (jamais
+      // celles des autres membres) — l'admin garde un accès complet.
+      // "compteAbonnement" est EXCLU des champs qu'un membre peut écrire :
+      // c'est le champ qui décide si un cours est décompté de son
+      // abonnement, calculé uniquement par traiterAbsencesAutomatiques()
+      // côté admin — sans cette exclusion, un membre pourrait s'écrire
+      // lui-même compteAbonnement:true pour que ce rattrapage ignore sa
+      // présence et ne décompte jamais le cours. Pour la même raison, une
+      // demande d'annulation ne peut être CRÉÉE par le membre qu'au statut
+      // "attente" — seul l'admin peut la faire passer à "validee"/"refusee".
+      allow read: if estConnecte() && (resource.data.uid == request.auth.uid || estAdmin());
+      allow create: if estAdmin() || (estConnecte() && request.resource.data.uid == request.auth.uid &&
+        request.resource.data.keys().hasOnly(
+          ['groupeId','uid','dateISO','statut','repondu','demandeAnnulationMotif','demandeAnnulationStatut','demandeAnnulationDate']) &&
+        (!('demandeAnnulationStatut' in request.resource.data) || request.resource.data.demandeAnnulationStatut == 'attente'));
+      allow update: if estAdmin() || (estConnecte() && resource.data.uid == request.auth.uid && request.resource.data.uid == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['groupeId','uid','dateISO','statut','repondu','demandeAnnulationMotif','demandeAnnulationStatut','demandeAnnulationDate']) &&
+        // Important : le contrôle "attente uniquement" ne porte QUE sur un
+        // écrit qui touche réellement demandeAnnulationStatut dans CETTE
+        // écriture précise (diff), jamais sur sa simple présence dans le
+        // document final — sinon un membre qui change librement d'avis à
+        // plus de 24h (repondrePresence, qui réécrit tout le document) se
+        // voyait bloqué si ce même cours avait déjà eu, par le passé, une
+        // demande d'annulation tardive refusée/validée par Katia.
+        (!('demandeAnnulationStatut' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.demandeAnnulationStatut == 'attente'));
+      allow delete: if estAdmin();
+    }
+
+    match /annulations/{id} {
+      allow read: if estConnecte();
+      allow write: if estAdmin();
+    }
+
+    match /confirmations/{id} {
+      allow read: if estConnecte();
+      allow write: if estAdmin();
+    }
+
+    match /exceptions_horaire/{id} {
+      // Changement d'horaire ponctuel d'un cours (pluie, chaleur...) — ne
+      // modifie jamais la récurrence du groupe, juste cette date précise.
+      allow read: if estConnecte();
+      allow write: if estAdmin();
+    }
+
+    match /services/{id} {
+      allow read: if estConnecte();
+      allow write: if estAdmin();
+    }
+
+    match /rdv/{id} {
+      // Ne contient jamais la liste nominative des membres ciblés (voir
+      // rdv_admin et rdv_cibles ci-dessous) — uniquement le type de
+      // ciblage et, pour un ciblage par groupe, le groupeId (non personnel).
+      allow read: if estConnecte();
+      allow write: if estAdmin();
+    }
+
+    match /rdv_admin/{id} {
+      // Liste nominative des membres ciblés par un RDV "individuel" —
+      // réservée à l'admin, jamais lisible par un membre (même le sien).
+      allow read, write: if estAdmin();
+    }
+
+    match /rdv_cibles/{id} {
+      // Un marqueur par membre ciblé (id = rdvId_uid). Chaque membre ne
+      // peut lire QUE ses propres marqueurs, jamais ceux des autres — donc
+      // jamais la liste des autres personnes invitées à un même RDV.
+      // "resource == null" autorise la lecture d'un marqueur qui n'existe
+      // pas (cas normal : le membre n'est simplement pas invité) sans que
+      // Firestore renvoie une erreur de permission au lieu d'un résultat
+      // vide.
+      allow read: if estConnecte() && (resource == null || resource.data.uid == request.auth.uid || estAdmin());
+      allow write: if estAdmin();
+    }
+
+    match /rdv_reponses/{id} {
+      // Un membre ne peut lire/écrire QUE ses propres réponses de RDV
+      // (jamais qui d'autre vient, combien de personnes, ni le statut de
+      // paiement des autres) — l'admin garde un accès complet.
+      // "paiementValide" ne peut jamais être mis à true par le membre
+      // lui-même (seul Katia valide un paiement reçu) — il peut seulement
+      // signaler "paye:true" (voir signalerPaiementRdv côté membre).
+      allow read: if estConnecte() && (resource.data.uid == request.auth.uid || estAdmin());
+      allow create, update: if estAdmin() || (estConnecte() && request.resource.data.uid == request.auth.uid &&
+        request.resource.data.paiementValide == false);
+      allow delete: if estAdmin();
+    }
+
+    match /conversations/{uid} {
+      allow read, write: if estConnecte() && (request.auth.uid == uid || estAdmin());
+      match /messages/{msgId} {
+        allow read, create, update, delete: if estConnecte() && (request.auth.uid == uid || estAdmin());
+      }
+    }
+
+    match /articles/{id} {
+      allow read: if estConnecte();
+      allow write: if estAdmin();
+    }
+
+    match /videos/{id} {
+      allow read: if estConnecte();
+      allow write: if estAdmin();
+      match /commentaires/{cid} {
+        allow read: if estConnecte();
+        allow create: if estConnecte();
+        allow delete: if estAdmin();
+      }
+    }
+
+    match /paiements/{id} {
+      allow read: if estConnecte() && (resource.data.membreId == request.auth.uid || estAdmin());
+      allow create, update, delete: if estAdmin();
+    }
+
+    // Carte d'abonnement (10 + 1 gratuit) : un cycle de 11 cours par
+    // document. Rempli automatiquement par l'admin au fil des cours, ou à
+    // la main (anciens abonnements non suivis par le site) — jamais
+    // modifiable par un membre, qui peut seulement consulter les siens.
+    match /abonnements/{id} {
+      allow read: if estConnecte() && (resource.data.membreId == request.auth.uid || estAdmin());
+      allow create, update, delete: if estAdmin();
+    }
+
+    match /parametres/{id} {
+      allow read: if estConnecte();
+      allow write: if estAdmin();
+    }
+
+    match /articles_boutique/{id} {
+      allow read: if estConnecte();
+      allow write: if estAdmin();
+    }
+
+    match /commandes/{id} {
+      // Une commande est toujours créée au statut "en_attente" — seul
+      // l'admin peut ensuite la faire passer à "validee"/"annulee" (update
+      // déjà réservé à l'admin ci-dessous), pour qu'un membre ne puisse pas
+      // créer directement une commande déjà marquée validée.
+      allow read: if estConnecte() && (resource.data.membreId == request.auth.uid || estAdmin());
+      allow create: if estConnecte() && request.resource.data.membreId == request.auth.uid &&
+        request.resource.data.statut == 'en_attente';
+      allow update, delete: if estAdmin();
+    }
+
+    match /factures/{id} {
+      allow read: if estConnecte() && (resource.data.membreId == request.auth.uid || estAdmin());
+      allow create, update, delete: if estAdmin();
+    }
+
+    match /notes_credit/{id} {
+      allow read: if estConnecte() && (resource.data.membreId == request.auth.uid || estAdmin());
+      allow create, update, delete: if estAdmin();
+    }
+
+    match /dogsitting/{id} {
+      // Un membre ne peut lire QUE ses propres demandes de Dog Sitting —
+      // jamais le nom du chien, les habitudes de vie ou le motif d'une
+      // période bloquée par Katia pour un AUTRE membre. La vérification de
+      // chevauchement de dates (nécessaire pour tous, voir plus bas) passe
+      // par le miroir "dogsitting_dates", qui ne contient aucune donnée
+      // personnelle.
+      allow read: if estConnecte() && (resource.data.membreId == request.auth.uid || estAdmin());
+      allow create: if estAdmin() || (estConnecte() && request.resource.data.membreId == request.auth.uid);
+      // Le membre peut mettre à jour SA PROPRE demande, mais seulement pour
+      // signaler un paiement d'acompte, marquer une notification comme vue,
+      // ou envoyer une demande de modification de dates (uniquement au
+      // statut "attente" — seul l'admin peut la faire passer à
+      // "validee"/"refusee", et c'est elle qui recalcule le prix) — tout le
+      // reste (dates réelles, statut, validation, acompte validé...) reste
+      // réservé à l'admin. Le contrôle "attente uniquement" ne porte que sur
+      // une écriture qui modifie demandeModifStatut, pour ne jamais bloquer
+      // un signalerAcomptePaye/vuParMembre ultérieur une fois la demande
+      // déjà traitée par l'admin.
+      allow update: if estAdmin() || (estConnecte() && resource.data.membreId == request.auth.uid &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+          ['acomptePaye', 'vuParMembre', 'vuParAdmin', 'demandeModifStatut', 'demandeModifDateDebut', 'demandeModifDateFin',
+           'demandeModifHeureArrivee', 'demandeModifHeureDepart', 'demandeModifMotif', 'demandeModifDate']) &&
+        (!('demandeModifStatut' in request.resource.data.diff(resource.data).affectedKeys()) || request.resource.data.demandeModifStatut == 'attente'));
+      allow delete: if estAdmin();
+    }
+
+    match /dogsitting_dates/{id} {
+      // Miroir minimal (dateDebut/dateFin/statut UNIQUEMENT, jamais de nom
+      // ni de notes) de la collection "dogsitting" ci-dessus. Lecture
+      // ouverte à tout membre connecté — c'est précisément pour que cette
+      // vérification n'ait jamais besoin de lire les vraies données
+      // personnelles des autres. Mise à jour/suppression réservées à
+      // l'admin, pour qu'un membre ne puisse pas modifier après coup une
+      // date déjà enregistrée (la sienne ou celle d'un autre).
+      allow read: if estConnecte();
+      allow create: if estAdmin() || (estConnecte() && request.resource.data.keys().hasOnly(['dateDebut', 'dateFin', 'statut']));
+      allow update, delete: if estAdmin();
+    }
+
+    match /campagnes/{id} {
+      allow read: if estConnecte();
+      allow write: if estAdmin();
+    }
+
+    match /precommandes/{id} {
+      // "vu" doit toujours rester à false quand c'est le membre qui
+      // écrit sa précommande (création ou modification avant clôture) —
+      // sinon il pourrait la marquer "vue" lui-même et faire disparaître
+      // le point rouge d'alerte chez Katia avant qu'elle ne l'ait vue.
+      allow read: if estConnecte() && (resource.data.membreId == request.auth.uid || estAdmin());
+      allow create, update: if estConnecte() && request.resource.data.membreId == request.auth.uid &&
+        request.resource.data.vu == false;
+      // L'admin peut aussi marquer une précommande "vue" (point rouge sur
+      // l'onglet Boutique), sans pouvoir changer les lignes/quantités.
+      allow update: if estAdmin() &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['vu']);
+      allow delete: if estConnecte() && (resource.data.membreId == request.auth.uid || estAdmin());
+    }
+
+    match /contenu_site/{id} {
+      allow read: if true;
+      allow write: if estAdmin();
+    }
+
+    match /reglement/{id} {
+      allow read: if estConnecte();
+      allow write: if estAdmin();
+    }
+
+    match /enquetes_renseignements/{id} {
+      // Identifié par défaut (identifiant + nom du chien), mais le membre
+      // peut cocher "anonymiser" pour retirer ces deux informations avant
+      // l'envoi. Lecture réservée à l'admin uniquement (jamais visible par
+      // les autres membres). Aucune modification/suppression une fois
+      // envoyé, pour garder l'intégrité des réponses.
+      allow read: if estAdmin();
+      allow create: if estConnecte();
+      allow update, delete: if false;
+    }
+
+    match /partenaires/{id} {
+      // Page publique "Partenaires de confiance" — contenu géré uniquement
+      // par l'admin, visible par tous (membres ou non). Le partenaire
+      // "Hexelya" (pub du site de la développeuse) ne peut être modifié
+      // ou supprimé que par le Super Admin, jamais par un simple Admin —
+      // que ce soit par ce champ actuel OU l'ancien (en cas de modif du
+      // nom lui-même par un Admin pour contourner la protection).
+      allow read: if true;
+      allow create: if estAdmin();
+      allow update, delete: if estAdmin() && (resource.data.nom != 'Hexelya' || estSuperAdmin());
+    }
+
+    match /demandes_info/{id} {
+      // Formulaire public "Nous contacter" (page contact.html) — n'importe
+      // quel visiteur, non connecté, peut envoyer une demande. Personne
+      // côté public ne peut la relire, la modifier ni la supprimer : seul
+      // l'admin y a accès, depuis l'onglet Membres.
+      allow create: if request.resource.data.keys().hasOnly(
+          ['nom','prenom','email','gsm','ville','raceChien','ageChien','sterilise','demande','lu','dateEnvoi']) &&
+        request.resource.data.nom is string && request.resource.data.nom.size() > 0 &&
+        request.resource.data.prenom is string && request.resource.data.prenom.size() > 0 &&
+        request.resource.data.email is string && request.resource.data.email.size() > 0 &&
+        request.resource.data.demande is string && request.resource.data.demande.size() > 0 &&
+        request.resource.data.lu == false;
+      allow read, update, delete: if estAdmin();
+    }
+    match /livre_or/{id} {
+      // Formulaire public "Livre d'or" — n'importe quel visiteur peut
+      // laisser un message (nom/prénom obligatoires), mais il ne devient
+      // visible publiquement qu'une fois approuvé par l'admin. L'admin
+      // seul voit aussi les messages en attente.
+      allow read: if resource.data.approuve == true || estAdmin();
+      allow create: if request.resource.data.keys().hasOnly(['nom', 'prenom', 'message', 'approuve', 'dateEnvoi']) &&
+        request.resource.data.nom is string && request.resource.data.nom.size() > 0 &&
+        request.resource.data.prenom is string && request.resource.data.prenom.size() > 0 &&
+        request.resource.data.approuve == false;
+      allow update, delete: if estAdmin();
+    }
+  }
+}

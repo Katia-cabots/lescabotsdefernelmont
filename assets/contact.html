@@ -1,0 +1,222 @@
+<!-- Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V04-001 -->
+<!-- © 2026 Hélène Laruelle. Tous droits réservés. Ce code ne peut être utilisé, copié ou modifié sans autorisation écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt. Contenu du site sous la responsabilité de Katia Renard (LES BEAUX CABOTS SRL). -->
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<link rel="icon" href="favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="assets/apple-touch-icon.png">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nous contacter — Les Cabots de Fernelmont | Club canin Andenne</title>
+<meta name="description" content="Contactez le club canin Les Cabots de Fernelmont à Andenne par téléphone ou par email pour toute question ou inscription.">
+<link rel="canonical" href="https://katia-cabots.github.io/lescabotsdefernelmont/contact.html">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/style.css?v=V04-001">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="header-inner">
+    <a class="brand" href="index.html">
+      <span class="brand-logo"><img src="assets/logo.png" alt="Logo Les Cabots de Fernelmont"></span>
+      <span class="brand-text">
+        <span class="brand-name">Les Cabots de Fernelmont</span>
+        <span class="brand-tagline">Club canin — Andenne</span>
+      </span>
+    </a>
+    <button class="nav-toggle" aria-expanded="false" aria-controls="main-nav" aria-label="Ouvrir le menu"><span class="bars"></span></button>
+    <nav class="main-nav" id="main-nav" aria-label="Navigation principale">
+      <ul>
+        <li><a href="index.html">Accueil</a></li>
+        <li><a href="club.html">Le Club</a></li>
+        <li><a href="activites.html">Activités</a></li>
+        <li><a href="katia.html">Katia</a></li>
+        <li><a href="infos-canines.html">Infos canines</a></li>
+        <li class="nav-break" aria-hidden="true"></li>
+        <li><a href="livre-or.html">Livre d'or</a></li>
+        <li><a href="partenaires.html">Partenaires</a></li>
+        <li><a href="contact.html" class="active">Nous contacter</a></li>
+        <li><a href="connexion.html">Connexion</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<section class="page-hero">
+  <div class="container">
+    <span class="eyebrow">Contact</span>
+    <h1>Nous contacter</h1>
+    <p class="lead">Une question sur les cours, les tarifs ou une inscription ? N'hésitez pas à nous appeler ou à nous écrire.</p>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="boutique-promo" style="margin-bottom:24px;">
+      <div class="bp-eyebrow">💬 Réponse rapide</div>
+      <h3>Contactez Katia sur WhatsApp</h3>
+      <p>Pour une question rapide, écrivez directement sur WhatsApp — réponse généralement plus rapide que par email.</p>
+      <a class="btn" href="https://wa.me/32494051796" target="_blank" rel="noopener">Ouvrir WhatsApp</a>
+    </div>
+    <div class="contact-form-card">
+      <h2 class="cf-toggle" id="cfToggle">
+        <span>Une question ? Une envie de nous rejoindre ?</span>
+        <span class="cf-toggle-arrow" id="cfArrow">▾</span>
+      </h2>
+      <div id="cfBody">
+        <p>Laissez-nous vos coordonnées et quelques infos sur votre compagnon, Katia vous recontactera rapidement.</p>
+        <form id="formDemandeInfo">
+          <div class="cf-grid">
+            <div class="cf-field"><label>Nom *</label><input type="text" id="cf-nom" required></div>
+            <div class="cf-field"><label>Prénom *</label><input type="text" id="cf-prenom" required></div>
+            <div class="cf-field"><label>Adresse e-mail *</label><input type="email" id="cf-email" required></div>
+            <div class="cf-field"><label>GSM *</label><input type="tel" id="cf-gsm" required></div>
+            <div class="cf-field"><label>Région (ville) *</label><input type="text" id="cf-ville" required></div>
+            <div class="cf-field"><label>Race du chien *</label><input type="text" id="cf-race" required></div>
+            <div class="cf-field"><label>Âge du chien *</label><input type="text" id="cf-age" placeholder="ex: 8 mois, 3 ans..." required></div>
+            <div class="cf-field"><label>Castré / stérilisé *</label>
+              <select id="cf-sterilise" required>
+                <option value="">—</option>
+                <option value="oui">Oui</option>
+                <option value="non">Non</option>
+              </select>
+            </div>
+            <div class="cf-field cf-full"><label>Votre demande *</label><textarea id="cf-demande" required></textarea></div>
+          </div>
+          <p class="cf-note">* Champs obligatoires</p>
+          <button type="submit" class="btn btn-primary" id="cf-submit">Envoyer ma demande</button>
+          <p class="cf-statut" id="cf-statut"></p>
+        </form>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="two-col">
+      <div class="contact-card">
+        <div class="cc-side"><img src="assets/logo.png" alt="Logo Les Cabots de Fernelmont"></div>
+        <div class="cc-body">
+          <h3>Les Cabots de Fernelmont</h3>
+          <div class="cc-role">LES BEAUX CABOTS SRL</div>
+          <ul class="contact-list">
+            <li><span class="label">Tél.</span><a href="tel:+32494051796">0032 494 05 17 96</a></li>
+            <li><span class="label">Email</span><a href="mailto:cabotsdefernelmont@gmail.com">cabotsdefernelmont@gmail.com</a></li>
+            <li><span class="label">Adresse</span><span>Rue Grande 26, 4219 Wasseiges (Meeffe)</span></li>
+            <li><span class="label">TVA</span><span>BE 0729.593.814</span></li>
+          </ul>
+        </div>
+      </div>
+      <div>
+        <div class="info-block">
+          <h2>Nos cours</h2>
+          <p>Les séances collectives se déroulent à Andenne. Pour connaître les prochains horaires disponibles ou organiser une séance individuelle, le plus simple est de nous appeler ou de nous envoyer un email — Katia vous répondra directement.</p>
+        </div>
+        <div class="info-block">
+          <h2>Réseaux sociaux</h2>
+          <p>Retrouvez aussi le club et ses actualités sur notre page Facebook.</p>
+          <a class="btn btn-primary" href="https://www.facebook.com/cabotsdefernelmont/?locale=fr_FR" target="_blank" rel="noopener">Voir la page Facebook</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script type="module">
+  import { db, collection, addDoc, serverTimestamp } from "./assets/firebase-config.js";
+
+  document.getElementById('cfToggle').addEventListener('click', () => {
+    const body = document.getElementById('cfBody');
+    const arrow = document.getElementById('cfArrow');
+    const estOuvert = body.style.display !== 'none';
+    body.style.display = estOuvert ? 'none' : '';
+    arrow.classList.toggle('cf-toggle-arrow-fermee', estOuvert);
+  });
+
+  document.getElementById('formDemandeInfo').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const statutEl = document.getElementById('cf-statut');
+    const btn = document.getElementById('cf-submit');
+    btn.disabled = true;
+    statutEl.className = 'cf-statut';
+    statutEl.textContent = 'Envoi en cours...';
+    try {
+      await addDoc(collection(db, 'demandes_info'), {
+        nom: document.getElementById('cf-nom').value.trim(),
+        prenom: document.getElementById('cf-prenom').value.trim(),
+        email: document.getElementById('cf-email').value.trim(),
+        gsm: document.getElementById('cf-gsm').value.trim(),
+        ville: document.getElementById('cf-ville').value.trim(),
+        raceChien: document.getElementById('cf-race').value.trim(),
+        ageChien: document.getElementById('cf-age').value.trim(),
+        sterilise: document.getElementById('cf-sterilise').value,
+        demande: document.getElementById('cf-demande').value.trim(),
+        lu: false,
+        dateEnvoi: serverTimestamp()
+      });
+      document.getElementById('formDemandeInfo').reset();
+      statutEl.classList.add('ok');
+      statutEl.textContent = 'Merci ! Votre demande a bien été envoyée, Katia vous recontactera rapidement.';
+    } catch (err) {
+      statutEl.classList.add('err');
+      statutEl.textContent = "Une erreur est survenue, merci de réessayer ou de nous appeler directement.";
+    }
+    btn.disabled = false;
+  });
+</script>
+
+<footer class="site-footer">
+  <div class="container">
+    <div class="footer-grid">
+      <div>
+        <h4>Les Cabots de Fernelmont</h4>
+        <p>Club canin proposant des cours d'éducation canine à Andenne, animés par Katia.</p>
+      </div>
+      <div>
+        <h4>Navigation</h4>
+        <ul>
+          <li><a href="index.html">Accueil</a></li>
+          <li><a href="club.html">Le Club</a></li>
+          <li><a href="activites.html">Activités</a></li>
+          <li><a href="katia.html">Katia</a></li>
+        <li><a href="infos-canines.html">Infos canines</a></li>
+          <li><a href="livre-or.html">Livre d'or</a></li>
+        <li><a href="partenaires.html">Partenaires</a></li>
+        <li><a href="contact.html">Nous contacter</a></li>
+        <li><a href="connexion.html">Connexion</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Contact</h4>
+        <ul>
+          <li><a href="tel:+32494051796">0032 494 05 17 96</a></li>
+          <li><a href="mailto:cabotsdefernelmont@gmail.com">cabotsdefernelmont@gmail.com</a></li>
+          <li>Rue Grande 26, 4219 Wasseiges</li>
+        </ul>
+      </div>
+    </div>
+    <div class="footer-bottom">
+      <span>© 2026 Hélène Laruelle — Tous droits réservés. Toute copie du site ou de son code est interdite.<br>Site développé par <a href="https://hexelya.web.app/index.html" target="_blank" rel="noopener" style="color:inherit;">Hélène Laruelle</a>.<br>Contenu sous la responsabilité de Katia Renard</span>
+      <span><a href="confidentialite.html">Confidentialité (RGPD)</a> &middot; <a href="cgv.html">CGV</a></span>
+      <span>TVA BE 0729.593.814</span>
+    </div>
+  </div>
+</footer>
+
+<script>
+  const toggle = document.querySelector('.nav-toggle');
+  const nav = document.getElementById('main-nav');
+  toggle.addEventListener('click', () => {
+    const isOpen = nav.classList.toggle('open');
+    toggle.setAttribute('aria-expanded', isOpen);
+  });
+</script>
+<a href="https://hexelya.web.app/index.html" target="_blank" rel="noopener" aria-label="Site développé par Hexelya" title="Hexelya" class="badge-hl-link"><img src="assets/logo-hl.png" alt="" class="badge-hl"></a>
+</body>
+</html>

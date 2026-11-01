@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://katia-cabots.github.io/lescabotsdefernelmont/sitemap.xml
