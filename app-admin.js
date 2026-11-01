@@ -1,0 +1,6931 @@
+// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V04-001
+// © 2026 Hélène Laruelle. Tous droits réservés.
+// Ce code ne peut être utilisé, copié ou modifié sans autorisation
+// écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt.
+// Contenu du site sous la responsabilité de Katia Renard (LES BEAUX CABOTS SRL).
+
+import {
+  auth, db, onAuthStateChanged, signOut,
+  doc, getDoc, getDocAvecReessai, setDoc, updateDoc, deleteDoc, increment,
+  collection, collectionGroup, addDoc, getDocs, query, where,
+  serverTimestamp, identifiantVersEmail, runTransaction
+} from "./firebase-config.js";
+import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
+import { VERSION_SITE } from "./version.js";
+import { getAuth as getAuthSecondary, createUserWithEmailAndPassword, signOut as signOutSecondary,
+  signInWithEmailAndPassword as signInSecondary, updatePassword as updatePasswordSecondary,
+  updatePassword, reauthenticateWithCredential, EmailAuthProvider, setPersistence, inMemoryPersistence }
+  from "https://www.gstatic.com/firebasejs/10.13.0/firebase-auth.js";
+import { meteoActuelle, meteoPour, alerteMeteo, iconeCode } from "./meteo.js";
+
+// Ajoute automatiquement une croix de fermeture en haut à droite de chaque
+// fenêtre modale qui s'ouvre (en plus du bouton "Fermer/Annuler" existant en
+// bas) — utile quand le contenu de la modale dépasse la hauteur de l'écran.
+// Fonctionne quelle que soit la façon dont la modale a été insérée dans le
+// DOM (modalZone.innerHTML ou document.body.insertAdjacentHTML).
+new MutationObserver((mutations) => {
+  mutations.forEach(mutation => {
+    mutation.addedNodes.forEach(node => {
+      if (node.nodeType !== 1) return;
+      const overlays = node.classList?.contains('modal-overlay') ? [node] : Array.from(node.querySelectorAll?.('.modal-overlay') || []);
+      overlays.forEach(overlay => {
+        _modifNonSauvee = false; // nouvelle modale : on repart d'un état "propre"
+        const box = overlay.querySelector('.modal-box');
+        if (!box || box.querySelector('.modal-close-x')) return;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'modal-close-x';
+        btn.setAttribute('aria-label', 'Fermer');
+        btn.innerHTML = '&times;';
+        btn.onclick = () => overlay.remove();
+        box.prepend(btn);
+      });
+    });
+  });
+}).observe(document.body, { childList: true, subtree: true });
+
+// --- Avertissement avant de quitter une page/modale sans sauvegarder ---
+// _modifNonSauvee passe à true dès qu'un champ est modifié dans une modale ou
+// un panneau de saisie (fiche membre, "Mon profil", etc.), et repasse à false
+// dès qu'un bouton de sauvegarde est cliqué. Les champs de recherche/filtre
+// (id commençant par "recherche") sont ignorés pour éviter les faux positifs.
+let _modifNonSauvee = false;
+const MOTS_SAUVEGARDE = /enregistr|sauveg|valider|créer|confirmer|ajouter|chang|envoyer/i;
+const MESSAGE_QUITTER_SANS_SAUVER = 'Voulez-vous quitter sans sauvegarder vos modifications ?';
+
+function _marqueModifieSiPertinent(e) {
+  if (e.target?.id?.startsWith('recherche')) return;
+  if (e.target?.closest?.('.modal-box, .app-panel')) _modifNonSauvee = true;
+}
+document.addEventListener('input', _marqueModifieSiPertinent, true);
+document.addEventListener('change', _marqueModifieSiPertinent, true);
+
+// Fermeture réelle de la page (onglet fermé, rafraîchi, ou navigation vers
+// une autre URL comme "Retour au site") : avertissement natif du navigateur
+// (son texte exact est imposé par le navigateur, pas personnalisable).
+window.addEventListener('beforeunload', (e) => {
+  if (_modifNonSauvee) { e.preventDefault(); e.returnValue = ''; }
+});
+
+// Fermeture d'une modale (croix, "Fermer"/"Annuler") ou changement d'onglet
+// sans avoir sauvegardé : demande confirmation avant de poursuivre.
+document.addEventListener('click', (e) => {
+  const cible = e.target.closest('button, a, .tab-btn');
+  if (!cible) return;
+  const texte = (cible.textContent || '').trim();
+  if (MOTS_SAUVEGARDE.test(texte)) { _modifNonSauvee = false; return; }
+  if (!_modifNonSauvee) return;
+  const onclickAttr = cible.getAttribute('onclick') || '';
+  const estFermeture = cible.classList.contains('modal-close-x')
+    || cible.classList.contains('tab-btn')
+    || onclickAttr.includes('fermerModal')
+    || onclickAttr.includes('.remove()');
+  if (!estFermeture) return;
+  if (!confirm(MESSAGE_QUITTER_SANS_SAUVER)) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+  } else {
+    _modifNonSauvee = false;
+  }
+}, true);
+
+const JOURS = ["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
+
+// Identifiants et mots de passe : caractères spéciaux interdits (lettres,
+// chiffres, point/tiret/underscore pour l'identifiant uniquement). Empêche
+// notamment une apostrophe de casser les boutons générés dynamiquement
+// dans l'interface (leur code intègre l'identifiant/mot de passe tel quel).
+const REGEX_IDENTIFIANT = /^[a-zA-Z0-9._-]+$/;
+const REGEX_MOT_DE_PASSE = /^[a-zA-Z0-9]+$/;
+function identifiantValide(valeur) { return REGEX_IDENTIFIANT.test(valeur || ''); }
+function motDePasseValide(valeur) { return REGEX_MOT_DE_PASSE.test(valeur || ''); }
+const MESSAGE_IDENTIFIANT_INVALIDE = "L'identifiant ne peut contenir que des lettres, chiffres, points, tirets ou underscores (pas d'espace, d'accent, ni d'autre caractère spécial).";
+const MESSAGE_MDP_INVALIDE = "Le mot de passe ne peut contenir que des lettres et des chiffres (pas de caractère spécial, espace ou accent).";
+
+// IMPORTANT : ne jamais utiliser Date.toISOString() pour obtenir la date du
+// jour — ça convertit en UTC et décale d'un jour selon l'heure (surtout le
+// soir en Belgique, UTC+2 l'été). Cette fonction reste sur l'heure locale.
+function dateISOLocale(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const j = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${j}`;
+}
+const JOURS_MAJ = { lundi:"Lundi", mardi:"Mardi", mercredi:"Mercredi", jeudi:"Jeudi", vendredi:"Vendredi", samedi:"Samedi", dimanche:"Dimanche" };
+
+let currentGroupes = [];
+let superAdminActif = false; // true uniquement quand HeleneL (Super Admin) est connectée
+let currentMembres = [];
+let rdvCacheParId = {};
+let rdvAdminCacheParId = {};
+
+// ==========================================================================
+// CACHE LOCAL (presences / annulations) — ces deux collections étaient
+// relues intégralement à plusieurs endroits différents à chaque chargement
+// de l'admin (jusqu'à 5-6 fois), ce qui représentait une grosse partie des
+// lectures Firestore facturées. On les lit une seule fois par cycle et on
+// tient le cache à jour en mémoire au fil des écritures ; toute écriture
+// faite ailleurs dans le code doit invalider le cache correspondant.
+// ==========================================================================
+let presencesCache = null;
+async function chargerPresencesCache(forcer = false) {
+  if (presencesCache && !forcer) return presencesCache;
+  const snap = await getDocs(collection(db, 'presences'));
+  presencesCache = [];
+  snap.forEach(d => presencesCache.push({ id: d.id, ...d.data() }));
+  return presencesCache;
+}
+function invaliderCachePresences() { presencesCache = null; }
+
+let annulationsCache = null;
+async function chargerAnnulationsCache(forcer = false) {
+  if (annulationsCache && !forcer) return annulationsCache;
+  const snap = await getDocs(collection(db, 'annulations'));
+  annulationsCache = {};
+  snap.forEach(d => { annulationsCache[d.id] = d.data(); });
+  return annulationsCache;
+}
+function invaliderCacheAnnulations() { annulationsCache = null; }
+
+// Changements d'horaire exceptionnels (ponctuels, sans toucher à la
+// récurrence du groupe) — ex: décaler d'une heure à cause de la chaleur.
+let exceptionsHoraireCache = null;
+async function chargerExceptionsHoraireCache(forcer = false) {
+  if (exceptionsHoraireCache && !forcer) return exceptionsHoraireCache;
+  const snap = await getDocs(collection(db, 'exceptions_horaire'));
+  exceptionsHoraireCache = {};
+  snap.forEach(d => { exceptionsHoraireCache[d.id] = d.data(); });
+  return exceptionsHoraireCache;
+}
+function invaliderCacheExceptionsHoraire() { exceptionsHoraireCache = null; }
+
+// precommandes est aussi relue intégralement à 2 endroits différents
+// (badge Boutique + badge par commande groupée) à chaque chargement admin.
+let precommandesCache = null;
+async function chargerPrecommandesCache(forcer = false) {
+  if (precommandesCache && !forcer) return precommandesCache;
+  const snap = await getDocs(collection(db, 'precommandes'));
+  precommandesCache = [];
+  snap.forEach(d => precommandesCache.push({ id: d.id, ...d.data() }));
+  return precommandesCache;
+}
+function invaliderCachePrecommandes() { precommandesCache = null; }
+
+// ---------- Garde d'accès ----------
+onAuthStateChanged(auth, async (user) => {
+  if (!user) { window.location.href = 'connexion.html'; return; }
+  const mDoc = await getDocAvecReessai(doc(db, 'membres', user.uid));
+  if (!mDoc.exists() || mDoc.data().role !== 'admin') {
+    window.location.href = 'connexion.html';
+    return;
+  }
+  document.getElementById('adminNom').textContent = mDoc.data().nomMaitre || 'Katia';
+
+  // Changement de mot de passe trimestriel obligatoire (1er janvier, avril,
+  // juillet, octobre) — pour Katia ET le Super Admin, sans exception.
+  const derniereMajMdp = mDoc.data().dateDernierChangementMdp ? new Date(mDoc.data().dateDernierChangementMdp) : null;
+  if (!derniereMajMdp || derniereMajMdp < dateLimiteMdpActuelle()) {
+    ouvrirModalMonCompte(true);
+  }
+
+  // Dernière activité : mise à jour à chaque ouverture de page admin,
+  // même quand la session était déjà ouverte depuis avant.
+  updateDoc(doc(db, 'membres', user.uid), { derniereActivite: new Date().toISOString() }).catch(() => {});
+
+  // Numéro de version : visible UNIQUEMENT pour le Super Admin — invisible
+  // pour Katia (Admin), partout ailleurs sur le site. L'onglet "Mots de
+  // passe" reste réservé exclusivement au Super Admin. La fraise 🍓 reste
+  // réservée à Katia (Admin) uniquement — donc masquée pour le Super Admin.
+  const estHeleneL = user.email === identifiantVersEmail('HeleneL');
+  superAdminActif = estHeleneL;
+  if (estHeleneL) {
+    document.getElementById('versionTagCoin').textContent = VERSION_SITE;
+    document.getElementById('versionTag').textContent = VERSION_SITE;
+    document.getElementById('tabMotsDePasseBtn').classList.remove('hidden');
+    document.getElementById('tabMaintenanceBtn').classList.remove('hidden');
+    document.getElementById('fraiseDiscrete')?.remove();
+    // Appelée plus bas, APRÈS chargerMembres() — sinon elle tournait
+    // avant que currentMembres soit rempli et n'affichait que les
+    // comptes admin, jamais les membres (bug corrigé).
+  } else {
+    document.getElementById('versionTagCoin')?.remove();
+    document.getElementById('versionTag')?.remove();
+  }
+
+  // 🍓💕 Surprise d'anniversaire — visible UNIQUEMENT sur le compte de
+  // Katia (Admin), du 15 novembre au 21 novembre inclus.
+  // Tout ce bloc "bannières du jour" est volontairement protégé par un seul
+  // grand try/catch : ce sont de nombreuses petites conditions de date
+  // ajoutées au fil du temps, purement décoratives, et une erreur dans
+  // l'une d'elles (ex: un id d'image mal orthographié lors d'un futur
+  // ajout) ne doit JAMAIS empêcher la suite — chargement des groupes, des
+  // membres, des présences, etc. — de s'exécuter. Avant ce correctif, une
+  // telle erreur ici aurait bloqué TOUT le reste de l'admin pour Katia.
+  try {
+  if (user.email === identifiantVersEmail('Admin')) {
+    const aujourdhui = new Date();
+    const mois = aujourdhui.getMonth(); // 10 = novembre (0-indexé)
+    const jour = aujourdhui.getDate();
+    if (mois === 10 && jour >= 15 && jour <= 21) {
+      document.getElementById('banniereAnniversaireKatia')?.classList.remove('hidden');
+    }
+
+    // 🍓❤️ Notre anniversaire à nous (14 octobre) — même principe,
+    // exclusivement sur le compte de Katia. Une vraie photo par jour de
+    // compte à rebours (assets/anniv-compte-JN.jpg, le "J-N" est DANS la
+    // photo, fournie par Hélène) + une photo différente le jour J. Aucun
+    // texte calculé/superposé : on choisit juste le bon fichier. Fonctionne
+    // pour n'importe quel nombre de jours de compte à rebours tant que le
+    // fichier correspondant existe (ajouter anniv-compte-J5.jpg, etc. si on
+    // veut démarrer plus tôt une année).
+    if (mois === 9 && jour >= 10 && jour <= 14) { // 9 = octobre (0-indexé)
+      const img = document.getElementById('imgAnniversaireOctobre');
+      if (img) {
+        if (jour === 14) {
+          // Image spéciale "Joyeux 1 an de nous" : contient "1 an" figé dans
+          // la photo — valable UNIQUEMENT pour 2026 (leur premier
+          // anniversaire). À partir de 2027, bascule automatiquement sur
+          // l'image générique "Un an de plus..." (anniv-14oct-generique.jpg)
+          // — celle-ci est volontairement réutilisable chaque année : la
+          // date "14/10/2025" qui y figure est la date de leur rencontre
+          // (fixe, elle ne change jamais), et "Un an de plus..." ne cite
+          // aucun chiffre précis.
+          const annee = aujourdhui.getFullYear();
+          img.src = (annee === 2026) ? 'assets/anniv-14oct-2026.jpg' : 'assets/anniv-14oct-generique.jpg';
+        } else {
+          const joursRestants = 14 - jour;
+          img.src = `assets/anniv-compte-J${joursRestants}.jpg`;
+        }
+      }
+      document.getElementById('banniereAnniversaireOctobre')?.classList.remove('hidden');
+    }
+
+    // 🎄🎆 Bannières Noël / Nouvel An, exclusivement sur le compte de
+    // Katia : 20→25 décembre inclus, puis 28 décembre→2 janvier inclus.
+    if (mois === 11 && jour >= 20 && jour <= 25) {
+      document.getElementById('banniereNoelAdmin')?.classList.remove('hidden');
+    }
+    if ((mois === 11 && jour >= 28) || (mois === 0 && jour <= 2)) {
+      document.getElementById('banniereNouvelAnAdmin')?.classList.remove('hidden');
+    }
+
+    // 🍓 Autres "dates à nous", exclusivement sur le compte de Katia :
+    // 3→4 septembre inclus (RDV restaurant), 14 février (Saint-Valentin)
+    // et 26 juillet (première papote).
+    if (mois === 8 && jour >= 3 && jour <= 4) { // 8 = septembre (0-indexé)
+      document.getElementById('banniereSeptAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 1 && jour === 14) { // 1 = février
+      document.getElementById('banniere14FevAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 6 && jour === 26) { // 6 = juillet
+      document.getElementById('banniere26JuilletAdmin')?.classList.remove('hidden');
+    }
+
+    // 🍓 Bannière générique "14 du mois", exclusivement sur le compte de
+    // Katia : une vraie photo par mois (le "14" est dans la photo), pour
+    // chaque 14 SAUF octobre (bannière dédiée ci-dessus) et février
+    // (bannière Saint-Valentin dédiée ci-dessus). Fonctionne pour
+    // n'importe lequel des mois listés tant que le fichier
+    // assets/anniv-14-{mois}-admin.jpg existe.
+    const moisFichier14 = ['janvier', null, 'mars', 'avril', 'mai', 'juin', 'juillet', 'aout', 'septembre', null, 'novembre', 'decembre'];
+    if (jour === 14 && moisFichier14[mois]) {
+      const imgMois = document.getElementById('imgBanniere14Mois');
+      if (imgMois) imgMois.src = `assets/anniv-14-${moisFichier14[mois]}-admin.jpg`;
+      document.getElementById('banniere14MoisAdmin')?.classList.remove('hidden');
+    }
+
+    // 🍓 Dates ponctuelles supplémentaires, exclusivement sur le compte de
+    // Katia : 20 mars (printemps), 6 juillet (journée du Baiser),
+    // 1er octobre (journée du Café), 13 novembre (journée de la
+    // Gentillesse).
+    if (mois === 2 && jour === 21) { // 2 = mars — Printemps aligné sur le 21, comme les 3 autres saisons
+      document.getElementById('banniere20MarsAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 6 && jour === 6) { // 6 = juillet
+      document.getElementById('banniere6JuilletAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 9 && jour === 1) { // 9 = octobre
+      document.getElementById('banniere1OctobreAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 10 && jour === 13) { // 10 = novembre
+      document.getElementById('banniere13NovembreAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 6 && jour === 11) { // 6 = juillet
+      document.getElementById('banniere11JuilletAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 10 && jour === 25) { // 10 = novembre
+      document.getElementById('banniere25NovembreAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 7 && jour === 26) { // 7 = août
+      document.getElementById('banniere26AoutAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 11 && jour === 4) { // 11 = décembre
+      document.getElementById('banniere4DecAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 6 && jour === 11) { // 6 = juillet (en plus du Mojito, les deux s'affichent)
+      document.getElementById('banniere11JuilletOlgaAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 1 && jour === 26) { // 1 = février
+      document.getElementById('banniere26FevAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 7 && jour === 19) { // 7 = août
+      document.getElementById('banniere19AoutAdmin')?.classList.remove('hidden');
+    }
+
+    // 🌷 Fête des Mères (Belgique) : 2e dimanche de mai, une date
+    // différente chaque année — une vraie photo par année tant que le
+    // fichier assets/anniv-fetedesmeres-{année}-admin.jpg existe.
+    const dateFeteDesMeres = { 2026: [4, 9], 2028: [4, 14], 2029: [4, 13], 2030: [4, 12] }; // mois 0-indexé (4 = mai)
+    const anneeCourante = aujourdhui.getFullYear();
+    const feteMeres = dateFeteDesMeres[anneeCourante];
+    if (feteMeres && mois === feteMeres[0] && jour === feteMeres[1]) {
+      const imgMeres = document.getElementById('imgBanniereFeteDesMeres');
+      if (imgMeres) imgMeres.src = `assets/anniv-fetedesmeres-${anneeCourante}-admin.jpg`;
+      document.getElementById('banniereFeteDesMeresAdmin')?.classList.remove('hidden');
+    }
+
+    if (mois === 1 && jour === 27) { // 1 = février
+      document.getElementById('banniere27FevAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 0 && jour === 21) { // 0 = janvier
+      document.getElementById('banniere21JanvierAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 7 && jour === 16) { // 7 = août
+      document.getElementById('banniere16AoutAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 3 && jour === 22) { // 3 = avril
+      document.getElementById('banniere22AvrilAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 3 && jour === 23) { // 3 = avril — Journée internationale du livre
+      document.getElementById('banniere23AvrilLivreAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 10 && jour === 5) { // 10 = novembre — Fraise Love
+      document.getElementById('banniere5NovembreAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 6 && jour === 31) { // 6 = juillet — Wesh la flemme !
+      document.getElementById('banniere31JuilletAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 2 && jour === 25) { // 2 = mars — Journée mondiale de la gaufre
+      document.getElementById('banniere25MarsGaufresAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 7 && jour === 1) { // 7 = août
+      document.getElementById('banniere1AoutAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 7 && jour === 9) { // 7 = août
+      document.getElementById('banniere9AoutAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 7 && jour === 18) { // 7 = août
+      document.getElementById('banniere18AoutAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 9 && jour === 3) { // 9 = octobre
+      document.getElementById('banniere3OctobreAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 9 && jour === 15) { // 9 = octobre
+      document.getElementById('banniere15OctobreAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 9 && jour === 29) { // 9 = octobre
+      document.getElementById('banniere29OctobreAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 10 && jour === 1) { // 10 = novembre
+      document.getElementById('banniere1NovembreAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 1 && jour === 21) { // 1 = février
+      document.getElementById('banniereCookieAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 2 && jour === 28) { // 2 = mars
+      document.getElementById('bannierePistacheAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 11 && jour === 8) { // 11 = décembre
+      document.getElementById('banniereOlgaAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 8 && jour === 22) { // 8 = septembre
+      document.getElementById('banniereSarahAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 9 && jour === 4) { // 9 = octobre — Journée nationale des animaux de compagnie
+      document.getElementById('banniere4OctobreAnimauxAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 6 && jour === 21) { // 6 = juillet — Fête nationale belge
+      document.getElementById('banniere21JuilletFeteNatAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 0 && jour === 6) { // 0 = janvier — Épiphanie
+      document.getElementById('banniere6JanvierEpiphanieAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 2 && jour === 12) { // 2 = mars — Journée internationale de la Sieste
+      document.getElementById('banniere12MarsSiesteAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 2 && jour === 17) { // 2 = mars — Saint-Patrick
+      document.getElementById('banniere17MarsStPatrickAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 3 && jour === 7) { // 3 = avril — Journée internationale de la Fraise
+      document.getElementById('banniere7AvrilFraiseAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 5 && jour === 21) { // 5 = juin — Journée de la Musique
+      document.getElementById('banniere21JuinMusiqueAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 11 && jour === 21) { // 11 = décembre — Premier jour de l'hiver
+      document.getElementById('banniere21DecembreHiverAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 3 && jour === 1) { // 3 = avril — Poisson d'avril
+      document.getElementById('banniere1AvrilPoissonAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 4 && jour === 1) { // 4 = mai — Fête du Travail / Journée du Muguet (banderole unique)
+      document.getElementById('banniere1MaiFeteTravailAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 5 && jour === 21) { // 5 = juin — Premier jour de l'été (en plus de la Journée de la Musique, les deux s'affichent)
+      document.getElementById('banniere21JuinEteAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 6 && jour === 7) { // 6 = juillet — Journée mondiale du Chocolat
+      document.getElementById('banniere7JuilletChocolatAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 8 && jour === 21) { // 8 = septembre — Bienvenue à l'automne (l'équinoxe réel peut tomber le 22 ou 23 selon l'année, mais ce visuel contient "2026" en dur)
+      document.getElementById('banniere21SeptembreAutomneAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 1 && jour === 9) { // 1 = février — Journée mondiale de la Pizza
+      document.getElementById('banniere9FevrierPizzaAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 7 && jour === 10) { // 7 = août — Journée de la Paresse
+      document.getElementById('banniere10AoutParesseAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 8 && jour === 25) { // 8 = septembre — Journée internationale de la Bande Dessinée
+      document.getElementById('banniere25SeptembreBDAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 9 && jour === 18) { // 9 = octobre — petite BD du jour (bouchon de liège)
+      document.getElementById('banniere18OctobreBD2Admin')?.classList.remove('hidden');
+    }
+    if (mois === 3 && jour === 29) { // 3 = avril — Journée Internationale de la Danse
+      document.getElementById('banniere29AvrilDanseAdmin')?.classList.remove('hidden');
+    }
+
+    // Pâques (lundi de Pâques) et Mardi gras : dates mobiles, recalculées
+    // chaque année avec l'algorithme de calcul du dimanche de Pâques
+    // (méthode de Meeus/Jones/Butcher, calendrier grégorien).
+    function dimanchePaques(annee) {
+      const a = annee % 19, b = Math.floor(annee / 100), c = annee % 100;
+      const d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25);
+      const g = Math.floor((b - f + 1) / 3), h = (19 * a + b - d - g + 15) % 30;
+      const i = Math.floor(c / 4), k = c % 4;
+      const l = (32 + 2 * e + 2 * i - h - k) % 7;
+      const m = Math.floor((a + 11 * h + 22 * l) / 451);
+      const moisP = Math.floor((h + l - 7 * m + 114) / 31) - 1; // 0-indexé
+      const jourP = ((h + l - 7 * m + 114) % 31) + 1;
+      return new Date(annee, moisP, jourP);
+    }
+    const annee = aujourdhui.getFullYear();
+    const paques = dimanchePaques(annee);
+    const lundiPaques = new Date(paques); lundiPaques.setDate(lundiPaques.getDate() + 1);
+    if (mois === lundiPaques.getMonth() && jour === lundiPaques.getDate()) {
+      document.getElementById('bannierePaquesAdmin')?.classList.remove('hidden');
+    }
+    const mardiGras = new Date(paques); mardiGras.setDate(mardiGras.getDate() - 47);
+    if (mois === mardiGras.getMonth() && jour === mardiGras.getDate()) {
+      document.getElementById('banniereMardiGrasAdmin')?.classList.remove('hidden');
+    }
+
+    // 3e lundi du mois d'octobre ("Courage, c'est lundi !") — calculé
+    // chaque année : premier lundi d'octobre + 14 jours.
+    const premierOctobre = new Date(annee, 9, 1); // 9 = octobre (0-indexé)
+    const premierLundiOctobre = new Date(premierOctobre);
+    premierLundiOctobre.setDate(1 + ((8 - premierOctobre.getDay()) % 7)); // 8 = (1 + 7), pour tomber sur lundi (getDay()===1)
+    const troisiemeLundiOctobre = new Date(premierLundiOctobre);
+    troisiemeLundiOctobre.setDate(troisiemeLundiOctobre.getDate() + 14);
+    if (mois === troisiemeLundiOctobre.getMonth() && jour === troisiemeLundiOctobre.getDate()) {
+      document.getElementById('banniere3eLundiOctobreAdmin')?.classList.remove('hidden');
+    }
+
+    if (mois === 2 && jour === 8) { // 2 = mars — Journée internationale des droits des femmes
+      document.getElementById('banniere8MarsAdmin')?.classList.remove('hidden');
+    }
+
+    // 2e dimanche du mois de février ("Mariage") — calculé chaque année :
+    // premier dimanche de février + 7 jours.
+    const premierFevrier = new Date(annee, 1, 1); // 1 = février (0-indexé)
+    const premierDimancheFevrier = new Date(premierFevrier);
+    premierDimancheFevrier.setDate(1 + ((7 - premierFevrier.getDay()) % 7));
+    const deuxiemeDimancheFevrier = new Date(premierDimancheFevrier);
+    deuxiemeDimancheFevrier.setDate(deuxiemeDimancheFevrier.getDate() + 7);
+    if (mois === deuxiemeDimancheFevrier.getMonth() && jour === deuxiemeDimancheFevrier.getDate()) {
+      document.getElementById('banniere2eDimancheFevrierAdmin')?.classList.remove('hidden');
+    }
+
+    // Bannière par défaut : si aucune bannière "date" ci-dessus ne s'est
+    // affichée aujourd'hui, on affiche celle-ci à la place. Vérifiée en tout
+    // dernier, une fois que toutes les conditions ci-dessus ont eu
+    // l'occasion de retirer leur "hidden".
+    const uneBanniereDuJourEstVisible = Array.from(document.querySelectorAll('[id^="banniere"]:not(#banniereParDefautAdmin)'))
+      .some(el => !el.classList.contains('hidden'));
+    if (!uneBanniereDuJourEstVisible) {
+      document.getElementById('banniereParDefautAdmin')?.classList.remove('hidden');
+    }
+  }
+  } catch (err) {
+    console.error('Erreur dans l\'affichage des bannières du jour (sans impact sur le reste de l\'admin) :', err);
+  }
+
+  await chargerGroupes();
+  await chargerMembres();
+  if (estHeleneL) chargerListeAdminsPourMdp();
+  await chargerServices();
+  activerBlocsRepliables(document);
+  chargerConversations();
+  chargerAnniversaires();
+  chargerCotisationsARenouveler();
+  chargerAbonnementsARenouveler(); chargerVaccinsARappeler();
+  chargerCeSoir();
+  chargerDemandesAnnulation();
+  chargerDemandesInfo();
+  chargerLivreOrAdmin();
+  afficherMeteoDuJour();
+  chargerRdv();
+  chargerArticles();
+  chargerVideosAdmin();
+  chargerPartenairesAdmin();
+
+  // Rattrapage des absences non répondues + décompte : potentiellement long
+  // (beaucoup d'écritures la première fois), donc en arrière-plan, sans
+  // bloquer l'affichage du reste de la page. Chaque étape est protégée
+  // INDIVIDUELLEMENT (et plus seulement par un seul try/catch englobant) :
+  // avant ce correctif, une seule écriture en échec (membre supprimé,
+  // document corrompu...) faisait planter TOUTE la chaîne via le await
+  // en cascade, et donc sautait aussi bien le décompte que le
+  // rafraîchissement de l'écran — un membre pouvait alors rester affiché
+  // "n'a pas encore répondu" indéfiniment alors que le délai de 24h était
+  // bien dépassé, pendant que d'autres (déjà traités lors d'une exécution
+  // antérieure réussie) restaient correctement décomptés. D'où le
+  // rafraîchissement final placé dans un bloc "finally" : il a lieu même
+  // si une étape a échoué, pour que l'écran reflète toujours le mieux
+  // possible l'état réel de la base.
+  (async () => {
+    try {
+      await corrigerAbsencesAvantInscription();
+    } catch (err) {
+      console.error('Erreur rattrapage absences (correction avant inscription) :', err);
+    }
+    try {
+      await detecterAbsencesNonRepondues();
+    } catch (err) {
+      console.error('Erreur rattrapage absences (détection des non-réponses) :', err);
+    }
+    try {
+      await traiterAbsencesAutomatiques();
+    } finally {
+      chargerCeSoir();
+    }
+  })().catch(err => console.error('Erreur rattrapage absences (décompte) :', err));
+  chargerBoutiqueAdmin();
+  chargerDogSittingAdmin();
+  chargerCampagnesAdmin();
+  // Compta et "Contenu du site" ne sont chargés qu'à la première ouverture
+  // de leur onglet (voir plus bas) — évite de relire ces collections
+  // (parfois volumineuses : factures, notes de crédit, réponses au
+  // questionnaire...) à chaque connexion si l'onglet n'est jamais consulté.
+  console.log('%c🍓 Un petit jardin secret pour toi, Katia...', 'color:#C0392B; font-size:13px;');
+});
+
+document.getElementById('logoutBtn').addEventListener('click', () => signOut(auth).then(() => window.location.href = 'connexion.html'));
+
+// ---------- Onglets ----------
+const ongletsChargesUneFois = new Set();
+document.querySelectorAll('.tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+    btn.classList.add('active');
+    document.getElementById('panel-' + btn.dataset.tab).classList.remove('hidden');
+    if (btn.dataset.tab === 'dogsitting' && window.marquerDogSittingVuAdmin) {
+      window.marquerDogSittingVuAdmin();
+    }
+    // Revérifie à chaque retour sur "Ce soir" (pas seulement au chargement
+    // de la page) : sans ça, une demande d'annulation tardive envoyée par
+    // un membre pendant que Katia est déjà sur le site n'apparaissait
+    // jamais tant qu'elle ne rechargeait pas la page entière.
+    if (btn.dataset.tab === 'cesoir') {
+      chargerDemandesAnnulation(true);
+    }
+    // Chargement paresseux : ces deux onglets ne lisent leurs données
+    // qu'à la première ouverture dans la session, pas à chaque connexion.
+    if (btn.dataset.tab === 'compta' && !ongletsChargesUneFois.has('compta')) {
+      ongletsChargesUneFois.add('compta');
+      chargerComptaAdmin();
+      chargerNumerotationCompta();
+    }
+    if (btn.dataset.tab === 'contenu' && !ongletsChargesUneFois.has('contenu')) {
+      ongletsChargesUneFois.add('contenu');
+      chargerContenuAdmin();
+      chargerRoiAdmin();
+      chargerEnquetesAnonymesAdmin();
+    }
+  });
+});
+
+// ==========================================================================
+// MÉTÉO DU JOUR (bandeau)
+// ==========================================================================
+async function afficherMeteoDuJour() {
+  const zone = document.getElementById('meteoDuJour');
+  const m = await meteoActuelle();
+  if (!m) { zone.innerHTML = ''; return; }
+  const dateLabel = new Date().toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' });
+  zone.innerHTML = `
+    <div class="banner-alert" style="background:#EFF3F6; border-color:#D4DAE0; color:var(--navy-dark); display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:6px;">
+      <span>${iconeCode(m.code)} Andenne — ${m.description}, ${m.temperature}°C</span>
+      <span style="text-transform:capitalize;">${dateLabel}</span>
+    </div>`;
+}
+
+// ==========================================================================
+// GROUPES
+// ==========================================================================
+async function chargerGroupes() {
+  const snap = await getDocs(collection(db, 'groupes'));
+  currentGroupes = [];
+  snap.forEach(d => currentGroupes.push({ id: d.id, ...d.data() }));
+  renderGroupes();
+}
+
+function renderGroupes() {
+  const wrap = document.getElementById('listeGroupes');
+  if (currentGroupes.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucun groupe créé pour l\'instant.</div>';
+    return;
+  }
+  wrap.innerHTML = currentGroupes.map(g => {
+    const nbMembres = currentMembres.filter(m => groupesDuMembre(m).includes(g.id)).length;
+    return `
+    <div class="data-row">
+      <div class="data-main">
+        <div class="data-title">${escapeHtml(g.nom)}</div>
+        <div class="data-sub">${JOURS_MAJ[g.jour] || g.jour} · ${g.heureDebut}–${g.heureFin} · ${nbMembres}/${g.participantsMax} chiens</div>
+      </div>
+      <div class="data-actions">
+        <button class="btn-sm" onclick="window.voirMembresGroupe('${g.id}')">Membres (${nbMembres})</button>
+        <button class="btn-sm" onclick="window.editerGroupe('${g.id}')">Modifier</button>
+        <button class="btn-sm danger" onclick="window.supprimerGroupe('${g.id}')">Supprimer</button>
+      </div>
+    </div>`;
+  }).join('');
+
+  const totalInscrits = currentGroupes.reduce((s, g) => s + currentMembres.filter(m => groupesDuMembre(m).includes(g.id)).length, 0);
+  const totalPlaces = currentGroupes.reduce((s, g) => s + (g.participantsMax || 0), 0);
+  const placesLibres = totalPlaces - totalInscrits;
+  wrap.innerHTML += `
+    <div class="data-row" style="background:var(--paper-warm); font-weight:600;">
+      <div class="data-main">
+        <div class="data-title">Total chiens inscrits : ${totalInscrits}/${totalPlaces}</div>
+        <div class="data-sub" style="font-weight:400;">${placesLibres} place${placesLibres > 1 ? 's' : ''} libre${placesLibres > 1 ? 's' : ''} au total, tous groupes confondus</div>
+      </div>
+    </div>`;
+}
+
+document.getElementById('btnAjouterGroupe').addEventListener('click', () => ouvrirModalGroupe());
+
+window.voirMembresGroupe = (groupeId) => {
+  const groupe = currentGroupes.find(g => g.id === groupeId);
+  const membresDuGroupe = currentMembres.filter(m => groupesDuMembre(m).includes(groupeId));
+
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box">
+        <h3>${escapeHtml(groupe?.nom || '')} — ${membresDuGroupe.length} membre(s)</h3>
+        <div class="data-list">
+          ${membresDuGroupe.length === 0
+            ? '<div class="empty-state">Aucun membre dans ce groupe pour l\'instant.</div>'
+            : membresDuGroupe.map(m => `
+              <div class="data-row">
+                <div class="data-main">
+                  <div class="data-title">${escapeHtml(m.nomMaitre)}${nomsChiensActifs(m) ? ' — ' + escapeHtml(nomsChiensActifs(m)) : ''}</div>
+                  <div class="data-sub">${m.gsm ? `<a href="tel:${escapeAttr(m.gsm)}">${escapeHtml(m.gsm)}</a>` : ''}</div>
+                </div>
+                <div class="data-actions">
+                  <button class="btn-sm" onclick="window.fermerModal(); window.editerMembre('${m.id}')">Fiche</button>
+                </div>
+              </div>`).join('')}
+        </div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="window.fermerModal()">Fermer</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+};
+
+document.getElementById('btnImportGroupes').addEventListener('click', () => ouvrirModalImportGroupes());
+
+function ouvrirModalImportGroupes() {
+  const exemplePreRempli =
+    'Groupe 01;lundi;18:30;19:30;8\n' +
+    'Groupe 02;lundi;19:45;20:45;8\n' +
+    'Groupe 03;mardi;18:45;19:45;8\n' +
+    'Groupe 04;mercredi;18:30;19:30;8';
+
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box" style="max-width:560px;">
+        <h3>Import groupé de groupes</h3>
+        <p style="color:var(--slate); font-size:0.85rem; margin-bottom:12px;">
+          Une ligne par groupe, format : <strong>Nom;jour;heureDébut;heureFin;maxChiens</strong><br>
+          Jours en minuscules : lundi, mardi, mercredi, jeudi, vendredi, samedi.
+        </p>
+        <div class="field">
+          <textarea id="ig-texte" rows="8" style="resize:vertical; font-family:monospace; font-size:0.85rem;">${exemplePreRempli}</textarea>
+        </div>
+        <div id="ig-resultat" style="font-size:0.85rem; color:var(--slate);"></div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="window.fermerModal()">Annuler</button>
+          <button class="btn-sm primary" id="ig-save">Importer</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+
+  document.getElementById('ig-save').addEventListener('click', async () => {
+    const lignes = document.getElementById('ig-texte').value.split('\n').map(l => l.trim()).filter(l => l);
+    const joursValides = ['lundi','mardi','mercredi','jeudi','vendredi','samedi'];
+    let succes = 0, erreurs = [];
+
+    for (const ligne of lignes) {
+      const parts = ligne.split(';').map(p => p.trim());
+      if (parts.length < 4) { erreurs.push(`Ligne ignorée (format incomplet) : "${ligne}"`); continue; }
+      const [nom, jour, heureDebut, heureFin, max] = parts;
+      if (!nom || !joursValides.includes(jour.toLowerCase()) || !heureDebut || !heureFin) {
+        erreurs.push(`Ligne ignorée (jour ou champ invalide) : "${ligne}"`);
+        continue;
+      }
+      try {
+        await addDoc(collection(db, 'groupes'), {
+          nom,
+          jour: jour.toLowerCase(),
+          heureDebut,
+          heureFin,
+          participantsMax: parseInt(max, 10) || 8
+        });
+        succes++;
+      } catch (e) {
+        erreurs.push(`Erreur pour "${nom}" : ${e.message}`);
+      }
+    }
+
+    document.getElementById('ig-resultat').innerHTML =
+      `<strong>${succes} groupe(s) importé(s).</strong>` +
+      (erreurs.length ? '<br>' + erreurs.map(e => escapeHtml(e)).join('<br>') : '');
+
+    chargerGroupes();
+  });
+}
+
+window.editerGroupe = (id) => {
+  const g = currentGroupes.find(x => x.id === id);
+  ouvrirModalGroupe(g);
+};
+
+window.supprimerGroupe = async (id) => {
+  if (!confirm('Supprimer ce groupe ?')) return;
+  await deleteDoc(doc(db, 'groupes', id));
+  chargerGroupes();
+};
+
+function ouvrirModalGroupe(groupe) {
+  const isEdit = !!groupe;
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box">
+        <h3>${isEdit ? 'Modifier le groupe' : 'Ajouter un groupe'}</h3>
+        <div class="field"><label>Nom du groupe</label><input id="mg-nom" value="${isEdit ? escapeAttr(groupe.nom) : ''}"></div>
+        <div class="form-grid">
+          <div class="field"><label>Jour</label>
+            <select id="mg-jour">
+              ${JOURS.filter(j=>j!=='dimanche').map(j => `<option value="${j}" ${isEdit && groupe.jour===j ? 'selected':''}>${JOURS_MAJ[j]}</option>`).join('')}
+            </select>
+          </div>
+          <div class="field"><label>Nombre de chiens max</label><input type="number" id="mg-max" min="1" value="${isEdit ? groupe.participantsMax : 8}"></div>
+          <div class="field"><label>Heure de début</label><input type="time" id="mg-debut" value="${isEdit ? groupe.heureDebut : '18:00'}"></div>
+          <div class="field"><label>Heure de fin</label><input type="time" id="mg-fin" value="${isEdit ? groupe.heureFin : '19:00'}"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="window.fermerModal()">Annuler</button>
+          <button class="btn-sm primary" id="mg-save">Enregistrer</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+  document.getElementById('mg-save').addEventListener('click', async () => {
+    const data = {
+      nom: document.getElementById('mg-nom').value.trim(),
+      jour: document.getElementById('mg-jour').value,
+      heureDebut: document.getElementById('mg-debut').value,
+      heureFin: document.getElementById('mg-fin').value,
+      participantsMax: parseInt(document.getElementById('mg-max').value, 10) || 8
+    };
+    if (!data.nom) { alert('Merci d\'indiquer un nom de groupe.'); return; }
+    if (isEdit) {
+      await updateDoc(doc(db, 'groupes', groupe.id), data);
+    } else {
+      await addDoc(collection(db, 'groupes'), data);
+    }
+    window.fermerModal();
+    chargerGroupes();
+  });
+}
+
+window.fermerModal = () => { document.getElementById('modalZone').innerHTML = ''; };
+
+
+// ==========================================================================
+// MEMBRES
+// ==========================================================================
+let currentMembresArchives = [];
+
+async function chargerMembres() {
+  const snap = await getDocs(query(collection(db, 'membres'), where('role', '==', 'membre')));
+  currentMembres = [];
+  currentMembresArchives = [];
+  snap.forEach(d => {
+    const m = { id: d.id, ...d.data() };
+    if (m.archive) currentMembresArchives.push(m); else currentMembres.push(m);
+  });
+  // Classement alphabétique (nom du maître) — se répercute automatiquement
+  // sur toutes les listes qui filtrent/affichent currentMembres ensuite
+  // (membres, archives, membres par groupe, destinataires RDV/messages,
+  // mots de passe...).
+  const parNom = (a, b) => (a.nomMaitre || '').localeCompare(b.nomMaitre || '', 'fr', { sensitivity: 'base' });
+  currentMembres.sort(parNom);
+  currentMembresArchives.sort(parNom);
+  renderMembres();
+  renderDemandesSuppressionAdmin();
+  renderGroupes();
+  chargerMotsDePasseAdmin();
+}
+
+function nomsChiensActifs(membre) {
+  const actifs = (membre.chiens || []).filter(c => !c.archive);
+  return actifs.map(c => c.nom).filter(Boolean).join(', ');
+}
+
+// Un membre peut désormais appartenir à PLUSIEURS groupes à la fois (ex: un
+// chien qui vient 2x/semaine dans 2 groupes différents) — "groupeIds" (tableau)
+// remplace l'ancien "groupeId" (un seul groupe). Cette fonction centralise la
+// lecture pour que tout le site continue de fonctionner, y compris pour les
+// membres déjà existants qui n'ont encore que l'ancien champ "groupeId" (pas
+// besoin de migration : le repli ci-dessous suffit).
+function groupesDuMembre(membre) {
+  if (Array.isArray(membre?.groupeIds)) return membre.groupeIds.filter(Boolean);
+  return membre?.groupeId ? [membre.groupeId] : [];
+}
+function nomsGroupesDuMembre(membre) {
+  return groupesDuMembre(membre)
+    .map(id => currentGroupes.find(g => g.id === id)?.nom)
+    .filter(Boolean)
+    .join(', ');
+}
+
+function renderMembres() {
+  const wrap = document.getElementById('listeMembres');
+  if (currentMembres.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucun membre pour l\'instant.</div>';
+    return;
+  }
+  const terme = (document.getElementById('rechercheMembre')?.value || '').trim().toLowerCase();
+  const membresAffiches = !terme ? currentMembres : currentMembres.filter(m =>
+    (m.nomMaitre || '').toLowerCase().includes(terme) ||
+    nomsChiensActifs(m).toLowerCase().includes(terme)
+  );
+  if (membresAffiches.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucun membre ne correspond à cette recherche.</div>';
+    return;
+  }
+  wrap.innerHTML = membresAffiches.map(m => {
+    const nomsGroupes = nomsGroupesDuMembre(m);
+    // Migration en douceur : tant que le bouton de migration n'a pas été
+    // cliqué, un membre existant sans champ accesCours/accesBoutique est
+    // considéré comme y ayant accès (comportement historique).
+    const aAccesCours = m.accesCours !== undefined ? !!m.accesCours : true;
+    const aAccesBoutique = m.accesBoutique !== undefined ? !!m.accesBoutique : true;
+    const chips = [
+      aAccesCours ? '<span class="badge" style="background:#EAF2EC; color:#2F6B4F;">Cours</span>' : '',
+      m.accesDogSitting ? '<span class="badge" style="background:#EFF3F6; color:var(--navy-dark);">Dog Sitting</span>' : '',
+      aAccesBoutique ? '<span class="badge" style="background:#FBEFDA; color:#8A5A17;">Boutique</span>' : ''
+    ].filter(Boolean).join(' ');
+    const badgeAbo = !aAccesCours ? '' : (m.abonnementPaye
+      ? `<span class="badge badge-ok">${m.coursRestants ?? 0} cours restants</span>`
+      : `<span class="badge badge-danger">Abonnement non payé</span>`);
+    const badgeCotis = !aAccesCours ? '' : (m.cotisationPayee
+      ? `<span class="badge badge-ok">Cotisation à jour</span>`
+      : `<span class="badge badge-warn">Cotisation à régler</span>`);
+    return `
+    <div class="data-row">
+      <div class="data-main">
+        <div class="data-title">${escapeHtml(m.nomMaitre)}${nomsChiensActifs(m) ? ' — ' + escapeHtml(nomsChiensActifs(m)) : ''}</div>
+        <div class="data-sub">${chips}</div>
+        <div class="data-sub">${aAccesCours ? (nomsGroupes ? escapeHtml(nomsGroupes) : 'Sans groupe') + ' · ' : ''}${badgeAbo} ${badgeCotis}</div>
+        <div class="data-sub">${m.gsm ? `<a href="tel:${escapeAttr(m.gsm)}">${escapeHtml(m.gsm)}</a>` : ''} ${m.email ? `· <a href="mailto:${escapeAttr(m.email)}">${escapeHtml(m.email)}</a>` : ''}</div>
+        <div class="data-sub">Identifiant : <strong>${escapeHtml(m.identifiant || '—')}</strong>${m.motDePasseInitial ? ` · Mot de passe : <strong>${escapeHtml(m.motDePasseInitial)}</strong>` : ''}</div>
+      </div>
+      <div class="data-actions">
+        ${(m.identifiant === 'Hexelya' && !superAdminActif) ? '' : `
+        <button class="btn-sm" onclick="window.editerMembre('${m.id}')">Fiche</button>
+        <button class="btn-sm danger" onclick="window.archiverMembre('${m.id}')">Archiver</button>
+        `}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('btnAjouterMembre').addEventListener('click', () => ouvrirModalMembre());
+document.getElementById('rechercheMembre').addEventListener('input', () => renderMembres());
+
+document.getElementById('btnImportMembres').addEventListener('click', () => ouvrirModalImportMembres());
+
+function ouvrirModalImportMembres() {
+  const exemplePreRempli =
+    'Prénom Nom;identifiant;motdepasse;Nom du groupe\n' +
+    'Prénom Nom;identifiant;motdepasse;Nom du groupe';
+
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box" style="max-width:560px;">
+        <h3>Import groupé de membres</h3>
+        <p style="color:var(--slate); font-size:0.85rem; margin-bottom:12px;">
+          Une ligne par membre, format : <strong>NomMaître;identifiant;motDePasse;NomDuGroupe</strong><br>
+          Le nom du groupe doit correspondre exactement à un groupe déjà créé (sinon le membre est créé sans groupe).
+          Le reste de la fiche (chien, abonnement...) pourra être complété ensuite via "Fiche".
+        </p>
+        <div class="field">
+          <textarea id="im-texte" rows="9" style="resize:vertical; font-family:monospace; font-size:0.85rem;">${exemplePreRempli}</textarea>
+        </div>
+        <div id="im-resultat" style="font-size:0.85rem; color:var(--slate); white-space:pre-line;"></div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="window.fermerModal()">Annuler</button>
+          <button class="btn-sm primary" id="im-save">Importer</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+
+  document.getElementById('im-save').addEventListener('click', async () => {
+    const btn = document.getElementById('im-save');
+    btn.disabled = true;
+    const resultZone = document.getElementById('im-resultat');
+    const lignes = document.getElementById('im-texte').value.split('\n').map(l => l.trim()).filter(l => l);
+    let succes = 0, erreurs = [];
+
+    for (const ligne of lignes) {
+      const parts = ligne.split(';').map(p => p.trim());
+      if (parts.length < 3) { erreurs.push(`Ligne ignorée (format incomplet) : "${ligne}"`); continue; }
+      const [nomMaitre, identifiantBrut, mdp, nomGroupe] = parts;
+      if (!nomMaitre || !identifiantBrut || !mdp || mdp.length < 6) {
+        erreurs.push(`Ligne ignorée (identifiant/mot de passe invalide, 6 caractères min.) : "${ligne}"`);
+        continue;
+      }
+      if (!identifiantValide(identifiantBrut)) {
+        erreurs.push(`Ligne ignorée (identifiant avec caractère(s) spécial(aux) non autorisé(s)) : "${ligne}"`);
+        continue;
+      }
+      if (!motDePasseValide(mdp)) {
+        erreurs.push(`Ligne ignorée (mot de passe avec caractère(s) spécial(aux) non autorisé(s)) : "${ligne}"`);
+        continue;
+      }
+      const identifiant = identifiantBrut.charAt(0).toUpperCase() + identifiantBrut.slice(1);
+      const groupe = nomGroupe ? currentGroupes.find(g => g.nom.toLowerCase() === nomGroupe.toLowerCase()) : null;
+
+      resultZone.textContent = `Import en cours... (${succes + erreurs.length + 1}/${lignes.length})`;
+
+      const email = identifiantVersEmail(identifiant);
+      const secondaryApp = initializeApp(auth.app.options, 'import-' + Date.now() + '-' + Math.random());
+      const secondaryAuth = getAuthSecondary(secondaryApp);
+      try {
+        await setPersistence(secondaryAuth, inMemoryPersistence);
+        const cred = await createUserWithEmailAndPassword(secondaryAuth, email, mdp);
+        await setDoc(doc(db, 'membres', cred.user.uid), {
+          nomMaitre, identifiant, motDePasseInitial: mdp, role: 'membre', archive: false,
+          gsm: '', dateAnniversaire: '',
+          chiens: [],
+          accesCours: true, accesDogSitting: false, accesBoutique: false,
+          groupeIds: groupe ? [groupe.id] : [],
+          coursRestants: 11, abonnementPaye: false, cotisationPayee: false,
+          dateInscription: serverTimestamp()
+        });
+        await signOutSecondary(secondaryAuth);
+        await deleteApp(secondaryApp);
+        succes++;
+      } catch (e) {
+        try { await deleteApp(secondaryApp); } catch (e2) { /* déjà supprimée ou jamais créée */ }
+        erreurs.push(`"${nomMaitre}" (${identifiant}) : ${e.code === 'auth/email-already-in-use' ? 'identifiant déjà utilisé' : e.message}`);
+      }
+    }
+
+    resultZone.textContent = `${succes} membre(s) importé(s) avec succès.` + (erreurs.length ? '\n' + erreurs.join('\n') : '');
+    btn.disabled = false;
+    chargerMembres().then(() => { chargerConversations(); chargerAnniversaires(); chargerCotisationsARenouveler(); chargerAbonnementsARenouveler(); chargerVaccinsARappeler(); });
+  });
+}
+
+window.editerMembre = async (id) => {
+  // Relit la fiche directement depuis Firestore au lieu de se fier à
+  // currentMembres (chargé une fois à la connexion, puis plus rafraîchi en
+  // continu) : "Cours restants" en particulier peut avoir changé entre-temps
+  // (décompte automatique) sans que ce cache local le sache — ouvrir la
+  // fiche avec une valeur à jour évite d'afficher un chiffre déjà périmé.
+  let m = currentMembres.find(x => x.id === id);
+  try {
+    const snap = await getDoc(doc(db, 'membres', id));
+    if (snap.exists()) m = { id, ...snap.data() };
+  } catch (err) {
+    console.error('Erreur lors du rechargement de la fiche membre :', err);
+    // best-effort : on ouvre quand même avec la version en cache si le
+    // rechargement échoue (réseau...), plutôt que de bloquer l'admin.
+  }
+  ouvrirModalMembre(m);
+};
+
+window.archiverMembre = async (id) => {
+  if (!confirm('Archiver ce membre ? Il ne pourra plus se connecter mais ses données seront conservées.')) return;
+  await updateDoc(doc(db, 'membres', id), { archive: true });
+  chargerMembres().then(() => { chargerConversations(); chargerAnniversaires(); chargerCotisationsARenouveler(); chargerAbonnementsARenouveler(); chargerVaccinsARappeler(); });
+};
+
+window.reactiverMembre = async (id) => {
+  await updateDoc(doc(db, 'membres', id), { archive: false });
+  chargerMembres().then(() => { chargerConversations(); chargerAnniversaires(); chargerCotisationsARenouveler(); chargerAbonnementsARenouveler(); chargerVaccinsARappeler(); renderMembresArchives(); });
+};
+
+function renderMembresArchives() {
+  const wrap = document.getElementById('listeMembresArchives');
+  if (currentMembresArchives.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucun membre archivé.</div>';
+    return;
+  }
+  wrap.innerHTML = currentMembresArchives.map(m => `
+    <div class="data-row">
+      <div class="data-main">
+        <div class="data-title">${escapeHtml(m.nomMaitre)}${nomsChiensActifs(m) ? ' — ' + escapeHtml(nomsChiensActifs(m)) : ''}</div>
+        <div class="data-sub">Identifiant : <strong>${escapeHtml(m.identifiant || '—')}</strong></div>
+      </div>
+      <div class="data-actions">
+        <button class="btn-sm primary" onclick="window.reactiverMembre('${m.id}')">Remettre actif</button>
+      </div>
+    </div>`).join('');
+}
+
+document.getElementById('btnVoirArchives').addEventListener('click', () => {
+  const wrap = document.getElementById('listeMembresArchives');
+  const visible = wrap.style.display !== 'none';
+  wrap.style.display = visible ? 'none' : 'block';
+  if (!visible) renderMembresArchives();
+});
+
+function optionsMarqueVaccin(valeurActuelle) {
+  return ['', 'Eurican', 'Versican', 'Nobivac', 'Autres'].map(m =>
+    `<option value="${m}" ${valeurActuelle === m ? 'selected' : ''}>${m || '—'}</option>`
+  ).join('');
+}
+
+function ouvrirModalMembre(membre, prefill) {
+  const isEdit = !!membre;
+  const rc = membre?.assuranceRC || {};
+  const chiens = (membre?.chiens || []).filter(c => !c.archive);
+  // Accès : nouveaux champs (accesCours/accesBoutique). Pour un membre déjà
+  // existant qui n'a pas encore reçu la migration (undefined), on part du
+  // principe qu'il a accès (comportement historique) — jamais l'inverse,
+  // pour ne perdre aucun accès par accident tant que le bouton de migration
+  // n'a pas été cliqué. Pour un nouveau membre : décoché par défaut.
+  const accesCoursDefaut = isEdit ? (membre.accesCours !== undefined ? !!membre.accesCours : true) : false;
+  const accesDogSittingDefaut = isEdit ? !!membre.accesDogSitting : false;
+  const accesBoutiqueDefaut = isEdit ? (membre.accesBoutique !== undefined ? !!membre.accesBoutique : true) : false;
+  // Valeur de "Cours restants" telle qu'affichée à l'OUVERTURE de cette
+  // fiche — comparée à la valeur saisie au moment d'enregistrer, pour ne
+  // jamais réécrire ce compteur si l'admin n'y a pas touché (voir plus bas,
+  // dans "mm-save").
+  const coursRestantsInitial = isEdit ? (membre.coursRestants ?? 11) : null;
+  // Groupe(s) déjà suivis par ce membre — un chien peut appartenir à
+  // plusieurs groupes (ex: 2 cours/semaine). Rétrocompatible avec les
+  // fiches qui n'ont que l'ancien champ groupeId (voir groupesDuMembre).
+  const groupesInitiaux = isEdit ? groupesDuMembre(membre) : [];
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box" style="max-width:560px;">
+        <h3>${isEdit ? 'Fiche membre' : 'Ajouter un membre'}</h3>
+        ${!isEdit ? `
+        <div class="form-grid">
+          <div class="field"><label>Identifiant</label><input id="mm-identifiant" placeholder="ex: Sarah.m"></div>
+          <div class="field"><label>Mot de passe initial</label><input id="mm-mdp" placeholder="min. 6 caractères"></div>
+        </div>` : `
+        <div class="form-grid">
+          <div class="field"><label>Identifiant</label><input value="${escapeAttr(membre.identifiant||'')}" disabled style="background:var(--paper-warm);"></div>
+          ${(membre.identifiant === 'Hexelya' && !superAdminActif)
+            ? '<div class="field"><label>Mot de passe</label><input value="Géré par le Super Admin" disabled style="background:var(--paper-warm);"></div>'
+            : `<div class="field"><label>Mot de passe (pour référence)</label><input id="mm-mdpRef" value="${escapeAttr(membre.motDePasseInitial||'')}" placeholder="renseigne-le si tu le connais"></div>`}
+        </div>
+        ${(membre.identifiant === 'Hexelya' && !superAdminActif) ? '' : `<button class="btn-sm" type="button" id="mm-btnChangerMdp" style="margin-bottom:10px;">🔑 Changer réellement le mot de passe de connexion</button>`}`}
+
+        <h3 style="margin-top:18px;">Accès</h3>
+        <p style="font-size:0.85rem; color:var(--slate); margin-bottom:6px;">Détermine les champs ci-dessous et les onglets visibles côté espace membre.</p>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px;">
+          <label class="membre-check-row" style="flex:1; min-width:120px; border:1px solid #E3E7EB;"><input type="checkbox" id="mm-accesCours" ${accesCoursDefaut ? 'checked' : ''}><span>Cours</span></label>
+          <label class="membre-check-row" style="flex:1; min-width:120px; border:1px solid #E3E7EB;"><input type="checkbox" id="mm-accesDogSitting" ${accesDogSittingDefaut ? 'checked' : ''}><span>Dog Sitting</span></label>
+          <label class="membre-check-row" style="flex:1; min-width:120px; border:1px solid #E3E7EB;"><input type="checkbox" id="mm-accesBoutique" ${accesBoutiqueDefaut ? 'checked' : ''}><span>Boutique</span></label>
+        </div>
+
+        <h3 class="bloc-titre" style="margin-top:18px;">Coordonnées <span class="bloc-fleche">▾</span></h3>
+        <div class="bloc-contenu">
+        ${prefill ? `<div class="banner-alert" style="margin-bottom:10px;">Fiche pré-remplie depuis une demande d'information reçue via le site. Pense à ajouter le chien une fois le membre enregistré :<br>Race : ${escapeHtml(prefill.raceChien || '—')} · Âge : ${escapeHtml(prefill.ageChien || '—')} · Stérilisé/castré : ${prefill.sterilise === 'oui' ? 'Oui' : prefill.sterilise === 'non' ? 'Non' : '—'}${prefill.demande ? `<br>Message du visiteur : « ${escapeHtml(prefill.demande)} »` : ''}</div>` : ''}
+        <div class="field"><label>Nom du maître</label><input id="mm-nomMaitre" value="${isEdit ? escapeAttr(membre.nomMaitre) : (prefill ? escapeAttr(`${prefill.prenom||''} ${prefill.nom||''}`.trim()) : '')}"></div>
+        <div class="form-grid">
+          <div class="field"><label>GSM</label><input id="mm-gsm" value="${isEdit ? escapeAttr(membre.gsm||'') : (prefill ? escapeAttr(prefill.gsm||'') : '')}" placeholder="ex: 0032 4XX XX XX XX"></div>
+          <div class="field"><label>E-mail</label><input type="email" id="mm-email" value="${isEdit ? escapeAttr(membre.email||'') : (prefill ? escapeAttr(prefill.email||'') : '')}" placeholder="ex: nom@exemple.be"></div>
+        </div>
+        <div class="field"><label>Adresse postale</label><input id="mm-adresse" value="${isEdit ? escapeAttr(membre.adressePostale||'') : (prefill ? escapeAttr(prefill.ville||'') : '')}" placeholder="rue, numéro, code postal, ville"></div>
+        <div class="field"><label>Date d'anniversaire</label><input type="date" id="mm-anniversaire" value="${isEdit ? (membre.dateAnniversaire||'') : ''}"></div>
+
+        <div class="form-grid">
+          <div class="field"><label>Vous nous avez trouvé via</label>
+            <select id="mm-trouveVia">
+              <option value="" ${!membre?.trouveVia ? 'selected':''}>—</option>
+              <option value="Vétérinaire" ${membre?.trouveVia==='Vétérinaire' ? 'selected':''}>Vétérinaire</option>
+              <option value="Internet" ${membre?.trouveVia==='Internet' ? 'selected':''}>Internet</option>
+              <option value="Facebook" ${membre?.trouveVia==='Facebook' ? 'selected':''}>Facebook</option>
+              <option value="Amis" ${membre?.trouveVia==='Amis' ? 'selected':''}>Amis</option>
+              <option value="Autre" ${membre?.trouveVia==='Autre' ? 'selected':''}>Autre</option>
+            </select>
+          </div>
+          <div class="field"><label>Précision</label><input id="mm-trouveViaDetail" value="${isEdit ? escapeAttr(membre.trouveViaDetail||'') : ''}"></div>
+        </div>
+        </div>
+
+        <div class="mm-groupeCours">
+        <h3 class="bloc-titre replie" style="margin-top:18px;">Conducteur du chien (si différent du propriétaire) <span class="bloc-fleche">▾</span></h3>
+        <div class="bloc-contenu replie">
+        <div class="form-grid">
+          <div class="field"><label>Nom Prénom</label><input id="mm-conducteurNom" value="${isEdit ? escapeAttr(membre.conducteurNom||'') : ''}"></div>
+          <div class="field"><label>GSM</label><input id="mm-conducteurGsm" value="${isEdit ? escapeAttr(membre.conducteurGsm||'') : ''}"></div>
+        </div>
+        <div class="field"><label>E-mail</label><input type="email" id="mm-conducteurEmail" value="${isEdit ? escapeAttr(membre.conducteurEmail||'') : ''}"></div>
+        </div>
+        </div>
+
+        <div class="mm-groupeCours">
+        <h3 class="bloc-titre replie" style="margin-top:18px;">Assurance RC familiale <span class="bloc-fleche">▾</span></h3>
+        <div class="bloc-contenu replie">
+        <div class="form-grid">
+          <div class="field"><label>Compagnie</label><input id="mm-rcCompagnie" value="${escapeAttr(rc.compagnie||'')}"></div>
+          <div class="field"><label>N° de police</label><input id="mm-rcNumero" value="${escapeAttr(rc.numeroPolice||'')}"></div>
+          <div class="field"><label>Échéance (mois/année)</label><input type="month" id="mm-rcEcheance" value="${rc.dateEcheance||''}"></div>
+        </div>
+        </div>
+        </div>
+
+        <h3 class="bloc-titre" style="margin-top:18px;">Chien(s) <span class="bloc-fleche">▾</span></h3>
+        <div class="bloc-contenu">
+        <div id="mm-listeChiens">
+          ${isEdit ? renderListeChiensAdmin(membre) : '<p style="color:var(--slate); font-size:0.85rem;">Enregistre d\'abord le membre, tu pourras ajouter son/ses chien(s) juste après.</p>'}
+        </div>
+        ${isEdit ? `<button class="btn-sm" type="button" onclick="window.ouvrirModalChien('${membre.id}', null)">+ Ajouter un chien</button>` : ''}
+        </div>
+
+        <div class="mm-groupeCours">
+        <h3 class="bloc-titre" style="margin-top:18px;">Groupe &amp; abonnement <span class="bloc-fleche">▾</span></h3>
+        <div class="bloc-contenu">
+        <div class="field"><label>Groupe(s) — un chien peut suivre plusieurs groupes (ex: 2x/semaine)</label>
+          <div class="mm-groupes-liste">
+            ${currentGroupes.length === 0 ? '<p style="font-size:0.8rem; color:var(--slate);">Aucun groupe créé pour l\'instant.</p>' : currentGroupes.map(g => `
+              <label class="membre-check-row" style="display:flex; align-items:center; gap:6px; font-weight:400;">
+                <input type="checkbox" class="mm-groupe-check" value="${g.id}" ${groupesInitiaux.includes(g.id) ? 'checked' : ''}>
+                <span>${escapeHtml(g.nom)} (${JOURS_MAJ[g.jour]} ${g.heureDebut})</span>
+              </label>`).join('')}
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="field"><label>Cours restants (abonnement)</label><input type="number" id="mm-coursRestants" value="${isEdit ? (membre.coursRestants ?? 11) : 11}"></div>
+          <div class="field"><label>Abonnement payé</label>
+            <select id="mm-aboPaye">
+              <option value="oui" ${isEdit && membre.abonnementPaye ? 'selected':''}>Oui</option>
+              <option value="non" ${isEdit && !membre.abonnementPaye ? 'selected':''}>Non</option>
+            </select>
+          </div>
+        </div>
+        </div>
+        </div>
+
+        <div class="mm-groupeCours">
+          <h3 class="bloc-titre" style="margin-top:18px;">Cotisation annuelle du club <span class="bloc-fleche">▾</span></h3>
+          <div class="bloc-contenu">
+          ${isEdit ? `<button class="btn-sm primary" type="button" id="mm-btnRenouvelerCotisation" style="margin-bottom:10px;">🔄 Renouveler maintenant (+1 an, marque payée)</button>` : ''}
+          <div class="form-grid">
+            <div class="field"><label>Date d'échéance</label><input type="date" id="mm-cotisEcheance" value="${membre?.cotisationDateEcheance||''}"></div>
+            <div class="field"><label>Payée</label>
+              <select id="mm-cotisPaye">
+                <option value="oui" ${isEdit && membre.cotisationPayee ? 'selected':''}>Oui</option>
+                <option value="non" ${isEdit && !membre.cotisationPayee ? 'selected':''}>Non</option>
+              </select>
+            </div>
+          </div>
+          ${isEdit && membre.cotisationRenouvellement ? `<p style="font-size:0.85rem; color:var(--slate);">Réponse du membre au renouvellement : <strong>${membre.cotisationRenouvellement === 'oui' ? 'Oui, elle/il souhaite renouveler' : 'Non, elle/il ne souhaite pas renouveler'}</strong></p>` : ''}
+          </div>
+        </div>
+        <p id="mm-noteRenouvellement" class="hidden" style="font-size:0.85rem; color:var(--slate); font-style:italic;">Date et statut mis à jour ci-dessus — pense à cliquer "Enregistrer" pour valider.</p>
+
+        ${isEdit ? `
+        <h3 class="bloc-titre replie" style="margin-top:18px;">Paiements <span class="bloc-fleche">▾</span></h3>
+        <div class="bloc-contenu replie">
+        <button class="btn-sm" type="button" onclick="window.ouvrirModalPaiement('${membre.id}')">+ Enregistrer un paiement</button>
+        <div id="mm-historiquePaiements" style="margin-top:10px;"><div class="empty-state">...</div></div>
+        </div>
+
+        <div class="mm-groupeCours">
+        <h3 class="bloc-titre replie" style="margin-top:18px;">Historique de présence <span class="bloc-fleche">▾</span></h3>
+        <div class="bloc-contenu replie">
+        <div id="mm-historiquePresences" style="margin-top:10px; max-height:220px; overflow-y:auto;"><div class="empty-state">...</div></div>
+        </div>
+        </div>
+
+        <div class="mm-groupeCours">
+        <h3 class="bloc-titre replie" style="margin-top:18px;">Carte d'abonnement (10 + 1 gratuit) <span class="bloc-fleche">▾</span></h3>
+        <div class="bloc-contenu replie">
+        <p style="font-size:0.8rem; color:var(--slate);">Reprend l'ancienne carte papier — chaque cycle de 11 cours, avec ses dates. Se remplit automatiquement pour l'abonnement en cours ; éditable à la main (utile notamment pour les anciens abonnements non suivis par le site).</p>
+        <button class="btn-sm" type="button" onclick="window.ouvrirNouvelAbonnement('${membre.id}')">+ Nouvel abonnement</button>
+        <div id="mm-listeAbonnements" style="margin-top:10px;"><div class="empty-state">...</div></div>
+        </div>
+        </div>
+        ` : ''}
+
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="window.fermerModal()">Annuler</button>
+          <button class="btn-sm primary" id="mm-save">Enregistrer</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+  activerBlocsRepliables(document.getElementById('modalZone'));
+  if (isEdit) { chargerHistoriquePaiements(membre.id); chargerHistoriquePresencesAdmin(membre.id); chargerAbonnementsAdmin(membre.id); }
+  if (isEdit) {
+    document.getElementById('mm-btnChangerMdp')?.addEventListener('click', () => window.changerMotDePasseMembre(membre.id, membre.identifiant, membre.motDePasseInitial));
+
+    document.getElementById('mm-btnRenouvelerCotisation')?.addEventListener('click', () => {
+      const aujourdhui = new Date();
+      const echeanceActuelle = membre.cotisationDateEcheance ? new Date(membre.cotisationDateEcheance + 'T00:00:00') : null;
+      // Repart de l'échéance actuelle si elle est encore dans le futur (renouvellement anticipé),
+      // sinon repart d'aujourd'hui (renouvellement en retard) — jamais de date passée en résultat.
+      const base = (echeanceActuelle && echeanceActuelle > aujourdhui) ? echeanceActuelle : aujourdhui;
+      const nouvelleEcheance = new Date(base);
+      nouvelleEcheance.setFullYear(nouvelleEcheance.getFullYear() + 1);
+      document.getElementById('mm-cotisEcheance').value = dateISOLocale(nouvelleEcheance);
+      document.getElementById('mm-cotisPaye').value = 'oui';
+      document.getElementById('mm-noteRenouvellement').classList.remove('hidden');
+    });
+  }
+
+  function actualiserVisibiliteParAcces() {
+    const aAccesCours = document.getElementById('mm-accesCours').checked;
+    document.getElementById('modalZone').querySelectorAll('.mm-groupeCours').forEach(bloc => {
+      bloc.classList.toggle('hidden', !aAccesCours);
+    });
+  }
+  actualiserVisibiliteParAcces();
+  document.getElementById('mm-accesCours').addEventListener('change', actualiserVisibiliteParAcces);
+
+  document.getElementById('mm-save').addEventListener('click', async () => {
+    const btnSave = document.getElementById('mm-save');
+    btnSave.disabled = true;
+    btnSave.textContent = 'Enregistrement...';
+
+    const data = {
+      nomMaitre: document.getElementById('mm-nomMaitre').value.trim(),
+      gsm: document.getElementById('mm-gsm').value.trim(),
+      email: document.getElementById('mm-email').value.trim(),
+      adressePostale: document.getElementById('mm-adresse').value.trim(),
+      dateAnniversaire: document.getElementById('mm-anniversaire').value,
+      trouveVia: document.getElementById('mm-trouveVia').value,
+      trouveViaDetail: document.getElementById('mm-trouveViaDetail').value.trim(),
+      conducteurNom: document.getElementById('mm-conducteurNom').value.trim(),
+      conducteurGsm: document.getElementById('mm-conducteurGsm').value.trim(),
+      conducteurEmail: document.getElementById('mm-conducteurEmail').value.trim(),
+      assuranceRC: {
+        compagnie: document.getElementById('mm-rcCompagnie').value.trim(),
+        numeroPolice: document.getElementById('mm-rcNumero').value.trim(),
+        dateEcheance: document.getElementById('mm-rcEcheance').value
+      },
+      accesCours: document.getElementById('mm-accesCours').checked,
+      accesDogSitting: document.getElementById('mm-accesDogSitting').checked,
+      accesBoutique: document.getElementById('mm-accesBoutique').checked,
+      groupeIds: document.getElementById('mm-accesCours').checked
+        ? Array.from(document.querySelectorAll('.mm-groupe-check:checked')).map(cb => cb.value)
+        : [],
+      abonnementPaye: document.getElementById('mm-accesCours').checked ? document.getElementById('mm-aboPaye').value === 'oui' : false,
+      cotisationPayee: document.getElementById('mm-accesCours').checked ? document.getElementById('mm-cotisPaye').value === 'oui' : false,
+      cotisationDateEcheance: document.getElementById('mm-accesCours').checked ? document.getElementById('mm-cotisEcheance').value : ''
+    };
+    // Une fois vraiment renouvelée (payée + échéance repoussée d'au moins un
+    // mois), on efface l'ancienne réponse du membre pour ne pas ré-afficher
+    // une alerte périmée de son côté.
+    if (data.cotisationPayee && data.cotisationDateEcheance) {
+      const dansUnMois = new Date(); dansUnMois.setMonth(dansUnMois.getMonth() + 1);
+      if (new Date(data.cotisationDateEcheance + 'T00:00:00') > dansUnMois) {
+        data.cotisationRenouvellement = null;
+      }
+    }
+    if (isEdit) {
+      data.motDePasseInitial = document.getElementById('mm-mdpRef').value.trim();
+    }
+
+    // "Cours restants" : AVANT ce correctif, ce champ était réécrit à
+    // CHAQUE enregistrement de la fiche — même pour corriger juste une
+    // adresse ou un vaccin — avec la valeur affichée au moment de
+    // l'OUVERTURE du formulaire. Si un décompte automatique avait eu lieu
+    // entre-temps (ex: présence traitée pendant que la fiche était restée
+    // ouverte, ou fiche ouverte à partir d'une liste chargée plus tôt dans
+    // la journée), ce décompte réel était silencieusement écrasé par
+    // l'ancienne valeur affichée — ramenant parfois le compteur à une
+    // valeur plus haute (jusqu'à 11) que la réalité. On n'écrit donc ce
+    // champ que si l'admin a RÉELLEMENT changé la valeur affichée (ou
+    // vient de décocher/cocher l'accès aux cours) — jamais "en passant".
+    const coursRestantsSaisi = parseInt(document.getElementById('mm-coursRestants').value, 10) || 0;
+    if (!document.getElementById('mm-accesCours').checked) {
+      data.coursRestants = 0; // accès retiré : remise à zéro volontaire
+    } else if (!isEdit) {
+      data.coursRestants = coursRestantsSaisi; // nouveau membre : toujours écrit
+    } else if (coursRestantsSaisi !== coursRestantsInitial || !accesCoursDefaut) {
+      data.coursRestants = coursRestantsSaisi; // valeur modifiée, ou accès qu'on vient de réactiver
+    }
+    // sinon : champ volontairement absent de "data" → updateDoc ne le touche pas,
+    // le vrai décompte en base (potentiellement plus récent) est préservé.
+
+    if (!data.nomMaitre) { alert('Merci d\'indiquer le nom du maître.'); btnSave.disabled = false; btnSave.textContent = 'Enregistrer'; return; }
+
+    if (isEdit) {
+      await updateDoc(doc(db, 'membres', membre.id), data);
+      window.fermerModal();
+      chargerMembres().then(() => { chargerConversations(); chargerAnniversaires(); chargerCotisationsARenouveler(); chargerAbonnementsARenouveler(); chargerVaccinsARappeler(); });
+    } else {
+      let identifiant = document.getElementById('mm-identifiant').value.trim();
+      const mdp = document.getElementById('mm-mdp').value;
+      if (!identifiant || !mdp || mdp.length < 6) {
+        alert('Identifiant et mot de passe (6 caractères min.) obligatoires.');
+        return;
+      }
+      if (!identifiantValide(identifiant)) { alert(MESSAGE_IDENTIFIANT_INVALIDE); return; }
+      if (!motDePasseValide(mdp)) { alert(MESSAGE_MDP_INVALIDE); return; }
+      identifiant = identifiant.charAt(0).toUpperCase() + identifiant.slice(1);
+      const email = identifiantVersEmail(identifiant);
+
+      // Création via une instance Firebase secondaire pour ne pas
+      // déconnecter la session admin en cours.
+      const secondaryApp = initializeApp(auth.app.options, 'secondaire-' + Date.now());
+      const secondaryAuth = getAuthSecondary(secondaryApp);
+      try {
+        await setPersistence(secondaryAuth, inMemoryPersistence);
+        const cred = await createUserWithEmailAndPassword(secondaryAuth, email, mdp);
+        await setDoc(doc(db, 'membres', cred.user.uid), {
+          ...data,
+          chiens: [],
+          identifiant,
+          motDePasseInitial: mdp,
+          role: 'membre',
+          archive: false,
+          dateInscription: serverTimestamp()
+        });
+        await signOutSecondary(secondaryAuth);
+        await deleteApp(secondaryApp);
+        window.fermerModal();
+        chargerMembres().then(() => { chargerConversations(); chargerAnniversaires(); chargerCotisationsARenouveler(); chargerAbonnementsARenouveler(); chargerVaccinsARappeler(); });
+      } catch (err) {
+        try { await deleteApp(secondaryApp); } catch (e2) { /* déjà supprimée ou jamais créée */ }
+        alert("Impossible de créer ce membre : " + (err.code === 'auth/email-already-in-use' ? 'cet identifiant existe déjà.' : err.message));
+        btnSave.disabled = false;
+        btnSave.textContent = 'Enregistrer';
+      }
+    }
+  });
+}
+
+// ==========================================================================
+// CHIENS (tableau chiens[] sur le membre — plusieurs chiens possibles,
+// avec archivage individuel, ex: décès puis nouveau chien)
+// ==========================================================================
+function renderListeChiensAdmin(membre) {
+  const chiens = (membre.chiens || []).filter(c => !c.archive);
+  if (chiens.length === 0) return '<p style="color:var(--slate); font-size:0.85rem;">Aucun chien enregistré pour l\'instant.</p>';
+  return chiens.map(c => `
+    <div class="dog-card">
+      <div class="dog-card-head">
+        <div>
+          <div class="dog-title">${escapeHtml(c.nom || 'Sans nom')} ${c.race ? '— ' + escapeHtml(c.race) : ''}</div>
+          <div class="dog-sub">${c.pedigree ? 'Pedigree · ' : ''}${c.puce ? 'Puce ' + escapeHtml(c.puce) : 'Puce non renseignée'}</div>
+        </div>
+        <div class="data-actions">
+          <button class="btn-sm" type="button" onclick="window.ouvrirModalChien('${membre.id}', '${c.id}')">Modifier</button>
+          <button class="btn-sm danger" type="button" onclick="window.archiverChien('${membre.id}', '${c.id}')">Archiver</button>
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+window.ouvrirModalChien = (membreId, chienId) => {
+  const membre = currentMembres.find(m => m.id === membreId);
+  const chien = chienId ? (membre.chiens || []).find(c => c.id === chienId) : null;
+  const v = chien?.vaccins || {};
+
+  const html = `
+    <div class="modal-overlay" id="modalOverlayChien">
+      <div class="modal-box" style="max-width:520px;">
+        <h3>${chien ? 'Modifier le chien' : 'Ajouter un chien'}</h3>
+        <div class="form-grid">
+          <div class="field"><label>Nom du chien</label><input id="mc-nom" value="${chien ? escapeAttr(chien.nom||'') : ''}"></div>
+          <div class="field"><label>Race</label><input id="mc-race" value="${chien ? escapeAttr(chien.race||'') : ''}"></div>
+          <div class="field"><label>Date de naissance</label><input type="date" id="mc-naissance" value="${chien ? (chien.naissance||'') : ''}"></div>
+          <div class="field"><label>Sexe</label>
+            <select id="mc-sexe">
+              <option value="male" ${chien?.sexe==='male' ? 'selected':''}>Mâle</option>
+              <option value="femelle" ${chien?.sexe==='femelle' ? 'selected':''}>Femelle</option>
+            </select>
+          </div>
+          <div class="field"><label>Castré / Stérilisée</label>
+            <select id="mc-sterilise">
+              <option value="non" ${!chien?.sterilise ? 'selected':''}>Non</option>
+              <option value="oui" ${chien?.sterilise ? 'selected':''}>Oui</option>
+            </select>
+          </div>
+          <div class="field"><label>Date (si oui)</label><input type="date" id="mc-dateSterilisation" value="${chien ? (chien.dateSterilisation||'') : ''}"></div>
+          <div class="field"><label>N° de puce</label><input id="mc-puce" value="${chien ? escapeAttr(chien.puce||'') : ''}"></div>
+          <div class="field"><label>N° de passeport</label><input id="mc-passeport" value="${chien ? escapeAttr(chien.passeport||'') : ''}"></div>
+          <div class="field"><label>Pedigree</label>
+            <select id="mc-pedigree">
+              <option value="non" ${!chien?.pedigree ? 'selected':''}>Non</option>
+              <option value="oui" ${chien?.pedigree ? 'selected':''}>Oui</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-grid">
+          <div class="field"><label>Origine</label>
+            <select id="mc-origine">
+              <option value="" ${!chien?.origine ? 'selected':''}>—</option>
+              <option value="Elevage familial" ${chien?.origine==='Elevage familial' ? 'selected':''}>Élevage familial</option>
+              <option value="Petshop" ${chien?.origine==='Petshop' ? 'selected':''}>Petshop</option>
+              <option value="Refuge" ${chien?.origine==='Refuge' ? 'selected':''}>Refuge</option>
+              <option value="Autre" ${chien?.origine==='Autre' ? 'selected':''}>Autre</option>
+            </select>
+          </div>
+          <div class="field"><label>Nom et lieu de l'origine</label><input id="mc-origineDetail" value="${chien ? escapeAttr(chien.origineDetail||'') : ''}" placeholder="ex: Élevage du Bois Joli, Andenne"></div>
+        </div>
+
+        <h3 style="margin-top:16px;">Vaccins</h3>
+        <div class="form-grid">
+          <div class="field"><label>Leptospirose — marque</label><select id="mc-vaxLepto-marque">${optionsMarqueVaccin(v.leptospirose?.marque)}</select></div>
+          <div class="field"><label>Leptospirose — date</label><input type="date" id="mc-vaxLepto-date" value="${v.leptospirose?.date||''}"></div>
+          <div class="field"><label>Parvovirose — marque</label><select id="mc-vaxParvo-marque">${optionsMarqueVaccin(v.parvovirose?.marque)}</select></div>
+          <div class="field"><label>Parvovirose — date</label><input type="date" id="mc-vaxParvo-date" value="${v.parvovirose?.date||''}"></div>
+          <div class="field"><label>Toux du chenil — marque</label><select id="mc-vaxToux-marque">${optionsMarqueVaccin(v.touxChenils?.marque)}</select></div>
+          <div class="field"><label>Toux du chenil — date</label><input type="date" id="mc-vaxToux-date" value="${v.touxChenils?.date||''}"></div>
+          <div class="field"><label>Rage — date</label><input type="date" id="mc-vaxRage-date" value="${v.rage?.date||''}"></div>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn-sm" type="button" onclick="document.getElementById('modalOverlayChien').remove()">Annuler</button>
+          <button class="btn-sm primary" type="button" id="mc-save">Enregistrer</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+
+  document.getElementById('mc-save').addEventListener('click', async () => {
+    const nouveauChien = {
+      id: chien ? chien.id : 'chien-' + Date.now(),
+      nom: document.getElementById('mc-nom').value.trim(),
+      race: document.getElementById('mc-race').value.trim(),
+      naissance: document.getElementById('mc-naissance').value,
+      sexe: document.getElementById('mc-sexe').value,
+      sterilise: document.getElementById('mc-sterilise').value === 'oui',
+      dateSterilisation: document.getElementById('mc-dateSterilisation').value,
+      puce: document.getElementById('mc-puce').value.trim(),
+      passeport: document.getElementById('mc-passeport').value.trim(),
+      pedigree: document.getElementById('mc-pedigree').value === 'oui',
+      origine: document.getElementById('mc-origine').value,
+      origineDetail: document.getElementById('mc-origineDetail').value.trim(),
+      archive: false,
+      vaccins: {
+        leptospirose: { marque: document.getElementById('mc-vaxLepto-marque').value, date: document.getElementById('mc-vaxLepto-date').value },
+        parvovirose: { marque: document.getElementById('mc-vaxParvo-marque').value, date: document.getElementById('mc-vaxParvo-date').value },
+        touxChenils: { marque: document.getElementById('mc-vaxToux-marque').value, date: document.getElementById('mc-vaxToux-date').value },
+        rage: { date: document.getElementById('mc-vaxRage-date').value }
+      }
+    };
+    if (!nouveauChien.nom) { alert('Merci d\'indiquer le nom du chien.'); return; }
+
+    const chiensActuels = membre.chiens || [];
+    const nouveauxChiens = chien
+      ? chiensActuels.map(c => c.id === chien.id ? nouveauChien : c)
+      : [...chiensActuels, nouveauChien];
+
+    await updateDoc(doc(db, 'membres', membreId), { chiens: nouveauxChiens });
+    membre.chiens = nouveauxChiens;
+    document.getElementById('modalOverlayChien').remove();
+    ouvrirModalMembre(membre);
+  });
+};
+
+window.archiverChien = async (membreId, chienId) => {
+  if (!confirm('Archiver ce chien ? (par ex. en cas de décès) Ses données seront conservées mais il n\'apparaîtra plus comme actif.')) return;
+  const membre = currentMembres.find(m => m.id === membreId);
+  const nouveauxChiens = (membre.chiens || []).map(c => c.id === chienId ? { ...c, archive: true } : c);
+  await updateDoc(doc(db, 'membres', membreId), { chiens: nouveauxChiens });
+  membre.chiens = nouveauxChiens;
+  ouvrirModalMembre(membre);
+};
+
+// ==========================================================================
+// PAIEMENTS — historique par membre, enregistrement manuel par l'admin
+// ==========================================================================
+async function chargerHistoriquePaiements(membreId) {
+  const zone = document.getElementById('mm-historiquePaiements');
+  if (!zone) return;
+  const snap = await getDocs(query(collection(db, 'paiements'), where('membreId', '==', membreId)));
+  const paiements = [];
+  snap.forEach(d => paiements.push({ id: d.id, ...d.data() }));
+  paiements.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+
+  if (paiements.length === 0) {
+    zone.innerHTML = '<div class="empty-state">Aucun paiement enregistré.</div>';
+    return;
+  }
+  zone.innerHTML = paiements.map(p => `
+    <div class="data-row">
+      <div class="data-main">
+        <div class="data-title">${escapeHtml(p.type)} — ${Number(p.montant).toFixed(2)} € TTC</div>
+        <div class="data-sub">${p.date || ''}${p.note ? ' · ' + escapeHtml(p.note) : ''}</div>
+        ${p.numeroFacture ? `<div class="data-sub">Facture n° <strong>${escapeHtml(p.numeroFacture)}</strong></div>` : ''}
+      </div>
+      <div class="data-actions">
+        ${!p.numeroFacture ? `<button class="btn-sm primary" onclick="window.facturerPaiement('${p.id}')">Générer la facture</button>` : `<button class="btn-sm" onclick="window.retelechargerFacture('${p.numeroFacture}')">Retélécharger PDF+XML</button> <button class="btn-sm" onclick="window.envoyerFactureParMail('${membreId}','${p.numeroFacture}')">Envoyer par mail</button>`}
+        <button class="btn-sm danger" onclick="window.supprimerPaiement('${p.id}', '${membreId}')">Supprimer</button>
+      </div>
+    </div>`).join('');
+}
+
+async function chargerHistoriquePresencesAdmin(membreId) {
+  const zone = document.getElementById('mm-historiquePresences');
+  if (!zone) return;
+  const snap = await getDocs(query(collection(db, 'presences'), where('uid', '==', membreId)));
+  const presences = [];
+  snap.forEach(d => presences.push({ id: d.id, ...d.data() }));
+  presences.sort((a, b) => (b.dateISO || '').localeCompare(a.dateISO || ''));
+
+  if (presences.length === 0) {
+    zone.innerHTML = '<div class="empty-state">Aucun historique pour l\'instant.</div>';
+    return;
+  }
+  // Un cours annulé après coup (pluie, pas assez de participants...) laisse
+  // la réponse d'origine du membre (ex: "Présent(e)") inchangée dans son
+  // historique — c'est volontaire, ça garde la trace de ce qu'il avait
+  // répondu. Mais affiché seul, "Présent(e)" est trompeur : on y ajoute ici
+  // un badge "Cours annulé" pour que ce soit clair que ce cours n'a pas eu
+  // lieu et ne compte pas, même s'il a répondu présent.
+  const annulations = await chargerAnnulationsCache();
+  zone.innerHTML = presences.map(p => {
+    const g = currentGroupes.find(gr => gr.id === p.groupeId);
+    const annulation = annulations[`${p.groupeId}_${p.dateISO}`];
+    let badge;
+    if (p.statut === 'present') badge = '<span class="badge badge-ok">Présent(e)</span>';
+    else if (p.statut === 'absent-auto') badge = '<span class="badge badge-warn">Non répondu — décompté</span>';
+    else if (p.statut === 'absent-justifie') badge = '<span class="badge badge-neutral">Absent(e) justifié(e) — non décompté</span>';
+    else badge = '<span class="badge badge-neutral">Absent(e) (signalé)</span>';
+    if (annulation) badge += ` <span class="badge badge-neutral">🚫 Cours annulé — ne compte pas (${escapeHtml(annulation.motif || '')})</span>`;
+    if (p.exceptionnel) badge += ' <span class="badge badge-neutral">🔁 Ajout exceptionnel dans un autre groupe</span>';
+    return `
+    <div class="data-row">
+      <div class="data-main">
+        <div class="data-title">${p.dateISO || ''} — ${g ? escapeHtml(g.nom) : '?'}</div>
+        <div class="data-sub">${badge}</div>
+      </div>
+      <div class="data-actions">
+        <button class="btn-sm" onclick="window.editerPresenceAdmin('${p.id}','${membreId}','${p.statut}')">Modifier</button>
+        <button class="btn-sm danger" onclick="window.supprimerPresenceAdmin('${p.id}','${membreId}')">Supprimer</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// Une présence "décompte" un cours de l'abonnement si son statut est
+// 'present' (le membre est venu) ou 'absent-auto' (absent sans avoir
+// répondu à temps, pénalité). 'absent' (signalé à temps) et
+// 'absent-justifie' (annulation validée) ne décomptent jamais.
+function presenceEstDecomptee(statut) {
+  return statut === 'present' || statut === 'absent-auto';
+}
+
+// ==========================================================================
+// CARTE D'ABONNEMENT (10 + 1 gratuit) — reprend l'ancienne carte papier que
+// les membres avaient avant le site : chaque cycle d'abonnement (11 cours)
+// est un document dans la collection "abonnements", avec ses 11 "cases"
+// (date + statut P/NR). Les cases se remplissent automatiquement au fur et
+// à mesure (voir remplirProchaineCaseAbonnement, appelée depuis
+// traiterAbsencesAutomatiques), mais restent éditables à la main depuis
+// l'admin — indispensable pour les anciens abonnements jamais trackés sur
+// le site (le tout premier abonnement d'un membre, par exemple).
+const NB_SEANCES_ABONNEMENT = 11; // 10 cours + 1 gratuit
+function seancesVides() {
+  return Array.from({ length: NB_SEANCES_ABONNEMENT }, () => ({ dateISO: null, statut: null, presenceId: null }));
+}
+
+async function chargerAbonnementsAdmin(membreId) {
+  const zone = document.getElementById('mm-listeAbonnements');
+  if (!zone) return;
+  let snap;
+  try {
+    snap = await getDocs(query(collection(db, 'abonnements'), where('membreId', '==', membreId)));
+  } catch (err) {
+    console.error('Erreur lecture carte abonnement :', err);
+    zone.innerHTML = `<div class="banner-alert" style="background:#FBEAEA; border-color:#E3B4B4; color:#8A2E2E;">Erreur de lecture : ${escapeHtml(err.message || String(err))}${err.code === 'permission-denied' ? ' — les règles Firestore pour la collection "abonnements" ne sont probablement pas encore déployées sur Firebase.' : ''}</div>`;
+    return;
+  }
+  const cycles = [];
+  snap.forEach(d => cycles.push({ id: d.id, ...d.data() }));
+  cycles.sort((a, b) => (b.numero || 0) - (a.numero || 0));
+
+  if (cycles.length === 0) {
+    zone.innerHTML = '<div class="empty-state">Aucun abonnement enregistré pour l\'instant.</div>';
+    return;
+  }
+  zone.innerHTML = cycles.map(c => {
+    const seances = Array.isArray(c.seances) ? c.seances : [];
+    const remplies = seances.filter(s => s && s.dateISO).length;
+    const dates = seances.filter(s => s && s.dateISO).map(s => s.dateISO).sort();
+    const periode = dates.length ? `du ${dates[0]} au ${dates[dates.length - 1]}` : 'aucune date renseignée';
+    return `
+    <div class="data-row">
+      <div class="data-main">
+        <div class="data-title">Abonnement n°${c.numero} ${c.actif ? '<span class="badge badge-ok">En cours</span>' : ''}</div>
+        <div class="data-sub">${remplies}/${NB_SEANCES_ABONNEMENT} case(s) remplie(s) — ${escapeHtml(periode)}${c.manuel ? ' · <span class="badge badge-neutral">Saisi à la main</span>' : ''}</div>
+      </div>
+      <div class="data-actions">
+        <button class="btn-sm" onclick="window.ouvrirEditionAbonnement('${membreId}','${c.numero}')">Voir / éditer</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+window.ouvrirNouvelAbonnement = async (membreId) => {
+  const snap = await getDocs(query(collection(db, 'abonnements'), where('membreId', '==', membreId)));
+  let maxNumero = 0;
+  snap.forEach(d => { if ((d.data().numero || 0) > maxNumero) maxNumero = d.data().numero; });
+  const prochainNumero = maxNumero + 1;
+
+  const html = `
+    <div class="modal-overlay" id="modalOverlayNouvelAbo">
+      <div class="modal-box">
+        <h3>Nouvel abonnement (10 + 1 gratuit)</h3>
+        <div class="field"><label>Numéro de cet abonnement</label><input type="number" id="na-numero" value="${prochainNumero}" min="1"></div>
+        <label style="display:flex; align-items:flex-start; gap:8px; font-size:0.85rem; margin:10px 0;">
+          <input type="checkbox" id="na-historique" style="margin-top:3px;">
+          <span>Il s'agit d'un abonnement déjà terminé (historique à compléter à la main) — ne pas le marquer comme abonnement en cours, ni toucher au compteur de cours restants actuel.</span>
+        </label>
+        <p style="font-size:0.8rem; color:var(--slate);">Sans la case cochée : ce nouvel abonnement devient l'abonnement "en cours" (les prochains cours remplissent automatiquement ses cases), le compteur "Cours restants" repasse à 11 et "Abonnement payé" passe à Oui.</p>
+        <div class="modal-actions">
+          <button class="btn-sm" type="button" onclick="document.getElementById('modalOverlayNouvelAbo').remove()">Annuler</button>
+          <button class="btn-sm primary" type="button" id="na-save">Créer</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+
+  document.getElementById('na-save').addEventListener('click', async () => {
+    const btnCreer = document.getElementById('na-save');
+    btnCreer.disabled = true;
+    try {
+      const numero = parseInt(document.getElementById('na-numero').value, 10) || prochainNumero;
+      const historique = document.getElementById('na-historique').checked;
+
+      if (!historique) {
+        // Ferme l'éventuel abonnement actif précédent (un seul cycle "en cours" à la fois).
+        const actifsSnap = await getDocs(query(collection(db, 'abonnements'), where('membreId', '==', membreId), where('actif', '==', true)));
+        for (const d of actifsSnap.docs) {
+          await updateDoc(doc(db, 'abonnements', d.id), { actif: false });
+        }
+      }
+
+      await setDoc(doc(db, 'abonnements', `${membreId}_${numero}`), {
+        membreId, numero, actif: !historique, manuel: historique,
+        dateCreation: new Date().toISOString(),
+        seances: seancesVides()
+      });
+
+      if (!historique) {
+        await updateDoc(doc(db, 'membres', membreId), { coursRestants: 11, abonnementPaye: true });
+        if (document.getElementById('mm-coursRestants')) document.getElementById('mm-coursRestants').value = 11;
+        if (document.getElementById('mm-aboPaye')) document.getElementById('mm-aboPaye').value = 'oui';
+      }
+
+      document.getElementById('modalOverlayNouvelAbo').remove();
+      chargerAbonnementsAdmin(membreId);
+      renderMembres();
+    } catch (err) {
+      console.error('Erreur création abonnement :', err);
+      alert("Erreur lors de la création : " + (err.message || err) + "\n\nSi le message mentionne des permissions, les nouvelles règles Firestore (firestore.rules) n'ont peut-être pas encore été déployées sur Firebase pour la collection \"abonnements\".");
+      btnCreer.disabled = false;
+    }
+  });
+};
+
+window.ouvrirEditionAbonnement = async (membreId, numero) => {
+  const docId = `${membreId}_${numero}`;
+  const snap = await getDoc(doc(db, 'abonnements', docId));
+  if (!snap.exists()) return;
+  const cycle = snap.data();
+  const seances = Array.isArray(cycle.seances) && cycle.seances.length === NB_SEANCES_ABONNEMENT ? cycle.seances : seancesVides();
+
+  const lignes = seances.map((s, i) => `
+    <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; align-items:end; margin-bottom:8px;">
+      <div class="field" style="margin:0;"><label>${i === NB_SEANCES_ABONNEMENT - 1 ? 'Séance 11 (gratuite)' : `Séance ${i + 1}`}</label></div>
+      <div class="field" style="margin:0;"><input type="date" id="car-date-${i}" value="${s?.dateISO || ''}"></div>
+      <div class="field" style="margin:0;">
+        <select id="car-statut-${i}">
+          <option value="" ${!s?.statut ? 'selected' : ''}>—</option>
+          <option value="P" ${s?.statut === 'P' ? 'selected' : ''}>P (présent)</option>
+          <option value="NR" ${s?.statut === 'NR' ? 'selected' : ''}>NR (non répondu)</option>
+        </select>
+      </div>
+    </div>`).join('');
+
+  const html = `
+    <div class="modal-overlay" id="modalOverlayAbo">
+      <div class="modal-box" style="max-width:560px;">
+        <h3>Abonnement n°${numero}${cycle.actif ? ' — en cours' : ''}</h3>
+        <p style="font-size:0.8rem; color:var(--slate);">Les cases se remplissent normalement toutes seules au fil des cours de l'abonnement en cours. Modifie-les ici à la main si besoin (notamment pour un ancien abonnement non suivi par le site).</p>
+        ${lignes}
+        <div class="modal-actions" style="justify-content:space-between;">
+          <button class="btn-sm danger" type="button" onclick="window.supprimerAbonnementAdmin('${membreId}','${numero}')">Supprimer cet abonnement</button>
+          <div style="display:flex; gap:10px;">
+            <button class="btn-sm" type="button" onclick="document.getElementById('modalOverlayAbo').remove()">Fermer</button>
+            <button class="btn-sm primary" type="button" id="car-save">Enregistrer</button>
+          </div>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+
+  document.getElementById('car-save').addEventListener('click', async () => {
+    try {
+      const nouvellesSeances = seances.map((s, i) => ({
+        dateISO: document.getElementById(`car-date-${i}`).value || null,
+        statut: document.getElementById(`car-statut-${i}`).value || null,
+        presenceId: s?.presenceId || null
+      }));
+      await updateDoc(doc(db, 'abonnements', docId), { seances: nouvellesSeances });
+      document.getElementById('modalOverlayAbo').remove();
+      chargerAbonnementsAdmin(membreId);
+    } catch (err) {
+      console.error('Erreur enregistrement carte abonnement :', err);
+      alert("Erreur lors de l'enregistrement : " + (err.message || err) + "\n\nSi le message mentionne des permissions, les nouvelles règles Firestore (firestore.rules) n'ont peut-être pas encore été déployées sur Firebase pour la collection \"abonnements\".");
+    }
+  });
+};
+
+window.supprimerAbonnementAdmin = async (membreId, numero) => {
+  if (!confirm(`Supprimer définitivement l'abonnement n°${numero} de l'historique ? Cette action ne touche pas au compteur de cours restants actuel.`)) return;
+  await deleteDoc(doc(db, 'abonnements', `${membreId}_${numero}`));
+  document.getElementById('modalOverlayAbo')?.remove();
+  chargerAbonnementsAdmin(membreId);
+};
+
+// Appelée juste après qu'une présence soit réellement décomptée de
+// l'abonnement (compteAbonnement passe à true) : va remplir automatiquement
+// la prochaine case libre de l'abonnement EN COURS du membre. Best-effort :
+// si aucun cycle actif n'est suivi pour ce membre (ex: jamais créé), ou si
+// les 11 cases sont déjà pleines, ne fait simplement rien — ça ne doit
+// jamais bloquer le vrai décompte de l'abonnement, qui reste coursRestants.
+async function remplirProchaineCaseAbonnement(membreId, dateISO, statutPresence, presenceId) {
+  try {
+    const snap = await getDocs(query(collection(db, 'abonnements'), where('membreId', '==', membreId), where('actif', '==', true)));
+    if (snap.empty) return;
+    const cycleDoc = snap.docs[0];
+    const seances = Array.isArray(cycleDoc.data().seances) ? [...cycleDoc.data().seances] : seancesVides();
+    const indexLibre = seances.findIndex(s => !s || !s.dateISO);
+    if (indexLibre === -1) return;
+    seances[indexLibre] = { dateISO, statut: statutPresence === 'present' ? 'P' : 'NR', presenceId };
+    await updateDoc(doc(db, 'abonnements', cycleDoc.id), { seances });
+  } catch (err) {
+    console.error('Erreur lors du remplissage de la carte d\'abonnement :', err);
+  }
+}
+
+// Si une présence déjà liée à une case de la carte change de statut (sans
+// cesser d'être décomptée), on met juste à jour le P/NR affiché.
+async function mettreAJourCaseAbonnement(membreId, presenceId, nouveauStatutCarte) {
+  try {
+    const snap = await getDocs(query(collection(db, 'abonnements'), where('membreId', '==', membreId)));
+    for (const d of snap.docs) {
+      const seances = Array.isArray(d.data().seances) ? d.data().seances : [];
+      const idx = seances.findIndex(s => s && s.presenceId === presenceId);
+      if (idx !== -1) {
+        const copie = [...seances];
+        copie[idx] = { ...copie[idx], statut: nouveauStatutCarte };
+        await updateDoc(doc(db, 'abonnements', d.id), { seances: copie });
+        break;
+      }
+    }
+  } catch (err) {
+    console.error('Erreur lors de la mise à jour de la carte d\'abonnement :', err);
+  }
+}
+
+// Si une présence liée à une case de la carte est supprimée, ou cesse
+// d'être décomptée, on vide cette case (elle redevient disponible).
+async function desassocierPresenceAbonnement(membreId, presenceId) {
+  try {
+    const snap = await getDocs(query(collection(db, 'abonnements'), where('membreId', '==', membreId)));
+    for (const d of snap.docs) {
+      const seances = Array.isArray(d.data().seances) ? d.data().seances : [];
+      const idx = seances.findIndex(s => s && s.presenceId === presenceId);
+      if (idx !== -1) {
+        const copie = [...seances];
+        copie[idx] = { dateISO: null, statut: null, presenceId: null };
+        await updateDoc(doc(db, 'abonnements', d.id), { seances: copie });
+        break;
+      }
+    }
+  } catch (err) {
+    console.error('Erreur lors de la désassociation de la carte d\'abonnement :', err);
+  }
+}
+
+window.editerPresenceAdmin = (presenceId, membreId, statutActuel) => {
+  const html = `
+    <div class="modal-overlay" id="modalOverlayPresence">
+      <div class="modal-box">
+        <h3>Modifier cette présence</h3>
+        <div class="field"><label>Statut</label>
+          <select id="pr-statut">
+            <option value="present" ${statutActuel === 'present' ? 'selected' : ''}>Présent (décompté)</option>
+            <option value="absent-auto" ${statutActuel === 'absent-auto' ? 'selected' : ''}>Absent — non répondu (décompté)</option>
+            <option value="absent-justifie" ${statutActuel === 'absent-justifie' ? 'selected' : ''}>Absent justifié (non décompté)</option>
+            <option value="absent" ${statutActuel === 'absent' ? 'selected' : ''}>Absent — signalé (non décompté)</option>
+          </select>
+        </div>
+        <p style="font-size:0.8rem; color:var(--slate);">Le nombre de cours restants de l'abonnement du membre est ajusté automatiquement si le changement de statut le nécessite.</p>
+        <div class="modal-actions">
+          <button class="btn-sm" type="button" onclick="document.getElementById('modalOverlayPresence').remove()">Annuler</button>
+          <button class="btn-sm primary" type="button" id="pr-save">Enregistrer</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+
+  document.getElementById('pr-save').addEventListener('click', async () => {
+    // Empêche un double-clic d'appliquer l'ajustement du compteur deux fois
+    // (la lecture puis l'écriture ci-dessous ne sont pas dans une seule
+    // opération atomique).
+    const btnSave = document.getElementById('pr-save');
+    if (btnSave.disabled) return;
+    btnSave.disabled = true;
+    const nouveauStatut = document.getElementById('pr-statut').value;
+    const presSnap = await getDoc(doc(db, 'presences', presenceId));
+    if (!presSnap.exists()) { document.getElementById('modalOverlayPresence').remove(); return; }
+    const presence = presSnap.data();
+    const decompteAvant = presence.compteAbonnement === true; // était réellement décompté
+    const decompteApres = presenceEstDecomptee(nouveauStatut);
+
+    if (decompteAvant !== decompteApres) {
+      // Repasse en "décompté" → -1 cours. Repasse en "non décompté" → +1 cours
+      // (remboursé). Incrément atomique Firestore : jamais de risque de valeur
+      // périmée, même si un autre traitement (ex: décompte automatique) touche
+      // ce même membre au même moment.
+      await updateDoc(doc(db, 'membres', membreId), { coursRestants: increment(decompteApres ? -1 : 1) });
+    }
+
+    await updateDoc(doc(db, 'presences', presenceId), {
+      statut: nouveauStatut,
+      compteAbonnement: decompteApres,
+      modifieParAdmin: true
+    });
+    invaliderCachePresences();
+
+    // Répercute le changement sur la carte d'abonnement (10+1) si cette
+    // présence y était associée : met à jour le P/NR si elle reste
+    // décomptée, ou vide la case si elle ne l'est plus.
+    if (decompteApres) {
+      await mettreAJourCaseAbonnement(membreId, presenceId, nouveauStatut === 'present' ? 'P' : 'NR');
+    } else {
+      await desassocierPresenceAbonnement(membreId, presenceId);
+    }
+
+    document.getElementById('modalOverlayPresence').remove();
+    chargerHistoriquePresencesAdmin(membreId);
+    chargerAbonnementsAdmin(membreId);
+    renderMembres();
+  });
+};
+
+window.supprimerPresenceAdmin = async (presenceId, membreId) => {
+  if (!confirm('Supprimer cette entrée de l\'historique de présence ? Si elle était décomptée, le cours sera recrédité à l\'abonnement.')) return;
+  const presSnap = await getDoc(doc(db, 'presences', presenceId));
+  if (presSnap.exists() && presSnap.data().compteAbonnement === true) {
+    await updateDoc(doc(db, 'membres', membreId), { coursRestants: increment(1) });
+  }
+  await desassocierPresenceAbonnement(membreId, presenceId);
+  await deleteDoc(doc(db, 'presences', presenceId));
+  invaliderCachePresences();
+  chargerHistoriquePresencesAdmin(membreId);
+  chargerAbonnementsAdmin(membreId);
+  renderMembres();
+};
+
+window.ouvrirModalPaiement = (membreId) => {
+  const html = `
+    <div class="modal-overlay" id="modalOverlayPaiement">
+      <div class="modal-box">
+        <h3>Enregistrer un paiement</h3>
+        <div class="field"><label>Type</label>
+          <select id="pay-type">
+            <option value="Cotisation">Cotisation</option>
+            <option value="Abonnement">Abonnement</option>
+            <option value="Cours individuel">Cours individuel</option>
+            <option value="Séance de comportement">Séance de comportement</option>
+            <option value="Dog Sitting">Dog Sitting</option>
+            <option value="Toilettage">Toilettage</option>
+            <option value="Vente diverse">Vente diverse</option>
+            <option value="Autre">Autre</option>
+          </select>
+        </div>
+        <div class="form-grid">
+          <div class="field"><label>Montant (€ TTC)</label><input type="number" step="0.01" id="pay-montant"></div>
+          <div class="field"><label>Date</label><input type="date" id="pay-date" value="${dateISOLocale(new Date())}"></div>
+        </div>
+        <div class="field"><label>Note (optionnel)</label><input id="pay-note" placeholder="ex: viré le 12/03"></div>
+        <div class="modal-actions">
+          <button class="btn-sm" type="button" onclick="document.getElementById('modalOverlayPaiement').remove()">Annuler</button>
+          <button class="btn-sm primary" type="button" id="pay-save">Enregistrer</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+
+  document.getElementById('pay-save').addEventListener('click', async () => {
+    const montant = parseFloat(document.getElementById('pay-montant').value);
+    if (isNaN(montant)) { alert('Merci d\'indiquer un montant.'); return; }
+    await addDoc(collection(db, 'paiements'), {
+      membreId,
+      type: document.getElementById('pay-type').value,
+      montant,
+      date: document.getElementById('pay-date').value,
+      note: document.getElementById('pay-note').value.trim(),
+      createdAt: serverTimestamp()
+    });
+    document.getElementById('modalOverlayPaiement').remove();
+    chargerHistoriquePaiements(membreId);
+  });
+};
+
+window.supprimerPaiement = async (paiementId, membreId) => {
+  if (!confirm('Supprimer ce paiement de l\'historique ?')) return;
+  await deleteDoc(doc(db, 'paiements', paiementId));
+  chargerHistoriquePaiements(membreId);
+};
+
+// ==========================================================================
+// CE SOIR — cours du jour, météo, maintien / annulation
+// ==========================================================================
+let offsetSemaineCeSoir = 0;
+
+async function chargerCeSoir() {
+  const wrap = document.getElementById('listeCeSoir');
+  if (!wrap) return; // section pas affichée actuellement (ex: appelé en arrière-plan depuis un modal) — rien à rafraîchir
+  try {
+
+  // Construit la liste des occurrences de cours sur la semaine civile
+  // affichée (toujours du lundi au dimanche, jamais "aujourd'hui + 6
+  // jours"), décalée de offsetSemaineCeSoir semaines — négatif pour
+  // naviguer dans l'historique, positif pour anticiper.
+  const debutFenetre = new Date(); debutFenetre.setHours(0, 0, 0, 0);
+  const jourSemaineActuel = (debutFenetre.getDay() + 6) % 7; // 0 = lundi ... 6 = dimanche
+  debutFenetre.setDate(debutFenetre.getDate() - jourSemaineActuel + offsetSemaineCeSoir * 7);
+  const finFenetre = new Date(debutFenetre); finFenetre.setDate(debutFenetre.getDate() + 6);
+  const libelleEl = document.getElementById('libelleSemaineCeSoir');
+  if (libelleEl) {
+    libelleEl.textContent = offsetSemaineCeSoir === 0
+      ? `Cette semaine (${debutFenetre.toLocaleDateString('fr-BE', { day: 'numeric', month: 'long' })} – ${finFenetre.toLocaleDateString('fr-BE', { day: 'numeric', month: 'long' })})`
+      : `Du ${debutFenetre.toLocaleDateString('fr-BE', { day: 'numeric', month: 'long' })} au ${finFenetre.toLocaleDateString('fr-BE', { day: 'numeric', month: 'long', year: 'numeric' })}`;
+  }
+
+  const occurrences = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(debutFenetre); d.setDate(debutFenetre.getDate() + i);
+    const jour = JOURS[d.getDay()];
+    const dateISO = dateISOLocale(d);
+    currentGroupes.filter(g => g.jour === jour).forEach(g => occurrences.push({ date: d, dateISO, groupe: g }));
+  }
+
+  const annulations = await chargerAnnulationsCache();
+  const exceptionsHoraire = await chargerExceptionsHoraireCache();
+
+  // Injecte dans la fenêtre affichée les cours déplacés vers une AUTRE date
+  // (ex: pluie le lundi → reporté au mardi) — même si ce mardi n'est pas le
+  // jour récurrent habituel du groupe, le cours doit apparaître là où il a
+  // réellement lieu maintenant.
+  Object.values(exceptionsHoraire).forEach(ex => {
+    if (!ex.nouvelleDateISO || ex.nouvelleDateISO === ex.dateISOOriginal) return;
+    const dNouvelle = new Date(ex.nouvelleDateISO + 'T00:00:00');
+    if (dNouvelle < debutFenetre || dNouvelle > finFenetre) return;
+    const groupe = currentGroupes.find(g => g.id === ex.groupeId);
+    if (!groupe) return;
+    occurrences.push({ date: dNouvelle, dateISO: ex.nouvelleDateISO, groupe, exceptionInjectee: ex });
+  });
+  occurrences.sort((a, b) => a.date - b.date);
+
+  if (occurrences.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucun cours sur cette période.</div>';
+    return;
+  }
+
+  const confirmSnap = await getDocs(collection(db, 'confirmations'));
+  const confirmations = {};
+  confirmSnap.forEach(d => { confirmations[d.id] = d.data(); });
+
+  const toutesPresences = await chargerPresencesCache();
+  const presencesParCle = {};
+  toutesPresences.forEach(p => {
+    const cle = `${p.groupeId}_${p.dateISO}`;
+    if (!presencesParCle[cle]) presencesParCle[cle] = { present: 0, absent: 0 };
+    presencesParCle[cle][p.statut === 'present' ? 'present' : 'absent']++;
+  });
+
+  const MIN_PARTICIPANTS = 4;
+  const aujourdhuiISO = dateISOLocale(new Date());
+
+  const lignes = await Promise.all(occurrences.map(async ({ date, dateISO, groupe: g, exceptionInjectee }) => {
+    const cle = `${g.id}_${dateISO}`;
+    const annule = annulations[cle];
+    const confirme = confirmations[cle];
+    // Le déplacement peut venir soit d'une exception directement sur ce
+    // créneau (changement d'heure, ou déplacement dont CE créneau est
+    // l'origine), soit avoir été injecté ci-dessus (ce créneau EST la
+    // nouvelle date d'un cours déplacé depuis un autre jour).
+    const exceptionPropre = exceptionsHoraire[cle];
+    const exceptionH = exceptionInjectee || exceptionPropre;
+    const deplaceAilleurs = exceptionPropre && exceptionPropre.nouvelleDateISO && exceptionPropre.nouvelleDateISO !== dateISO;
+    const nbMembres = currentMembres.filter(m => groupesDuMembre(m).includes(g.id)).length;
+    const presencesJour = presencesParCle[cle] || { present: 0, absent: 0 };
+    const pasAssez = !annule && !deplaceAilleurs && presencesJour.present < MIN_PARTICIPANTS;
+    let m = null;
+    try { m = await meteoPour(dateISO, g.heureDebut); } catch (e) { m = null; }
+    const alerte = alerteMeteo(m);
+    const dateLabel = date.toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' });
+    const estAujourdhui = dateISO === aujourdhuiISO;
+    const estPasse = dateISO < aujourdhuiISO;
+    const horaireAffiche = deplaceAilleurs ? `${g.heureDebut}–${g.heureFin}` : (exceptionH ? `${exceptionH.nouvelleHeureDebut}–${exceptionH.nouvelleHeureFin}` : `${g.heureDebut}–${g.heureFin}`);
+
+    return `
+    <div class="data-row">
+      <div class="data-main">
+        <div class="data-title">${estAujourdhui ? "Ce soir — " : ""}${capitalize(dateLabel)} — ${escapeHtml(g.nom)} (${horaireAffiche})</div>
+        <div class="data-sub">
+          ${nbMembres} chiens inscrits · <strong>${presencesJour.present}</strong> confirmé(s) présent(s)${presencesJour.absent ? `, ${presencesJour.absent} absent(s)` : ''}
+          ${deplaceAilleurs ? '' : (annule ? `<span class="badge badge-danger">Annulé — ${escapeHtml(annule.motif)}</span>` : `<span class="badge badge-ok">Maintenu</span>`)}
+          ${confirme && !annule && !deplaceAilleurs ? `<span class="badge badge-ok">✅ Confirmé par Katia</span>` : ''}
+          ${deplaceAilleurs
+            ? `<span class="badge badge-warn">🔀 Déplacé au ${new Date(exceptionPropre.nouvelleDateISO + 'T00:00:00').toLocaleDateString('fr-BE', { day: 'numeric', month: 'long' })} à ${exceptionPropre.nouvelleHeureDebut}</span>`
+            : (exceptionInjectee
+              ? `<span class="badge badge-warn">🔀 Déplacé depuis le ${new Date(exceptionInjectee.dateISOOriginal + 'T00:00:00').toLocaleDateString('fr-BE', { day: 'numeric', month: 'long' })}</span>`
+              : (exceptionH ? `<span class="badge badge-warn">⏰ Horaire exceptionnel (habituellement ${g.heureDebut}–${g.heureFin})</span>` : ''))}
+          ${deplaceAilleurs ? '' : (m ? `<span class="badge badge-neutral">${iconeCode(m.code)} ${m.temperature}°C · pluie ${m.pluie}%</span>` : '<span class="badge badge-neutral">Météo indisponible</span>')}
+        </div>
+        ${exceptionH ? `<div class="data-sub" style="font-style:italic;">Motif : ${escapeHtml(exceptionH.motif)}</div>` : ''}
+        ${alerte && !annule && !deplaceAilleurs ? `<div class="banner-alert" style="margin-top:8px; padding:8px 12px; ${alerte.niveau==='danger' ? 'background:#FBEAEA;border-color:#E3B4B4;color:#8A2E2E;' : ''}">⚠️ ${alerte.texte} — pense à vérifier si le cours doit être maintenu.</div>` : ''}
+        ${pasAssez ? `<div class="banner-alert" style="margin-top:8px; padding:8px 12px; background:#FBEAEA;border-color:#E3B4B4;color:#8A2E2E;">⚠️ Seulement ${presencesJour.present} confirmation(s) sur les ${MIN_PARTICIPANTS} minimum requises — le cours devra être annulé faute de participants si ça n'évolue pas.</div>` : ''}
+      </div>
+      <div class="data-actions">
+        ${deplaceAilleurs ? '' : `
+        <button class="btn-sm" onclick="window.voirMembresCours('${g.id}','${dateISO}')">Membres</button>
+        ${estPasse ? '' : (annule
+          ? `<button class="btn-sm" onclick="window.reactiverCours('${g.id}','${dateISO}')">Réactiver</button>`
+          : `
+            ${!confirme ? `<button class="btn-sm primary" onclick="window.validerCoursSemaine('${g.id}','${dateISO}')">✅ Valider ce cours</button>` : `<button class="btn-sm" onclick="window.retirerValidationCours('${g.id}','${dateISO}')">Retirer la validation</button>`}
+            <button class="btn-sm" onclick="window.ouvrirModalChangementHoraire('${g.id}','${dateISO}')">⏰ Changer la date/l'horaire</button>
+            <button class="btn-sm danger" onclick="window.annulerCours('${g.id}','${dateISO}')">Annuler ce cours</button>
+          `)}`}
+      </div>
+    </div>`;
+  }));
+
+  wrap.innerHTML = lignes.join('');
+
+  } catch (err) {
+    wrap.innerHTML = `<div class="banner-alert" style="background:#FBEAEA; border-color:#E3B4B4; color:#8A2E2E;">Erreur : ${escapeHtml(err.code || '')} — ${escapeHtml(err.message || String(err))}</div>`;
+  }
+}
+
+function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+document.getElementById('btnSemainePrecedente')?.addEventListener('click', () => {
+  offsetSemaineCeSoir--;
+  chargerCeSoir();
+});
+document.getElementById('btnSemaineSuivante')?.addEventListener('click', () => {
+  offsetSemaineCeSoir++;
+  chargerCeSoir();
+});
+
+window.marquerPresenceManuelle = async (groupeId, dateISO, uid, statut) => {
+  await setDoc(doc(db, 'presences', `${groupeId}_${dateISO}_${uid}`), {
+    groupeId, uid, dateISO, statut,
+    repondu: new Date().toISOString(),
+    compteAbonnement: false,
+    marqueParAdmin: true
+  });
+  invaliderCachePresences();
+  await traiterAbsencesAutomatiques(); // décompte l'abonnement immédiatement, comme pour une réponse normale
+  window.voirMembresCours(groupeId, dateISO); // rafraîchit la fenêtre avec le nouveau statut
+  chargerCeSoir(); // rafraîchit aussi le total de présents affiché derrière la fenêtre
+};
+
+window.voirMembresCours = async (groupeId, dateISO) => {
+  const groupe = currentGroupes.find(g => g.id === groupeId);
+
+  const presSnap = await getDocs(query(collection(db, 'presences'), where('groupeId', '==', groupeId), where('dateISO', '==', dateISO)));
+  const reponses = {};
+  presSnap.forEach(d => { reponses[d.data().uid] = d.data(); });
+
+  // Membres du groupe + tout membre d'un AUTRE groupe ajouté
+  // exceptionnellement à cette occurrence précise (voir
+  // window.ouvrirAjoutExceptionnel ci-dessous, ex: son propre cours habituel
+  // a été annulé et il vient à celui-ci à la place) — sans ce deuxième
+  // critère, un membre ajouté exceptionnellement disparaîtrait de cette
+  // liste à la prochaine ouverture de la fenêtre.
+  const membresDuGroupe = currentMembres.filter(m => groupesDuMembre(m).includes(groupeId) || reponses[m.id]);
+
+  // Si ce cours précis a été annulé, les réponses "Présent" enregistrées
+  // avant l'annulation restent affichées telles quelles ci-dessous (trace
+  // de ce que le membre avait répondu) — mais sans ce bandeau, ça prête à
+  // confusion : on dirait que le cours a bien eu lieu avec ces présences.
+  const annulations = await chargerAnnulationsCache();
+  const annulation = annulations[`${groupeId}_${dateISO}`];
+
+  const dateLabel = new Date(dateISO + 'T00:00:00').toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  const lignes = membresDuGroupe.map(m => {
+    const r = reponses[m.id];
+    const estExceptionnel = !groupesDuMembre(m).includes(groupeId);
+    const nomsGroupesHabituels = estExceptionnel ? nomsGroupesDuMembre(m) : '';
+    let badge;
+    if (!r) badge = '<span class="badge badge-neutral">N\'a pas encore répondu</span>';
+    else if (r.statut === 'present') badge = '<span class="badge badge-ok">Présent</span>';
+    else if (r.statut === 'absent-auto') badge = '<span class="badge badge-warn">Absent — non répondu (décompté)</span>';
+    else if (r.statut === 'absent-justifie') badge = '<span class="badge badge-neutral">Absent justifié (non décompté)</span>';
+    else badge = '<span class="badge badge-neutral">Absent (signalé)</span>';
+    if (estExceptionnel) badge += ` <span class="badge badge-neutral">🔁 Exceptionnellement ici (habituellement ${escapeHtml(nomsGroupesHabituels)})</span>`;
+    return `
+      <div class="data-row">
+        <div class="data-main">
+          <div class="data-title">${escapeHtml(m.nomMaitre)}${nomsChiensActifs(m) ? ' — ' + escapeHtml(nomsChiensActifs(m)) : ''}</div>
+          <div class="data-sub">${badge}</div>
+        </div>
+        <div class="data-actions">
+          <button class="btn-sm primary" onclick="window.marquerPresenceManuelle('${groupeId}','${dateISO}','${m.id}','present')">✅ Présent</button>
+          <button class="btn-sm danger" onclick="window.marquerPresenceManuelle('${groupeId}','${dateISO}','${m.id}','absent-auto')">Absent (décompté)</button>
+          <button class="btn-sm" onclick="window.marquerPresenceManuelle('${groupeId}','${dateISO}','${m.id}','absent-justifie')">Absent justifié (non décompté)</button>
+          ${estExceptionnel ? `<button class="btn-sm danger" onclick="window.retirerMembreExceptionnel('${groupeId}','${dateISO}','${m.id}')">Retirer (exceptionnel)</button>` : ''}
+        </div>
+      </div>`;
+  }).join('');
+
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box" style="max-width:640px;">
+        <h3>${escapeHtml(groupe?.nom || '')} — ${capitalize(dateLabel)}</h3>
+        ${annulation ? `<div class="banner-alert" style="margin-bottom:10px;">🚫 Ce cours a été annulé (${escapeHtml(annulation.motif || '')}) — il n'a pas eu lieu et ne compte pour aucun membre, même ceux affichés "Présent" ci-dessous (trace de leur réponse d'origine).</div>` : ''}
+        <p style="color:var(--slate); font-size:0.85rem;">En temps normal, chaque membre valide lui-même sa présence depuis son espace. Utilise ces boutons pour aider un membre qui n'y arrive pas seul (pas d'accès, difficulté avec le site...).</p>
+        <div class="data-list ce-soir-membres">
+          ${lignes || '<div class="empty-state">Aucun membre dans ce groupe.</div>'}
+        </div>
+        <button class="btn-sm" style="margin-top:10px;" onclick="window.ouvrirAjoutExceptionnel('${groupeId}','${dateISO}')">+ Ajouter un membre d'un autre groupe exceptionnellement</button>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="window.fermerModal()">Fermer</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+};
+
+// Permet à Katia d'ajouter, pour UNE occurrence précise, un membre qui
+// appartient normalement à un AUTRE groupe — typiquement quand le cours
+// habituel de ce membre vient d'être annulé et qu'il participe à celui-ci
+// à la place. Le cours est immédiatement décompté de son abonnement (comme
+// n'importe quelle présence marquée par l'admin) et le membre reçoit un
+// message l'informant du changement exceptionnel.
+window.ouvrirAjoutExceptionnel = async (groupeId, dateISO) => {
+  const presSnap = await getDocs(query(collection(db, 'presences'), where('groupeId', '==', groupeId), where('dateISO', '==', dateISO)));
+  const dejaIds = new Set();
+  presSnap.forEach(d => dejaIds.add(d.data().uid));
+
+  const candidats = currentMembres
+    .filter(m => !groupesDuMembre(m).includes(groupeId) && !dejaIds.has(m.id))
+    .sort((a, b) => (a.nomMaitre || '').localeCompare(b.nomMaitre || '', 'fr', { sensitivity: 'base' }));
+
+  if (candidats.length === 0) {
+    alert("Aucun autre membre disponible à ajouter : ils sont déjà tous soit dans ce groupe, soit déjà enregistrés pour ce cours.");
+    return;
+  }
+
+  // Seuls le nom du maître et le(s) nom(s) du/des chien(s) sont affichés
+  // (pas le groupe habituel ni les cours restants) — avec un champ de
+  // recherche, pour retrouver vite un membre dans une liste qui peut être
+  // longue.
+  const rendreListe = (terme) => {
+    const t = (terme || '').trim().toLowerCase();
+    const filtres = !t ? candidats : candidats.filter(m =>
+      (m.nomMaitre || '').toLowerCase().includes(t) || nomsChiensActifs(m).toLowerCase().includes(t));
+    if (filtres.length === 0) return '<div class="empty-state">Aucun membre ne correspond.</div>';
+    return filtres.map(m => `
+      <div class="data-row">
+        <div class="data-main">
+          <div class="data-title">${escapeHtml(m.nomMaitre)}</div>
+          <div class="data-sub">${escapeHtml(nomsChiensActifs(m) || '—')}</div>
+        </div>
+        <div class="data-actions">
+          <button class="btn-sm primary" onclick="window.confirmerAjoutExceptionnel('${groupeId}','${dateISO}','${m.id}')">Ajouter</button>
+        </div>
+      </div>`).join('');
+  };
+
+  const html = `
+    <div class="modal-overlay" id="modalOverlayAjoutExceptionnel">
+      <div class="modal-box">
+        <h3>Ajouter un membre exceptionnellement</h3>
+        <p style="font-size:0.85rem; color:var(--slate);">Pour un membre d'un AUTRE groupe qui vient à ce cours-ci à titre exceptionnel (ex: son propre cours habituel a été annulé). Le cours sera immédiatement décompté de son abonnement, et il recevra un message l'informant du changement.</p>
+        <div class="field"><input type="text" id="ae-recherche" placeholder="Rechercher un maître ou un chien..."></div>
+        <div class="data-list" id="ae-liste" style="max-height:320px; overflow-y:auto;">${rendreListe('')}</div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="document.getElementById('modalOverlayAjoutExceptionnel').remove()">Fermer</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  document.getElementById('ae-recherche').addEventListener('input', (e) => {
+    document.getElementById('ae-liste').innerHTML = rendreListe(e.target.value);
+  });
+  document.getElementById('ae-recherche').focus();
+};
+
+window.confirmerAjoutExceptionnel = async (groupeId, dateISO, uid) => {
+  document.getElementById('modalOverlayAjoutExceptionnel')?.remove();
+  await window.ajouterMembreExceptionnel(groupeId, dateISO, uid);
+  window.voirMembresCours(groupeId, dateISO);
+  chargerCeSoir(); // rafraîchit aussi le total de présents affiché derrière la fenêtre
+};
+
+window.ajouterMembreExceptionnel = async (groupeId, dateISO, uid) => {
+  const groupe = currentGroupes.find(g => g.id === groupeId);
+  const m = currentMembres.find(x => x.id === uid);
+  const nomsGroupesHabituels = m ? nomsGroupesDuMembre(m) : '';
+  const dateLabel = new Date(dateISO + 'T00:00:00').toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' });
+
+  await setDoc(doc(db, 'presences', `${groupeId}_${dateISO}_${uid}`), {
+    groupeId, uid, dateISO, statut: 'present',
+    repondu: new Date().toISOString(),
+    compteAbonnement: false,
+    marqueParAdmin: true,
+    exceptionnel: true,
+    groupeHabituelId: m ? (groupesDuMembre(m)[0] || null) : null
+  });
+  invaliderCachePresences();
+  await traiterAbsencesAutomatiques(); // décompte immédiatement l'abonnement, comme pour toute présence marquée par l'admin
+
+  const texte = `📅 Changement exceptionnel : vous avez été ajouté(e) au cours "${groupe ? groupe.nom : ''}" du ${dateLabel}${nomsGroupesHabituels ? ` (à la place de votre cours habituel "${nomsGroupesHabituels}")` : ''} par Katia. Ce cours compte dans votre abonnement.`;
+  await addDoc(collection(db, 'conversations', uid, 'messages'), {
+    texte, expediteur: 'admin', dateEnvoi: new Date().toISOString(), lu: false
+  });
+  await setDoc(doc(db, 'conversations', uid), {
+    dernierMessage: texte, dateDernierMessage: new Date().toISOString(), nonLuMembre: true
+  });
+};
+
+window.retirerMembreExceptionnel = async (groupeId, dateISO, uid) => {
+  if (!confirm("Retirer ce membre de ce cours exceptionnel ? Si le cours avait déjà été décompté de son abonnement, il sera recrédité.")) return;
+  const presenceId = `${groupeId}_${dateISO}_${uid}`;
+  const presSnap = await getDoc(doc(db, 'presences', presenceId));
+  if (presSnap.exists() && presSnap.data().compteAbonnement === true) {
+    await updateDoc(doc(db, 'membres', uid), { coursRestants: increment(1) });
+  }
+  await desassocierPresenceAbonnement(uid, presenceId);
+  await deleteDoc(doc(db, 'presences', presenceId));
+  invaliderCachePresences();
+  window.voirMembresCours(groupeId, dateISO);
+  chargerCeSoir(); // rafraîchit aussi le total de présents affiché derrière la fenêtre
+};
+
+window.validerCoursSemaine = async (groupeId, dateISO) => {
+  await setDoc(doc(db, 'confirmations', `${groupeId}_${dateISO}`), {
+    validePar: 'admin', dateValidation: serverTimestamp()
+  });
+  chargerCeSoir();
+};
+
+window.retirerValidationCours = async (groupeId, dateISO) => {
+  await deleteDoc(doc(db, 'confirmations', `${groupeId}_${dateISO}`));
+  chargerCeSoir();
+};
+
+window.annulerCours = (groupeId, dateISO) => {
+  const html = `
+    <div class="modal-overlay" id="modalOverlayMotif">
+      <div class="modal-box">
+        <h3>Motif de l'annulation</h3>
+        <div class="field">
+          <select id="motif-select">
+            <option value="Pluie">Pluie</option>
+            <option value="Chaleur / canicule">Chaleur / canicule</option>
+            <option value="Pas assez de participants">Pas assez de participants</option>
+            <option value="Autre">Autre (préciser ci-dessous)</option>
+          </select>
+        </div>
+        <div class="field"><label>Précision (optionnel)</label><input id="motif-texte" placeholder="ex: orage annoncé en soirée"></div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="document.getElementById('modalOverlayMotif').remove()">Annuler</button>
+          <button class="btn-sm primary" id="motif-save">Confirmer l'annulation</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  document.getElementById('motif-save').addEventListener('click', async () => {
+    const choix = document.getElementById('motif-select').value;
+    const precision = document.getElementById('motif-texte').value.trim();
+    const motif = precision ? `${choix} — ${precision}` : choix;
+    await setDoc(doc(db, 'annulations', `${groupeId}_${dateISO}`), {
+      motif, annulePar: 'admin', dateAnnulation: serverTimestamp()
+    });
+    await deleteDoc(doc(db, 'confirmations', `${groupeId}_${dateISO}`)).catch(() => {});
+
+    // Prévient par message chaque membre qui avait confirmé sa présence à
+    // ce cours précis — avec le point rouge habituel sur son onglet Messages.
+    const groupe = currentGroupes.find(g => g.id === groupeId);
+    const dateLabel = new Date(dateISO + 'T00:00:00').toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' });
+    // Rembourse et prévient TOUT membre dont ce cours avait déjà été
+    // décompté — qu'il ait répondu "présent" ou qu'il n'ait pas répondu à
+    // temps ("absent-auto", décompté aussi). Un cours annulé ne doit
+    // jamais coûter un cours d'abonnement à personne, peu importe la
+    // raison du décompte initial.
+    // Rembourse et prévient TOUT membre dont ce cours avait déjà été
+    // décompté — qu'il ait répondu "présent" ou qu'il n'ait pas répondu à
+    // temps ("absent-auto", décompté aussi). Un cours annulé ne doit
+    // jamais coûter un cours d'abonnement à personne, peu importe la
+    // raison du décompte initial. Filtré depuis le cache local (déjà
+    // chargé) plutôt qu'une nouvelle requête, pour éviter tout risque
+    // d'index composite manquant sur ce croisement de champs.
+    const toutesPresences = await chargerPresencesCache();
+    const presencesConcernees = toutesPresences.filter(p =>
+      p.groupeId === groupeId && p.dateISO === dateISO && (p.statut === 'present' || p.statut === 'absent-auto'));
+    const texteAuto = `🚫 Cours annulé : votre cours du ${dateLabel} (${groupe ? groupe.nom : ''}) est annulé — motif : ${motif}.`;
+    await Promise.all(presencesConcernees.map(async (p) => {
+      const uid = p.uid;
+      // Si ce cours avait déjà été décompté avant l'annulation, on
+      // rembourse immédiatement — un cours annulé ne doit jamais coûter
+      // un cours d'abonnement à un membre qui avait dit "présent".
+      if (p.compteAbonnement) {
+        await updateDoc(doc(db, 'membres', uid), { coursRestants: increment(1) }).catch(() => {});
+        await updateDoc(doc(db, 'presences', p.id), { compteAbonnement: false });
+        await desassocierPresenceAbonnement(uid, p.id); // vide la case de la carte d'abonnement correspondante
+      }
+      await addDoc(collection(db, 'conversations', uid, 'messages'), {
+        texte: texteAuto, expediteur: 'admin', dateEnvoi: new Date().toISOString(), lu: false
+      });
+      await setDoc(doc(db, 'conversations', uid), {
+        dernierMessage: texteAuto, dateDernierMessage: new Date().toISOString(), nonLuMembre: true
+      }, { merge: true });
+    }));
+
+    chargerMembres();
+    invaliderCacheAnnulations();
+    invaliderCachePresences();
+    document.getElementById('modalOverlayMotif').remove();
+    chargerCeSoir();
+  });
+};
+
+window.reactiverCours = async (groupeId, dateISO) => {
+  await deleteDoc(doc(db, 'annulations', `${groupeId}_${dateISO}`));
+  invaliderCacheAnnulations();
+  chargerCeSoir();
+};
+
+window.ouvrirModalChangementHoraire = (groupeId, dateISO) => {
+  const groupe = currentGroupes.find(g => g.id === groupeId);
+  const dateLabel = new Date(dateISO + 'T00:00:00').toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' });
+  const html = `
+    <div class="modal-overlay" id="modalOverlayHoraire">
+      <div class="modal-box">
+        <h3>⏰ Changer la date ou l'heure de ce cours</h3>
+        <p style="font-size:0.85rem; color:var(--slate);">${escapeHtml(groupe?.nom || '')} — normalement le ${capitalize(dateLabel)}. Ce changement est ponctuel, pour cette occurrence précise uniquement — la récurrence habituelle du groupe (${JOURS_MAJ[groupe?.jour] || ''} ${groupe?.heureDebut}–${groupe?.heureFin}) n'est pas modifiée pour les autres semaines.</p>
+        <div class="form-grid">
+          <div class="field"><label>Nouvelle date</label><input type="date" id="mh-date" value="${dateISO}"></div>
+          <div class="field"></div>
+          <div class="field"><label>Nouvelle heure de début</label><input type="time" id="mh-debut" value="${groupe?.heureDebut || ''}"></div>
+          <div class="field"><label>Nouvelle heure de fin</label><input type="time" id="mh-fin" value="${groupe?.heureFin || ''}"></div>
+        </div>
+        <div class="field"><label>Motif (obligatoire)</label>
+          <select id="mh-motif-select">
+            <option value="Chaleur">Chaleur</option>
+            <option value="Pluie">Pluie</option>
+            <option value="Autre">Autre</option>
+          </select>
+        </div>
+        <div class="field"><label>Précision (optionnel)</label><input id="mh-motif-texte" placeholder="ex: reporté à demain à cause de la pluie"></div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="document.getElementById('modalOverlayHoraire').remove()">Annuler</button>
+          <button class="btn-sm primary" id="mh-save">Confirmer le changement</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+
+  document.getElementById('mh-save').addEventListener('click', async () => {
+    const nouvelleDateISO = document.getElementById('mh-date').value;
+    const nouvelleHeureDebut = document.getElementById('mh-debut').value;
+    const nouvelleHeureFin = document.getElementById('mh-fin').value;
+    if (!nouvelleDateISO || !nouvelleHeureDebut || !nouvelleHeureFin) { alert('Merci d\'indiquer la date et les deux heures.'); return; }
+    const choix = document.getElementById('mh-motif-select').value;
+    const precision = document.getElementById('mh-motif-texte').value.trim();
+    const motif = precision ? `${choix} — ${precision}` : choix;
+    const dateChangee = nouvelleDateISO !== dateISO;
+
+    await setDoc(doc(db, 'exceptions_horaire', `${groupeId}_${dateISO}`), {
+      groupeId, dateISOOriginal: dateISO,
+      heureDebutOriginal: groupe?.heureDebut || '',
+      heureFinOriginal: groupe?.heureFin || '',
+      nouvelleDateISO, nouvelleHeureDebut, nouvelleHeureFin, motif,
+      dateCreation: serverTimestamp()
+    });
+    invaliderCacheExceptionsHoraire();
+
+    // Prévient tous les membres du groupe par message, avec le point rouge
+    // habituel sur leur onglet Messages.
+    const nouvelleDateLabel = new Date(nouvelleDateISO + 'T00:00:00').toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' });
+    const texteAuto = dateChangee
+      ? `🔀 Changement exceptionnel : votre cours du ${dateLabel} (${escapeHtml(groupe?.nom || '')}) est reporté au ${nouvelleDateLabel} de ${nouvelleHeureDebut} à ${nouvelleHeureFin} — motif : ${motif}. La récurrence habituelle du groupe n'est pas modifiée.`
+      : `⏰ Changement d'horaire exceptionnel : votre cours du ${dateLabel} (${escapeHtml(groupe?.nom || '')}) aura lieu de ${nouvelleHeureDebut} à ${nouvelleHeureFin} au lieu de ${groupe?.heureDebut}–${groupe?.heureFin} — motif : ${motif}. La récurrence habituelle du groupe n'est pas modifiée.`;
+    const membresGroupe = currentMembres.filter(m => groupesDuMembre(m).includes(groupeId));
+    await Promise.all(membresGroupe.map(async (m) => {
+      await addDoc(collection(db, 'conversations', m.id, 'messages'), {
+        texte: texteAuto, expediteur: 'admin', dateEnvoi: new Date().toISOString(), lu: false
+      });
+      await setDoc(doc(db, 'conversations', m.id), {
+        dernierMessage: texteAuto, dateDernierMessage: new Date().toISOString(), nonLuMembre: true
+      }, { merge: true });
+    }));
+
+    document.getElementById('modalOverlayHoraire').remove();
+    chargerCeSoir();
+  });
+};
+
+// ---------- Utils ----------
+function formaterPoids(poids, unite) {
+  return unite === 'kg' ? Number(poids).toFixed(2) : poids;
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return str.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function escapeAttr(str) { return escapeHtml(str); }
+
+// Blocs de fiche repliables : tout <h3 class="bloc-titre"> ouvre/ferme le
+// <div class="bloc-contenu"> qui le suit directement (arrow ▾ / ▸). Fonction
+// générique appelée après le rendu HTML concerné (ex: à l'ouverture de la
+// fiche membre) — sans effet si aucun bloc-titre n'est présent dans conteneur.
+function activerBlocsRepliables(conteneur) {
+  (conteneur || document).querySelectorAll('.bloc-titre').forEach(titre => {
+    if (titre.dataset.repliableInit) return;
+    titre.dataset.repliableInit = '1';
+    const contenu = titre.nextElementSibling;
+    if (!contenu || !contenu.classList.contains('bloc-contenu')) return;
+    titre.addEventListener('click', () => {
+      const seFerme = !contenu.classList.contains('replie');
+      contenu.classList.toggle('replie', seFerme);
+      titre.classList.toggle('replie', seFerme);
+    });
+  });
+}
+
+// Échappe le texte puis transforme les liens http(s)://... tapés dedans en
+// vrais liens cliquables (ouverture dans un nouvel onglet).
+function texteAvecLiens(str) {
+  const echappe = escapeHtml(str);
+  return echappe.replace(/(https?:\/\/[^\s<]+)/g, url =>
+    `<a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`);
+}
+
+// ==========================================================================
+// SERVICES (remplace l'ancien "Tarifs" — catégories libres, prix ou texte)
+// ==========================================================================
+const SERVICES_PAR_DEFAUT = [
+  { categorie: 'Éducation canine', nom: 'Cours collectif', prix: 70, prixTexte: '', unite: 'les 11 cours (10 + 1 gratuit)', conditions: '', prixFutur: null, dateFutur: '' },
+  { categorie: 'Éducation canine', nom: 'Cours individuel', prix: 8, prixTexte: '', unite: 'par cours', conditions: '', prixFutur: null, dateFutur: '' },
+  { categorie: 'Éducation canine', nom: 'Cotisation annuelle', prix: 70, prixTexte: '', unite: 'par an', conditions: '', prixFutur: 75, dateFutur: '2027-01-01' },
+  { categorie: 'Éducation canine', nom: 'Séance de comportement individuelle', prix: 60, prixTexte: '', unite: 'par heure', conditions: '', prixFutur: null, dateFutur: '' },
+  { categorie: 'Dog Sitting', nom: 'Dog Sitting', prix: 22, prixNonMembre: 25, prixTexte: '', unite: 'par nuit', conditions: "Sous réserve d'acceptation par Katia. Le chien doit obligatoirement être castré ou stérilisé. Arrivée à partir de 14h, départ avant 12h — sinon supplément d'une nuit.", prixFutur: null, dateFutur: '' },
+  { categorie: 'Toilettage', nom: 'Toilettage pendant la pension', prix: null, prixTexte: 'Sur devis', unite: '', conditions: '', prixFutur: null, dateFutur: '' },
+  { categorie: 'Toilettage', nom: 'Toilettage à la demande', prix: null, prixTexte: '40 à 60 €', unite: 'tarif sur devis', conditions: '', prixFutur: null, dateFutur: '' }
+];
+
+let currentServices = [];
+
+async function chargerServices() {
+  const snap = await getDocs(collection(db, 'services'));
+  currentServices = [];
+  snap.forEach(d => currentServices.push({ id: d.id, ...d.data() }));
+  renderServicesAdmin();
+}
+
+function libellePrix(s) {
+  if (s.prixTexte) return s.prixTexte;
+  if (typeof s.prix === 'number') return `${s.prix.toFixed(2)} €${s.unite ? ' — ' + s.unite : ''}`;
+  return '—';
+}
+
+function renderServicesAdmin() {
+  const wrap = document.getElementById('listeServices');
+  if (currentServices.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucun service pour l\'instant. Clique sur "Initialiser les services par défaut" ou ajoute-les un par un.</div>';
+    return;
+  }
+  const categories = [...new Set(currentServices.map(s => s.categorie || 'Autres'))];
+  wrap.innerHTML = categories.map(cat => `
+    <h3 style="margin-top:18px;">${escapeHtml(cat)}</h3>
+    <div class="data-list">
+      ${currentServices.filter(s => (s.categorie || 'Autres') === cat).map(s => `
+        <div class="data-row">
+          <div class="data-main">
+            <div class="data-title">${escapeHtml(s.nom)}</div>
+            <div class="data-sub">${libellePrix(s)}${s.prixFutur ? ` <span class="badge badge-warn">${Number(s.prixFutur).toFixed(2)} € à partir du ${s.dateFutur}</span>` : ''}</div>
+            ${s.conditions ? `<div class="data-sub">${escapeHtml(s.conditions)}</div>` : ''}
+          </div>
+          <div class="data-actions">
+            <button class="btn-sm" onclick="window.editerService('${s.id}')">Modifier</button>
+            <button class="btn-sm danger" onclick="window.supprimerService('${s.id}')">Supprimer</button>
+          </div>
+        </div>`).join('')}
+    </div>`).join('');
+}
+
+document.getElementById('btnAjouterService').addEventListener('click', () => ouvrirModalService());
+
+window.editerService = (id) => {
+  const s = currentServices.find(x => x.id === id);
+  ouvrirModalService(s);
+};
+
+window.supprimerService = async (id) => {
+  if (!confirm('Supprimer ce service ?')) return;
+  await deleteDoc(doc(db, 'services', id));
+  chargerServices();
+};
+
+function ouvrirModalService(service) {
+  const isEdit = !!service;
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box">
+        <h3>${isEdit ? 'Modifier le service' : 'Ajouter un service'}</h3>
+        <div class="form-grid">
+          <div class="field"><label>Catégorie</label><input id="sv-categorie" value="${isEdit ? escapeAttr(service.categorie||'') : ''}" placeholder="ex: Éducation canine, Dog Sitting, Toilettage" list="sv-categories-list"></div>
+          <datalist id="sv-categories-list">
+            ${[...new Set(currentServices.map(s => s.categorie))].map(c => `<option value="${escapeAttr(c)}">`).join('')}
+          </datalist>
+          <div class="field"><label>Nom du service</label><input id="sv-nom" value="${isEdit ? escapeAttr(service.nom||'') : ''}"></div>
+        </div>
+        <div class="form-grid">
+          <div class="field"><label>Prix TTC (€, laisser vide si "sur devis")</label><input type="number" step="0.01" id="sv-prix" value="${isEdit && service.prix != null ? service.prix : ''}"></div>
+          <div class="field"><label>Prix non-membre TTC (€, si différent — ex: Dog Sitting)</label><input type="number" step="0.01" id="sv-prixNonMembre" value="${isEdit && service.prixNonMembre != null ? service.prixNonMembre : ''}"></div>
+        </div>
+        <div class="field"><label>Ou texte libre (ex: "40 à 60 €")</label><input id="sv-prixTexte" value="${isEdit ? escapeAttr(service.prixTexte||'') : ''}"></div>
+        <div class="field"><label>Unité / précision (ex: "par jour", "par heure")</label><input id="sv-unite" value="${isEdit ? escapeAttr(service.unite||'') : ''}"></div>
+        <div class="field"><label>Conditions particulières (optionnel)</label><textarea id="sv-conditions" rows="2" style="resize:vertical;">${isEdit ? escapeHtml(service.conditions||'') : ''}</textarea></div>
+        <div class="form-grid">
+          <div class="field"><label>Prix futur (optionnel)</label><input type="number" step="0.01" id="sv-prixFutur" value="${isEdit && service.prixFutur != null ? service.prixFutur : ''}"></div>
+          <div class="field"><label>À partir du</label><input type="date" id="sv-dateFutur" value="${isEdit ? (service.dateFutur||'') : ''}"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="window.fermerModal()">Annuler</button>
+          <button class="btn-sm primary" id="sv-save">Enregistrer</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+  document.getElementById('sv-save').addEventListener('click', async () => {
+    const nom = document.getElementById('sv-nom').value.trim();
+    const categorie = document.getElementById('sv-categorie').value.trim();
+    if (!nom || !categorie) { alert('Merci d\'indiquer une catégorie et un nom.'); return; }
+    const prixVal = document.getElementById('sv-prix').value;
+    const prixNonMembreVal = document.getElementById('sv-prixNonMembre').value;
+    const prixFuturVal = document.getElementById('sv-prixFutur').value;
+    const data = {
+      categorie, nom,
+      prix: prixVal === '' ? null : parseFloat(prixVal),
+      prixNonMembre: prixNonMembreVal === '' ? null : parseFloat(prixNonMembreVal),
+      prixTexte: document.getElementById('sv-prixTexte').value.trim(),
+      unite: document.getElementById('sv-unite').value.trim(),
+      conditions: document.getElementById('sv-conditions').value.trim(),
+      prixFutur: prixFuturVal === '' ? null : parseFloat(prixFuturVal),
+      dateFutur: document.getElementById('sv-dateFutur').value
+    };
+    if (isEdit) {
+      await updateDoc(doc(db, 'services', service.id), data);
+    } else {
+      await addDoc(collection(db, 'services'), data);
+    }
+    window.fermerModal();
+    chargerServices();
+  });
+}
+
+document.getElementById('btnInitServices').addEventListener('click', async () => {
+  if (currentServices.length > 0 && !confirm('Des services existent déjà. Ajouter quand même les services par défaut (sans toucher aux existants) ?')) return;
+  try {
+    for (const s of SERVICES_PAR_DEFAUT) {
+      await addDoc(collection(db, 'services'), s);
+    }
+    chargerServices();
+  } catch (err) {
+    alert('Erreur lors de la création des services : ' + (err.code || '') + ' — ' + (err.message || err));
+  }
+});
+
+// ==========================================================================
+// RDV — destinataires ciblés, prix par personne, suivi de paiement
+// ==========================================================================
+
+async function chargerIban() {
+  const paramDoc = await getDoc(doc(db, 'parametres', 'bancaire'));
+  document.getElementById('rdv-iban').value = paramDoc.exists() ? (paramDoc.data().iban || '') : '';
+}
+
+document.getElementById('btnSauverIban').addEventListener('click', async () => {
+  await setDoc(doc(db, 'parametres', 'bancaire'), { iban: document.getElementById('rdv-iban').value.trim() });
+  alert('IBAN enregistré.');
+});
+
+function libelleDestinataires(rdv, membreIdsParRdv) {
+  if (!rdv.destinataires || rdv.destinataires.type === 'tous') return 'Tous les membres';
+  if (rdv.destinataires.type === 'groupe') {
+    const g = currentGroupes.find(g => g.id === rdv.destinataires.groupeId);
+    return 'Groupe : ' + (g ? g.nom : '—');
+  }
+  const membreIds = membreIdsParRdv?.[rdv.id] || [];
+  const noms = membreIds.map(id => currentMembres.find(m => m.id === id)?.nomMaitre).filter(Boolean);
+  return 'Membres : ' + (noms.join(', ') || '—');
+}
+
+async function chargerRdv() {
+  await chargerIban();
+  const snap = await getDocs(collection(db, 'rdv'));
+  const rdvs = [];
+  snap.forEach(d => rdvs.push({ id: d.id, ...d.data() }));
+  rdvs.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+
+  const wrap = document.getElementById('listeRdv');
+  if (rdvs.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucun RDV créé pour l\'instant.</div>';
+    return;
+  }
+
+  // Destinataires nominatifs : stockés à part (rdv_admin, réservé à
+  // l'admin) pour que la liste des membres ciblés par un RDV "individuel"
+  // ne soit jamais lisible par les membres eux-mêmes.
+  const adminSnap = await getDocs(collection(db, 'rdv_admin'));
+  const membreIdsParRdv = {};
+  adminSnap.forEach(d => { membreIdsParRdv[d.id] = d.data().membreIds || []; });
+  rdvAdminCacheParId = membreIdsParRdv;
+  rdvCacheParId = {};
+  rdvs.forEach(r => { rdvCacheParId[r.id] = r; });
+
+  const reponsesSnap = await getDocs(collection(db, 'rdv_reponses'));
+  const reponsesParRdv = {};
+  reponsesSnap.forEach(d => {
+    const r = d.data();
+    if (!reponsesParRdv[r.rdvId]) reponsesParRdv[r.rdvId] = [];
+    reponsesParRdv[r.rdvId].push({ id: d.id, ...r });
+  });
+
+  wrap.innerHTML = rdvs.map(rdv => {
+    const reponses = reponsesParRdv[rdv.id] || [];
+    const presents = reponses.filter(r => r.statut === 'present');
+    const totalPersonnes = presents.reduce((s, r) => s + (r.nombrePersonnes || 1), 0);
+    // Montant dû RECALCULÉ ici à partir du prix actuel du RDV (rdv.prixParPersonne /
+    // rdv.unitePrix), et non lu depuis "r.montant" — ce champ est écrit par le
+    // membre lui-même au moment de sa réponse (voir firestore.rules : rien n'y
+    // vérifie qu'il correspond réellement au prix x la quantité), donc jamais
+    // fiable à 100% comme base d'un montant à encaisser. Les quantités
+    // (nombrePersonnes/quantiteUnite) restent déclaratives comme partout
+    // ailleurs sur le site, seul le calcul de l'argent dû est repris ici.
+    const montantDu = r => (rdv.prixParPersonne ? rdv.prixParPersonne * (r.nombrePersonnes || 1) : 0)
+      + (rdv.unitePrix ? rdv.unitePrix * (r.quantiteUnite || 0) : 0);
+    const totalDu = presents.reduce((s, r) => s + montantDu(r), 0);
+    const payes = presents.filter(r => r.paye).length;
+    const valides = presents.filter(r => r.paiementValide).length;
+    const dateLabel = rdv.date ? new Date(rdv.date + 'T00:00:00').toLocaleDateString('fr-BE', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+
+    const detailPresents = [...presents].sort((a, b) => {
+      const nomA = currentMembres.find(mm => mm.id === a.uid)?.nomMaitre || '';
+      const nomB = currentMembres.find(mm => mm.id === b.uid)?.nomMaitre || '';
+      return nomA.localeCompare(nomB, 'fr', { sensitivity: 'base' });
+    }).map(r => {
+      const m = currentMembres.find(mm => mm.id === r.uid);
+      return `
+      <div class="data-row">
+        <div class="data-main">
+          <div class="data-title">${escapeHtml(m?.nomMaitre || '?')}${m && nomsChiensActifs(m) ? ' — ' + escapeHtml(nomsChiensActifs(m)) : ''} ${r.nombrePersonnes > 1 ? `(${r.nombrePersonnes} pers.)` : ''}${rdv.uniteNom && r.quantiteUnite ? ` — ${r.quantiteUnite} ${escapeHtml(rdv.uniteNom)}${r.quantiteUnite > 1 ? 's' : ''}` : ''}</div>
+          <div class="data-sub">
+            ${(rdv.prixParPersonne || rdv.unitePrix) ? `${montantDu(r).toFixed(2)} € dû` : ''}
+            ${r.paye ? '<span class="badge badge-ok">A indiqué avoir payé</span>' : '<span class="badge badge-neutral">Pas encore payé</span>'}
+            ${r.paiementValide ? '<span class="badge badge-ok">Paiement validé</span>' : ''}
+          </div>
+        </div>
+        <div class="data-actions">
+          ${!r.paiementValide ? `<button class="btn-sm primary" onclick="window.validerPaiementRdv('${r.id}', '${rdv.id}')">Valider le paiement</button>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+
+    return `
+    <div class="data-row">
+      <div class="data-main">
+        ${rdv.photoURL ? `<img src="${escapeHtml(rdv.photoURL)}" alt="" style="width:100%; max-height:200px; object-fit:cover; border-radius:6px; margin-bottom:10px; display:block;">` : ''}
+        <div class="data-title">${escapeHtml(rdv.titre)}</div>
+        <div class="data-sub">${dateLabel} ${rdv.heure || ''} · ${escapeHtml(rdv.lieu || '')} · <span style="white-space:pre-wrap;">${escapeHtml(rdv.modalite || '')}</span></div>
+        <div class="data-sub">${escapeHtml(libelleDestinataires(rdv, membreIdsParRdv))}${rdv.prixParPersonne ? ` · ${Number(rdv.prixParPersonne).toFixed(2)} €/pers.` : ''}${rdv.uniteNom && rdv.unitePrix ? ` · ${Number(rdv.unitePrix).toFixed(2)} €/${escapeHtml(rdv.uniteNom)}` : ''}</div>
+        <div class="data-sub">
+          <span class="badge badge-ok">${presents.length} réponse(s) présent · ${totalPersonnes} pers.</span>
+          ${(rdv.prixParPersonne || rdv.unitePrix) ? `<span class="badge badge-neutral">${totalDu.toFixed(2)} € attendus</span> <span class="badge badge-neutral">${valides}/${presents.length} paiements validés</span>` : ''}
+        </div>
+        ${presents.length ? `<div style="margin-top:10px;">${detailPresents}</div>` : ''}
+      </div>
+      <div class="data-actions">
+        <button class="btn-sm" onclick="window.editerRdv('${rdv.id}')">Modifier</button>
+        <button class="btn-sm danger" onclick="window.supprimerRdv('${rdv.id}')">Supprimer</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function ouvrirModalRdv(rdvExistant) {
+  const isEdit = !!rdvExistant;
+  const membresIdsPreCoches = isEdit ? (rdvAdminCacheParId[rdvExistant.id]?.membreIds || []) : [];
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box">
+        <h3>${isEdit ? 'Modifier le RDV' : 'Créer un RDV'}</h3>
+        <div class="field"><label>Titre</label><input id="rd-titre" placeholder="ex: Repas du club" value="${isEdit ? escapeAttr(rdvExistant.titre || '') : ''}"></div>
+        <div class="form-grid">
+          <div class="field"><label>Date</label><input type="date" id="rd-date" value="${isEdit ? rdvExistant.date || '' : ''}"></div>
+          <div class="field"><label>Heure</label><input type="time" id="rd-heure" value="${isEdit ? rdvExistant.heure || '' : ''}"></div>
+        </div>
+        <div class="field"><label>Lieu</label><input id="rd-lieu" value="${isEdit ? escapeAttr(rdvExistant.lieu || '') : ''}"></div>
+        <div class="field"><label>Modalité (info libre, optionnel)</label><textarea id="rd-modalite" rows="4" style="resize:vertical;" placeholder="ex: Chacun ramène un plat">${isEdit ? escapeHtml(rdvExistant.modalite || '') : ''}</textarea></div>
+        <div class="field"><label>Photo (URL, optionnel)</label><input id="rd-photoURL" placeholder="https://exemple.be/photo.jpg" value="${isEdit ? escapeAttr(rdvExistant.photoURL || '') : ''}"></div>
+        <div class="field"><label>Prix par personne (€ TTC, laisser vide si gratuit ou si le prix est plutôt à l'unité ci-dessous)</label><input type="number" step="0.01" id="rd-prix" value="${isEdit && rdvExistant.prixParPersonne != null ? rdvExistant.prixParPersonne : ''}"></div>
+        <div class="form-grid">
+          <div class="field"><label>Unité supplémentaire (optionnel, ex: "pain saucisse")</label><input id="rd-uniteNom" placeholder="ex: pain saucisse" value="${isEdit ? escapeAttr(rdvExistant.uniteNom || '') : ''}"></div>
+          <div class="field"><label>Prix par unité (€ TTC)</label><input type="number" step="0.01" id="rd-unitePrix" value="${isEdit && rdvExistant.unitePrix != null ? rdvExistant.unitePrix : ''}"></div>
+        </div>
+        <p style="font-size:0.78rem; color:var(--slate); margin-top:-6px; margin-bottom:14px;">Le nombre de personnes est toujours demandé (pour l'organisation). Si tu remplis "unité supplémentaire", chaque membre indiquera aussi une quantité de cette unité (ex: nombre de pains saucisses) — utile quand le prix ne dépend pas du nombre de personnes.</p>
+
+        <div class="field"><label>Destinataires</label>
+          <select id="rd-destinatairesType" ${isEdit ? 'disabled' : ''}>
+            <option value="tous" ${isEdit && rdvExistant.destinataires?.type === 'tous' ? 'selected' : ''}>Tous les membres</option>
+            <option value="groupe" ${isEdit && rdvExistant.destinataires?.type === 'groupe' ? 'selected' : ''}>Un groupe</option>
+            <option value="individuel" ${isEdit && rdvExistant.destinataires?.type === 'individuel' ? 'selected' : ''}>Membres spécifiques</option>
+          </select>
+          ${isEdit ? `<p style="font-size:0.78rem; color:var(--slate); margin-top:4px;">Le type de destinataires (tous / groupe / membres) ne peut pas être changé après création — supprime et recrée le RDV si besoin.${rdvExistant.destinataires?.type === 'individuel' ? ' Tu peux par contre cocher/décocher les membres invités ci-dessous.' : ''}</p>` : ''}
+        </div>
+        <div class="field ${isEdit && rdvExistant.destinataires?.type !== 'groupe' ? 'hidden' : ''}" id="rd-groupeWrap">
+          <label>Groupe</label>
+          <select id="rd-groupe" ${isEdit ? 'disabled' : ''}>${currentGroupes.map(g => `<option value="${g.id}" ${isEdit && rdvExistant.destinataires?.groupeId === g.id ? 'selected' : ''}>${escapeHtml(g.nom)}</option>`).join('')}</select>
+        </div>
+        <div class="field ${isEdit && rdvExistant.destinataires?.type !== 'individuel' ? 'hidden' : ''}" id="rd-membresWrap">
+          <label>Membres invités</label>
+          <div class="membre-check-list">
+            ${currentMembres.map(m => `
+              <label class="membre-check-row">
+                <input type="checkbox" class="rd-membre-check" value="${m.id}" ${isEdit && rdvExistant.destinataires?.type !== 'individuel' ? 'disabled' : ''} ${membresIdsPreCoches.includes(m.id) ? 'checked' : ''}>
+                <span>${escapeHtml(m.nomMaitre)}</span>
+              </label>`).join('')}
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="window.fermerModal()">Annuler</button>
+          <button class="btn-sm primary" id="rd-save">${isEdit ? 'Enregistrer' : 'Créer'}</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+
+  document.getElementById('rd-destinatairesType').addEventListener('change', (e) => {
+    document.getElementById('rd-groupeWrap').classList.toggle('hidden', e.target.value !== 'groupe');
+    document.getElementById('rd-membresWrap').classList.toggle('hidden', e.target.value !== 'individuel');
+  });
+
+  document.getElementById('rd-save').addEventListener('click', async (e) => {
+    const btnSave = e.currentTarget;
+    if (btnSave.disabled) return; // anti double-clic : jamais deux écritures pour un seul clic
+    const titre = document.getElementById('rd-titre').value.trim();
+    const date = document.getElementById('rd-date').value;
+    if (!titre || !date) { alert('Merci de renseigner au moins un titre et une date.'); return; }
+    btnSave.disabled = true;
+
+    try {
+      const prixVal = document.getElementById('rd-prix').value;
+      const unitePrixVal = document.getElementById('rd-unitePrix').value;
+      const donneesCommunes = {
+        titre, date,
+        heure: document.getElementById('rd-heure').value,
+        lieu: document.getElementById('rd-lieu').value.trim(),
+        modalite: document.getElementById('rd-modalite').value.trim(),
+        photoURL: document.getElementById('rd-photoURL').value.trim(),
+        prixParPersonne: prixVal === '' ? null : parseFloat(prixVal),
+        uniteNom: document.getElementById('rd-uniteNom').value.trim(),
+        unitePrix: unitePrixVal === '' ? null : parseFloat(unitePrixVal)
+      };
+
+      if (isEdit) {
+        await updateDoc(doc(db, 'rdv', rdvExistant.id), donneesCommunes);
+
+        // Si c'est un RDV à membres spécifiques, on synchronise la liste
+        // des invités : les membres décochés perdent l'accès à ce RDV
+        // (et leur point rouge associé disparaît, puisqu'ils ne le
+        // verront plus du tout) ; les membres nouvellement cochés le
+        // reçoivent avec leur propre marqueur "vu depuis" pour que le
+        // point rouge s'allume bien chez eux.
+        if (rdvExistant.destinataires?.type === 'individuel') {
+          const nouveauxCoches = [...document.querySelectorAll('.rd-membre-check:checked')].map(c => c.value);
+          const anciens = membresIdsPreCoches;
+          const ajoutes = nouveauxCoches.filter(uid => !anciens.includes(uid));
+          const retires = anciens.filter(uid => !nouveauxCoches.includes(uid));
+
+          await setDoc(doc(db, 'rdv_admin', rdvExistant.id), { membreIds: nouveauxCoches });
+          await Promise.all([
+            ...ajoutes.map(uid => setDoc(doc(db, 'rdv_cibles', `${rdvExistant.id}_${uid}`), {
+              rdvId: rdvExistant.id, uid, dateAjout: new Date().toISOString()
+            })),
+            ...retires.map(uid => deleteDoc(doc(db, 'rdv_cibles', `${rdvExistant.id}_${uid}`)).catch(() => {}))
+          ]);
+        }
+
+        window.fermerModal();
+        chargerRdv();
+        return;
+      }
+
+      const typeDest = document.getElementById('rd-destinatairesType').value;
+      let membreIdsCibles = [];
+      const destinataires = { type: typeDest, groupeId: null };
+      if (typeDest === 'groupe') destinataires.groupeId = document.getElementById('rd-groupe').value;
+      if (typeDest === 'individuel') {
+        membreIdsCibles = [...document.querySelectorAll('.rd-membre-check:checked')].map(c => c.value);
+      }
+
+      // Le RDV lui-même (lisible par tous les membres) ne contient JAMAIS la
+      // liste nominative des membres ciblés — seulement le type et, pour un
+      // ciblage par groupe, le groupeId (non personnel). La liste nominative
+      // va dans rdv_admin (réservé à l'admin), et un petit marqueur par
+      // membre ciblé va dans rdv_cibles, pour que chacun ne puisse vérifier
+      // QUE sa propre invitation, jamais celle des autres.
+      const refRdv = await addDoc(collection(db, 'rdv'), {
+        ...donneesCommunes,
+        destinataires,
+        dateCreation: serverTimestamp()
+      });
+
+      if (typeDest === 'individuel') {
+        await setDoc(doc(db, 'rdv_admin', refRdv.id), { membreIds: membreIdsCibles });
+        await Promise.all(membreIdsCibles.map(uid =>
+          setDoc(doc(db, 'rdv_cibles', `${refRdv.id}_${uid}`), { rdvId: refRdv.id, uid, dateAjout: new Date().toISOString() })
+        ));
+      }
+
+      window.fermerModal();
+      chargerRdv();
+    } finally {
+      btnSave.disabled = false;
+    }
+  });
+}
+
+document.getElementById('btnAjouterRdv').addEventListener('click', () => ouvrirModalRdv());
+
+window.editerRdv = (id) => {
+  const rdv = rdvCacheParId[id];
+  if (rdv) ouvrirModalRdv(rdv);
+};
+
+window.supprimerRdv = async (id) => {
+  if (!confirm('Supprimer ce RDV ? Les réponses des membres seront aussi supprimées.')) return;
+  await deleteDoc(doc(db, 'rdv', id));
+  await deleteDoc(doc(db, 'rdv_admin', id)).catch(() => {});
+  const ciblesSnap = await getDocs(query(collection(db, 'rdv_cibles'), where('rdvId', '==', id)));
+  await Promise.all(ciblesSnap.docs.map(d => deleteDoc(d.ref)));
+  const reponsesSnap = await getDocs(query(collection(db, 'rdv_reponses'), where('rdvId', '==', id)));
+  await Promise.all(reponsesSnap.docs.map(d => deleteDoc(d.ref)));
+  chargerRdv();
+};
+
+window.validerPaiementRdv = async (reponseId, rdvId) => {
+  await updateDoc(doc(db, 'rdv_reponses', reponseId), { paiementValide: true });
+  chargerRdv();
+};
+
+// ==========================================================================
+// MESSAGES (chat admin <-> membre)
+// ==========================================================================
+let conversationOuverte = null;
+
+async function chargerConversations() {
+  const snap = await getDocs(collection(db, 'conversations'));
+  const convs = {};
+  snap.forEach(d => { convs[d.id] = d.data(); });
+
+  const wrap = document.getElementById('listeConversations');
+  const membresAvecConv = currentMembres.filter(m => convs[m.id]);
+  const autresMembres = currentMembres.filter(m => !convs[m.id]);
+  const ordonne = [...membresAvecConv.sort((a, b) => (convs[b.id]?.dateDernierMessage || '').localeCompare(convs[a.id]?.dateDernierMessage || '')), ...autresMembres];
+
+  let unReadTotal = 0;
+  ordonne.forEach(m => { if (convs[m.id]?.nonLuAdmin) unReadTotal++; });
+  const tabBtn = document.getElementById('tabMessagesBtn');
+  tabBtn.classList.toggle('has-unread', unReadTotal > 0);
+
+  const terme = (document.getElementById('rechercheMessage')?.value || '').trim().toLowerCase();
+  const ordonneAffiches = !terme ? ordonne : ordonne.filter(m =>
+    (m.nomMaitre || '').toLowerCase().includes(terme) || nomsChiensActifs(m).toLowerCase().includes(terme)
+  );
+
+  if (ordonneAffiches.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucun membre ne correspond à cette recherche.</div>';
+  } else {
+    wrap.innerHTML = ordonneAffiches.map(m => {
+      const c = convs[m.id];
+      const nonLu = c?.nonLuAdmin;
+      return `
+      <div class="data-row" style="cursor:pointer;" onclick="window.ouvrirConversation('${m.id}')">
+        <div class="data-main">
+          <div class="data-title">${escapeHtml(m.nomMaitre)}${nomsChiensActifs(m) ? ' — ' + escapeHtml(nomsChiensActifs(m)) : ''} ${nonLu ? '<span class="badge badge-danger">Nouveau</span>' : ''}</div>
+          <div class="data-sub">${c?.dernierMessage ? escapeHtml(c.dernierMessage).slice(0, 60) : 'Aucun message pour l\'instant'}</div>
+        </div>
+        <div class="data-actions"><button class="btn-sm">Ouvrir</button></div>
+      </div>`;
+    }).join('');
+  }
+}
+
+window.ouvrirConversation = async (uid) => {
+  conversationOuverte = uid;
+  const membre = currentMembres.find(m => m.id === uid);
+  const msgsSnap = await getDocs(collection(db, 'conversations', uid, 'messages'));
+  const msgs = [];
+  msgsSnap.forEach(d => msgs.push({ id: d.id, ...d.data() }));
+  msgs.sort((a, b) => (a.dateEnvoi || '').localeCompare(b.dateEnvoi || ''));
+
+  // Marquer comme lus les messages envoyés par le membre
+  await Promise.all(msgs.filter(m => m.expediteur === 'membre' && !m.lu).map(m =>
+    updateDoc(doc(db, 'conversations', uid, 'messages', m.id), { lu: true })
+  ));
+  await setDoc(doc(db, 'conversations', uid), { nonLuAdmin: false }, { merge: true });
+
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box" style="max-width:520px;">
+        <h3>${escapeHtml(membre?.nomMaitre || '')}${membre && nomsChiensActifs(membre) ? ' — ' + escapeHtml(nomsChiensActifs(membre)) : ''}</h3>
+        <div class="chat-thread" id="chatThread">
+          ${msgs.map(m => bulleMessage(m, 'admin', uid)).join('') || '<div class="empty-state">Aucun message.</div>'}
+        </div>
+        <div class="chat-input-row">
+          <input type="text" id="chatInputAdmin" placeholder="Écrire un message...">
+          <button class="btn-sm primary" id="chatSendAdmin">Envoyer</button>
+        </div>
+        <div class="modal-actions"><button class="btn-sm" onclick="window.fermerModal()">Fermer</button></div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+  document.getElementById('chatThread').scrollTop = 999999;
+
+  document.getElementById('chatSendAdmin').addEventListener('click', () => envoyerMessageAdmin(uid));
+  document.getElementById('chatInputAdmin').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') envoyerMessageAdmin(uid);
+  });
+
+  chargerConversations();
+};
+
+async function envoyerMessageAdmin(uid) {
+  const input = document.getElementById('chatInputAdmin');
+  const texte = input.value.trim();
+  if (!texte) return;
+  input.value = '';
+  const maintenant = new Date().toISOString();
+  await addDoc(collection(db, 'conversations', uid, 'messages'), {
+    texte, expediteur: 'admin', dateEnvoi: maintenant, lu: false
+  });
+  await setDoc(doc(db, 'conversations', uid), {
+    dernierMessage: texte, dateDernierMessage: maintenant, nonLuMembre: true
+  }, { merge: true });
+  window.ouvrirConversation(uid);
+}
+
+document.getElementById('rechercheMessage').addEventListener('input', () => chargerConversations());
+async function envoyerMessageATousMembres(texte, cible = 'tous') {
+  const destinataires = cible === 'tous' ? currentMembres : currentMembres.filter(m => groupesDuMembre(m).includes(cible));
+  const maintenant = new Date().toISOString();
+  await Promise.all(destinataires.map(async (m) => {
+    await addDoc(collection(db, 'conversations', m.id, 'messages'), {
+      texte, expediteur: 'admin', dateEnvoi: maintenant, lu: false
+    });
+    await setDoc(doc(db, 'conversations', m.id), {
+      dernierMessage: texte, dateDernierMessage: maintenant, nonLuMembre: true
+    }, { merge: true });
+  }));
+  chargerConversations();
+  return destinataires.length;
+}
+
+document.getElementById('btnMessageGroupe').addEventListener('click', () => {
+  ouvrirModalMessageGroupe();
+});
+
+document.getElementById('btnSupprimerMessagePartout').addEventListener('click', () => {
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box">
+        <h3>🗑️ Supprimer un message envoyé à tout le monde</h3>
+        <p style="font-size:0.85rem; color:var(--slate);">Colle ici exactement le texte du message à retirer (copie-le depuis une conversation). Il sera recherché puis supprimé dans TOUTES les conversations où il apparaît — pratique pour un message groupé envoyé par erreur.</p>
+        <div class="field"><label>Texte exact du message</label><textarea id="smp-texte" rows="3" style="resize:vertical;"></textarea></div>
+        <button class="btn-sm" id="smp-chercher">Chercher les messages correspondants</button>
+        <div id="smp-resultat" style="margin-top:12px;"></div>
+        <div class="modal-actions"><button class="btn-sm" onclick="window.fermerModal()">Fermer</button></div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+
+  document.getElementById('smp-chercher').addEventListener('click', async () => {
+    const texte = document.getElementById('smp-texte').value.trim();
+    const resultatEl = document.getElementById('smp-resultat');
+    if (!texte) { resultatEl.innerHTML = '<p style="color:var(--slate); font-size:0.85rem;">Colle d\'abord le texte du message.</p>'; return; }
+    resultatEl.innerHTML = '<p style="color:var(--slate); font-size:0.85rem;">Recherche en cours...</p>';
+
+    const snap = await getDocs(query(collectionGroup(db, 'messages'), where('texte', '==', texte)));
+    if (snap.empty) {
+      resultatEl.innerHTML = '<p style="color:var(--slate); font-size:0.85rem;">Aucun message correspondant trouvé.</p>';
+      return;
+    }
+    resultatEl.innerHTML = `
+      <p style="font-size:0.9rem; color:var(--ink);"><strong>${snap.size}</strong> message(s) trouvé(s) avec ce texte exact.</p>
+      <button class="btn-sm danger" id="smp-supprimer">Supprimer ces ${snap.size} message(s) partout</button>`;
+    document.getElementById('smp-supprimer').addEventListener('click', async () => {
+      if (!confirm(`Supprimer définitivement ces ${snap.size} message(s), chez tous les membres concernés ?`)) return;
+      const uidsAffectes = new Set(snap.docs.map(d => d.ref.parent.parent.id));
+      await Promise.all(snap.docs.map(d => deleteDoc(d.ref)));
+      // Remet à jour l'aperçu "dernier message" de chaque conversation touchée,
+      // sinon la liste continuerait d'afficher un message qui n'existe plus.
+      await Promise.all([...uidsAffectes].map(uid => recalculerDernierMessage(uid)));
+      resultatEl.innerHTML = `<p style="color:#2F6B4F; font-size:0.9rem;">✓ ${snap.size} message(s) supprimé(s).</p>`;
+      chargerConversations();
+    });
+  });
+});
+
+function ouvrirModalMessageGroupe(texteInitial = '') {
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box">
+        <h3>Écrire à un groupe ou à tous les membres</h3>
+        <div class="field"><label>Destinataires</label>
+          <select id="bc-cible">
+            <option value="tous">Tous les membres</option>
+            ${currentGroupes.map(g => `<option value="${g.id}">${escapeHtml(g.nom)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field"><label>Message</label><textarea id="bc-texte" rows="6" style="resize:vertical;">${escapeHtml(texteInitial)}</textarea></div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="window.fermerModal()">Annuler</button>
+          <button class="btn-sm primary" id="bc-save">Envoyer</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+  document.getElementById('bc-save').addEventListener('click', async () => {
+    const cible = document.getElementById('bc-cible').value;
+    const texte = document.getElementById('bc-texte').value.trim();
+    if (!texte) { alert('Merci d\'écrire un message.'); return; }
+    const nb = await envoyerMessageATousMembres(texte, cible);
+    window.fermerModal();
+    alert(`Message envoyé à ${nb} membre(s).`);
+  });
+}
+
+function bulleMessage(m, pointDeVue, uid) {
+  const estMoi = m.expediteur === pointDeVue;
+  const heure = m.dateEnvoi ? new Date(m.dateEnvoi).toLocaleTimeString('fr-BE', { hour: '2-digit', minute: '2-digit' }) : '';
+  const coche = estMoi ? `<span class="chat-check ${m.lu ? 'lu' : ''}">${m.lu ? '✓✓' : '✓'}</span>` : '';
+  const btnSupprimer = (pointDeVue === 'admin' && uid && m.id)
+    ? `<button class="chat-delete" title="Supprimer ce message" onclick="window.supprimerMessageConversation('${uid}','${m.id}')">✕</button>`
+    : '';
+  return `
+    <div class="chat-bubble ${estMoi ? 'moi' : 'autre'}">
+      ${btnSupprimer}
+      ${escapeHtml(m.texte)}
+      <div class="chat-meta">${heure} ${coche}</div>
+    </div>`;
+}
+
+// Recalcule dernierMessage/dateDernierMessage d'une conversation à partir
+// de ses messages réels — nécessaire après une suppression, sinon l'aperçu
+// dans la liste des conversations continue d'afficher un message qui n'existe
+// plus. Vide proprement si plus aucun message ne reste.
+async function recalculerDernierMessage(uid) {
+  const msgsSnap = await getDocs(collection(db, 'conversations', uid, 'messages'));
+  const msgs = [];
+  msgsSnap.forEach(d => msgs.push(d.data()));
+  msgs.sort((a, b) => (a.dateEnvoi || '').localeCompare(b.dateEnvoi || ''));
+  const dernier = msgs[msgs.length - 1];
+  await setDoc(doc(db, 'conversations', uid), {
+    dernierMessage: dernier ? dernier.texte : '',
+    dateDernierMessage: dernier ? dernier.dateEnvoi : ''
+  }, { merge: true });
+}
+
+window.supprimerMessageConversation = async (uid, msgId) => {
+  if (!confirm('Supprimer ce message ? Cette action est irréversible.')) return;
+  await deleteDoc(doc(db, 'conversations', uid, 'messages', msgId));
+  await recalculerDernierMessage(uid);
+  window.ouvrirConversation(uid);
+  chargerConversations();
+};
+
+// ==========================================================================
+// BLOG (articles publics)
+// ==========================================================================
+let currentArticlesArchives = [];
+
+async function chargerArticles() {
+  const snap = await getDocs(collection(db, 'articles'));
+  const tous = [];
+  snap.forEach(d => tous.push({ id: d.id, ...d.data() }));
+  tous.sort((a, b) => (b.datePublication || '').localeCompare(a.datePublication || ''));
+
+  const articles = tous.filter(a => !a.archive);
+  currentArticlesArchives = tous.filter(a => a.archive);
+
+  const wrap = document.getElementById('listeArticles');
+  if (articles.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucun article pour l\'instant.</div>';
+  } else {
+    const aujourdhui = dateISOLocale(new Date());
+    wrap.innerHTML = articles.map(a => {
+      // Date "effective" de l'article pour le point rouge des membres :
+      // la publication, ou la dernière modification si plus récente — même
+      // calcul que côté membre (chargerBlogMembre() dans app-membre.js).
+      // Tant que cette date est celle d'AUJOURD'HUI, l'article s'affiche
+      // avec un point rouge sur l'onglet "Blog" pour tout membre qui n'a
+      // pas encore ouvert son blog aujourd'hui (quelle que soit sa propre
+      // dernière visite) — au-delà, ça dépend de la dernière visite propre
+      // à chaque membre et ne peut plus être résumé en un seul badge ici.
+      const dateEffective = (a.dateModification && a.dateModification > a.datePublication) ? a.dateModification : a.datePublication;
+      const badgeNouveau = dateEffective === aujourdhui
+        ? '<span class="badge badge-warn">🔴 Marqué "nouveau" pour les membres aujourd\'hui</span>'
+        : '';
+      return `
+      <div class="data-row">
+        <div class="data-main">
+          <div class="data-title">${escapeHtml(a.titre)}</div>
+          <div class="data-sub">Publié le ${a.datePublication || ''}${a.dateModification ? ` · modifié le ${a.dateModification}` : ''} · ${escapeHtml((a.contenu || '').slice(0, 80))}${(a.contenu||'').length > 80 ? '…' : ''}</div>
+          ${badgeNouveau ? `<div class="data-sub">${badgeNouveau}</div>` : ''}
+        </div>
+        <div class="data-actions">
+          <button class="btn-sm" onclick="window.apercuArticleMembre('${a.id}')">👁 Aperçu membre</button>
+          <button class="btn-sm" onclick="window.editerArticle('${a.id}')">Modifier</button>
+          <button class="btn-sm danger" onclick="window.archiverArticle('${a.id}')">Archiver</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+  renderArticlesArchives();
+}
+
+// Aperçu fidèle de ce que verra un membre dans son onglet "Blog" : même
+// rendu HTML que chargerBlogMembre() côté membre (app-membre.js), plus une
+// ligne indiquant si cet article déclenchera le point rouge aujourd'hui.
+window.apercuArticleMembre = async (id) => {
+  const d = await getDoc(doc(db, 'articles', id));
+  if (!d.exists()) return;
+  const a = { id: d.id, ...d.data() };
+  const aujourdhui = dateISOLocale(new Date());
+  const dateEffective = (a.dateModification && a.dateModification > a.datePublication) ? a.dateModification : a.datePublication;
+  const declenchePointRouge = dateEffective === aujourdhui;
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box" style="max-width:600px;">
+        <h3>👁 Aperçu — ce que verra le membre</h3>
+        <p style="color:var(--slate); font-size:0.8rem; margin-bottom:10px;">
+          ${declenchePointRouge
+            ? '🔴 Aujourd\'hui, cet article affiche un point rouge sur l\'onglet "Blog" de tout membre qui n\'a pas encore ouvert son blog aujourd\'hui.'
+            : 'Pas de point rouge "nouveau" lié à cet article aujourd\'hui (publié/modifié avant aujourd\'hui).'}
+        </p>
+        <div class="app-panel" style="margin-bottom:14px;">
+          ${a.image ? `<img src="${escapeHtml(a.image)}" alt="${escapeHtml(a.titre)}" style="width:100%; max-height:260px; object-fit:cover; border-radius:6px; margin-bottom:14px;">` : ''}
+          <h3 style="font-size:1.15rem;">${escapeHtml(a.titre)}</h3>
+          <p style="color:var(--slate); font-size:0.8rem; margin-bottom:10px;">${a.datePublication || ''}</p>
+          <p style="white-space:pre-wrap;">${texteAvecLiens(a.contenu)}</p>
+          ${a.lien ? `<a href="${escapeHtml(a.lien)}" target="_blank" rel="noopener noreferrer" class="btn-sm" style="display:inline-block; text-decoration:none; margin-top:10px;">🔗 En savoir plus</a>` : ''}
+        </div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="window.fermerModal()">Fermer</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+};
+
+function renderArticlesArchives() {
+  const wrap = document.getElementById('listeArticlesArchives');
+  if (!wrap) return;
+  if (currentArticlesArchives.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucun article archivé.</div>';
+    return;
+  }
+  wrap.innerHTML = currentArticlesArchives.map(a => `
+    <div class="data-row">
+      <div class="data-main">
+        <div class="data-title">${escapeHtml(a.titre)}</div>
+        <div class="data-sub">${a.datePublication || ''}</div>
+      </div>
+      <div class="data-actions">
+        <button class="btn-sm primary" onclick="window.reactiverArticle('${a.id}')">Remettre en ligne</button>
+      </div>
+    </div>`).join('');
+}
+
+document.getElementById('btnAjouterArticle').addEventListener('click', () => ouvrirModalArticle());
+
+document.getElementById('btnVoirArticlesArchives')?.addEventListener('click', () => {
+  const wrap = document.getElementById('listeArticlesArchives');
+  const visible = wrap.style.display !== 'none';
+  wrap.style.display = visible ? 'none' : 'block';
+});
+
+window.editerArticle = async (id) => {
+  const d = await getDoc(doc(db, 'articles', id));
+  ouvrirModalArticle({ id, ...d.data() });
+};
+
+window.archiverArticle = async (id) => {
+  if (!confirm('Archiver cet article ? Il ne sera plus visible des membres mais restera récupérable.')) return;
+  await updateDoc(doc(db, 'articles', id), { archive: true });
+  chargerArticles();
+};
+
+window.reactiverArticle = async (id) => {
+  await updateDoc(doc(db, 'articles', id), { archive: false });
+  chargerArticles();
+};
+
+function ouvrirModalArticle(article) {
+  const isEdit = !!article;
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box" style="max-width:520px;">
+        <h3>${isEdit ? 'Modifier l\'article' : 'Nouvel article'}</h3>
+        <div class="field"><label>Titre</label><input id="ar-titre" value="${isEdit ? escapeAttr(article.titre) : ''}"></div>
+        <div class="field"><label>Image (URL d'un fichier .jpg/.png, optionnel)</label><input id="ar-image" value="${isEdit ? escapeAttr(article.image||'') : ''}" placeholder="https://exemple.be/photo.jpg"></div>
+        <div class="field"><label>Lien externe (optionnel — vers un article, une actualité...)</label><input id="ar-lien" value="${isEdit ? escapeAttr(article.lien||'') : ''}" placeholder="https://..."></div>
+        <div class="field"><label>Contenu</label><textarea id="ar-contenu" rows="7" style="resize:vertical;">${isEdit ? escapeHtml(article.contenu) : ''}</textarea></div>
+        <p style="font-size:0.78rem; color:var(--slate);">Astuce : tout lien tapé directement dans le texte du contenu devient automatiquement cliquable.</p>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="window.fermerModal()">Annuler</button>
+          <button class="btn-sm primary" id="ar-save">${isEdit ? 'Enregistrer' : 'Publier'}</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+  document.getElementById('ar-save').addEventListener('click', async () => {
+    const titre = document.getElementById('ar-titre').value.trim();
+    const contenu = document.getElementById('ar-contenu').value.trim();
+    if (!titre || !contenu) { alert('Merci de remplir le titre et le contenu.'); return; }
+    const data = {
+      titre, contenu,
+      image: document.getElementById('ar-image').value.trim(),
+      lien: document.getElementById('ar-lien').value.trim(),
+      datePublication: isEdit ? article.datePublication : dateISOLocale(new Date())
+    };
+    if (isEdit) {
+      // Une modification d'article republié doit, elle aussi, déclencher le
+      // point rouge "nouveau" sur l'onglet Blog des membres — pas seulement
+      // une toute nouvelle publication. On garde dateModification séparée
+      // de datePublication (jamais modifiée) pour ne jamais perdre la date
+      // de première publication affichée aux membres.
+      data.dateModification = dateISOLocale(new Date());
+      await updateDoc(doc(db, 'articles', article.id), data);
+    } else {
+      await addDoc(collection(db, 'articles'), data);
+    }
+    window.fermerModal();
+    chargerArticles();
+  });
+}
+
+// ==========================================================================
+// PARTENAIRES DE CONFIANCE — page publique "Partenaires"
+// ==========================================================================
+let currentPartenaires = [];
+
+async function chargerPartenairesAdmin() {
+  const snap = await getDocs(collection(db, 'partenaires'));
+  currentPartenaires = [];
+  snap.forEach(d => currentPartenaires.push({ id: d.id, ...d.data() }));
+
+  // Partenaire "Hexelya" (pub du site pro de la développeuse) toujours
+  // présent par défaut — recréé automatiquement s'il manque, pour
+  // n'importe quel compte admin (mais reste protégé en écriture, voir
+  // règles Firestore et affichage ci-dessous).
+  const LOGO_HEXELYA = 'https://hexelya.web.app/logo-full.png';
+  const hexelyaExistant = currentPartenaires.find(p => p.nom === 'Hexelya');
+  if (!hexelyaExistant) {
+    await addDoc(collection(db, 'partenaires'), {
+      nom: 'Hexelya',
+      adresse: '',
+      apercu: 'Gestion administrative, comptabilité, RH et outils numériques sur mesure.',
+      description: "Hexelya accompagne indépendants et petites structures dans leur administratif, leur comptabilité et la mise en place d'outils numériques adaptés à leurs besoins.",
+      photoURL: LOGO_HEXELYA,
+      lien: 'https://hexelya.web.app/index.html',
+      dateCreation: serverTimestamp()
+    });
+    const snap2 = await getDocs(collection(db, 'partenaires'));
+    currentPartenaires = [];
+    snap2.forEach(d => currentPartenaires.push({ id: d.id, ...d.data() }));
+  } else if (hexelyaExistant.photoURL !== LOGO_HEXELYA) {
+    // Complète/actualise automatiquement le logo (fiche créée avant son
+    // ajout, ou encore sur l'ancienne copie locale).
+    await updateDoc(doc(db, 'partenaires', hexelyaExistant.id), { photoURL: LOGO_HEXELYA });
+    hexelyaExistant.photoURL = LOGO_HEXELYA;
+  }
+
+  currentPartenaires.sort((a, b) => (a.nom || '').localeCompare(b.nom || '', 'fr'));
+  renderPartenairesAdmin();
+}
+
+function renderPartenairesAdmin() {
+  const wrap = document.getElementById('listePartenaires');
+  if (!wrap) return;
+  if (currentPartenaires.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucun partenaire pour l\'instant.</div>';
+    return;
+  }
+  wrap.innerHTML = currentPartenaires.map(p => `
+    <div class="data-row">
+      <div class="data-row-left">
+        ${p.photoURL ? `<img class="data-thumb data-thumb-contain" src="${escapeAttr(p.photoURL)}" alt="">` : ''}
+        <div class="data-main">
+          <div class="data-title">${escapeHtml(p.nom)}</div>
+          <div class="data-sub">${escapeHtml(p.adresse || '')}</div>
+          ${p.apercu ? `<div class="data-sub" style="font-style:italic;">${escapeHtml(p.apercu)}</div>` : ''}
+          ${p.lien ? `<div class="data-sub">${escapeHtml(p.lien)}</div>` : ''}
+        </div>
+      </div>
+      <div class="data-actions">
+        ${(p.nom === 'Hexelya' && !superAdminActif) ? '' : `
+        <button class="btn-sm" onclick="window.editerPartenaire('${p.id}')">Modifier</button>
+        <button class="btn-sm danger" onclick="window.supprimerPartenaire('${p.id}')">Supprimer</button>
+        `}
+      </div>
+    </div>`).join('');
+}
+
+document.getElementById('btnAjouterPartenaire').addEventListener('click', () => ouvrirModalPartenaire());
+
+window.editerPartenaire = (id) => {
+  const p = currentPartenaires.find(x => x.id === id);
+  if (p) ouvrirModalPartenaire(p);
+};
+
+window.supprimerPartenaire = async (id) => {
+  if (!confirm('Supprimer ce partenaire de la page publique ?')) return;
+  await deleteDoc(doc(db, 'partenaires', id));
+  chargerPartenairesAdmin();
+};
+
+function ouvrirModalPartenaire(partenaire) {
+  const isEdit = !!partenaire;
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box" style="max-width:520px;">
+        <h3>${isEdit ? 'Modifier le partenaire' : 'Ajouter un partenaire'}</h3>
+        <div class="field"><label>Nom *</label><input id="pt-nom" value="${isEdit ? escapeAttr(partenaire.nom) : ''}" placeholder="ex: Arion, Trixie, Dr Dupont (vétérinaire)..."></div>
+        <div class="field"><label>Adresse (optionnel)</label><input id="pt-adresse" value="${isEdit ? escapeAttr(partenaire.adresse || '') : ''}"></div>
+        <div class="field"><label>Bref aperçu (1 phrase, visible sans cliquer)</label><input id="pt-apercu" spellcheck="true" lang="fr" value="${isEdit ? escapeAttr(partenaire.apercu || '') : ''}" placeholder="ex: Croquettes premium sans gluten, conçues avec des vétérinaires."></div>
+        <div class="field"><label>Texte libre (présentation complète, visible au clic)</label><textarea id="pt-description" rows="4" spellcheck="true" lang="fr" style="resize:vertical;">${isEdit ? escapeHtml(partenaire.description || '') : ''}</textarea></div>
+        <div class="field"><label>Photo (URL, optionnel)</label><input id="pt-photoURL" value="${isEdit ? escapeAttr(partenaire.photoURL || '') : ''}" placeholder="https://exemple.be/photo.jpg"></div>
+        <div class="field"><label>Lien internet (optionnel)</label><input id="pt-lien" value="${isEdit ? escapeAttr(partenaire.lien || '') : ''}" placeholder="https://..."></div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="window.fermerModal()">Annuler</button>
+          <button class="btn-sm primary" id="pt-save">${isEdit ? 'Enregistrer' : 'Ajouter'}</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+
+  document.getElementById('pt-save').addEventListener('click', async () => {
+    const nom = document.getElementById('pt-nom').value.trim();
+    if (!nom) { alert('Le nom est obligatoire.'); return; }
+    const data = {
+      nom,
+      adresse: document.getElementById('pt-adresse').value.trim(),
+      apercu: document.getElementById('pt-apercu').value.trim(),
+      description: document.getElementById('pt-description').value.trim(),
+      photoURL: document.getElementById('pt-photoURL').value.trim(),
+      lien: document.getElementById('pt-lien').value.trim()
+    };
+    if (isEdit) {
+      await updateDoc(doc(db, 'partenaires', partenaire.id), data);
+    } else {
+      await addDoc(collection(db, 'partenaires'), { ...data, dateCreation: serverTimestamp() });
+    }
+    window.fermerModal();
+    chargerPartenairesAdmin();
+  });
+}
+
+// ==========================================================================
+// VIDÉOS D'APPRENTISSAGE
+// ==========================================================================
+async function chargerVideosAdmin() {
+  const snap = await getDocs(collection(db, 'videos'));
+  const videos = [];
+  snap.forEach(d => videos.push({ id: d.id, ...d.data() }));
+
+  const wrap = document.getElementById('listeVideos');
+  if (videos.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucune vidéo pour l\'instant.</div>';
+    return;
+  }
+  wrap.innerHTML = videos.map(v => `
+    <div class="data-row">
+      <div class="data-main">
+        <div class="data-title">${escapeHtml(v.titre)}</div>
+        <div class="data-sub">${escapeHtml((v.texte || '').slice(0, 80))}</div>
+      </div>
+      <div class="data-actions">
+        <button class="btn-sm" onclick="window.editerVideo('${v.id}')">Modifier</button>
+        <button class="btn-sm danger" onclick="window.supprimerVideo('${v.id}')">Supprimer</button>
+      </div>
+    </div>`).join('');
+}
+
+document.getElementById('btnAjouterVideo').addEventListener('click', () => ouvrirModalVideo());
+
+window.editerVideo = async (id) => {
+  const d = await getDoc(doc(db, 'videos', id));
+  ouvrirModalVideo({ id, ...d.data() });
+};
+
+window.supprimerVideo = async (id) => {
+  if (!confirm('Supprimer cette vidéo ?')) return;
+  await deleteDoc(doc(db, 'videos', id));
+  chargerVideosAdmin();
+};
+
+function ouvrirModalVideo(video) {
+  const isEdit = !!video;
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box" style="max-width:520px;">
+        <h3>${isEdit ? 'Modifier la vidéo' : 'Ajouter une vidéo'}</h3>
+        <div class="field"><label>Titre (ex: Apprendre "assis")</label><input id="vd-titre" value="${isEdit ? escapeAttr(video.titre) : ''}"></div>
+        <div class="field"><label>Lien vidéo (YouTube)</label><input id="vd-url" value="${isEdit ? escapeAttr(video.url||'') : ''}" placeholder="https://www.youtube.com/watch?v=..."></div>
+        <div class="field"><label>Texte explicatif</label><textarea id="vd-texte" rows="5" style="resize:vertical;">${isEdit ? escapeHtml(video.texte||'') : ''}</textarea></div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="window.fermerModal()">Annuler</button>
+          <button class="btn-sm primary" id="vd-save">${isEdit ? 'Enregistrer' : 'Ajouter'}</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+  document.getElementById('vd-save').addEventListener('click', async () => {
+    const titre = document.getElementById('vd-titre').value.trim();
+    const url = document.getElementById('vd-url').value.trim();
+    if (!titre || !url) { alert('Merci de remplir le titre et le lien vidéo.'); return; }
+    const data = { titre, url, texte: document.getElementById('vd-texte').value.trim() };
+    if (isEdit) {
+      await updateDoc(doc(db, 'videos', video.id), data);
+    } else {
+      await addDoc(collection(db, 'videos'), data);
+    }
+    window.fermerModal();
+    chargerVideosAdmin();
+  });
+}
+
+// ==========================================================================
+// ANNIVERSAIRES — rappel des anniversaires proches (7 jours)
+// ==========================================================================
+async function chargerAnniversaires() {
+  const zone = document.getElementById('anniversairesDuJour');
+  if (!zone) return;
+  const aujourdhui = new Date();
+  const debutJourAuj = new Date(aujourdhui.getFullYear(), aujourdhui.getMonth(), aujourdhui.getDate());
+  const demain = new Date(debutJourAuj); demain.setDate(demain.getDate() + 1);
+
+  // Fenêtre stricte : la veille + le jour même (pas une semaine entière).
+  function estVeilleOuJourJ(mois, jour) {
+    let candidate = new Date(aujourdhui.getFullYear(), mois - 1, jour);
+    if (candidate < debutJourAuj) candidate = new Date(aujourdhui.getFullYear() + 1, mois - 1, jour);
+    return candidate.getTime() === debutJourAuj.getTime() || candidate.getTime() === demain.getTime();
+  }
+
+  const lignes = [];
+  currentMembres.forEach(m => {
+    if (m.dateAnniversaire) {
+      const parts = m.dateAnniversaire.split('-').map(Number);
+      if (estVeilleOuJourJ(parts[1], parts[2])) {
+        const estAuj = new Date(aujourdhui.getFullYear(), parts[1]-1, parts[2]).getTime() === debutJourAuj.getTime();
+        lignes.push(`🎂 ${escapeHtml(m.nomMaitre)} — ${parts[2]}/${parts[1]} ${estAuj ? '<strong>(aujourd\'hui !)</strong>' : '(demain)'}`);
+      }
+    }
+    (m.chiens || []).filter(c => !c.archive).forEach(c => {
+      if (!c.naissance) return;
+      const parts = c.naissance.split('-').map(Number);
+      if (estVeilleOuJourJ(parts[1], parts[2])) {
+        const estAuj = new Date(aujourdhui.getFullYear(), parts[1]-1, parts[2]).getTime() === debutJourAuj.getTime();
+        lignes.push(`🐾 ${escapeHtml(c.nom)} (${escapeHtml(m.nomMaitre)}) — ${parts[2]}/${parts[1]} ${estAuj ? '<strong>(aujourd\'hui !)</strong>' : '(demain)'}`);
+      }
+    });
+  });
+
+  if (lignes.length === 0) { zone.innerHTML = ''; return; }
+
+  zone.innerHTML = `
+    <div class="banner-alert">
+      🎉 Anniversaire${lignes.length > 1 ? 's' : ''} :<br>
+      ${lignes.join('<br>')}
+    </div>`;
+}
+
+// ==========================================================================
+// COTISATIONS — rappel des échéances proches (30 jours) ou dépassées
+// ==========================================================================
+async function chargerCotisationsARenouveler() {
+  const zone = document.getElementById('cotisationsARenouveler');
+  if (!zone) return;
+  const aujourdhui = new Date(); aujourdhui.setHours(0,0,0,0);
+  const dans30Jours = new Date(aujourdhui); dans30Jours.setDate(aujourdhui.getDate() + 30);
+
+  // Cas 1 : une date d'échéance est renseignée et elle approche (ou est déjà dépassée) —
+  // peu importe le statut payé/non payé.
+  const concernesEcheance = currentMembres.filter(m => {
+    if (!m.cotisationDateEcheance) return false;
+    const echeance = new Date(m.cotisationDateEcheance + 'T00:00:00');
+    return echeance <= dans30Jours;
+  });
+
+  // Cas 2 : la fiche affiche "Cotisation à jour" (cotisationPayee = true) mais sans
+  // date d'échéance renseignée — dans ce cas le cas 1 ne peut jamais se déclencher,
+  // donc on prévient qu'il manque la date pour pouvoir un jour relancer ce membre.
+  // (accès Cours requis, indépendamment d'un groupe hebdo précis déjà choisi ou non)
+  const concernesSansDate = currentMembres.filter(m =>
+    (m.accesCours !== undefined ? m.accesCours : true) && m.cotisationPayee && !m.cotisationDateEcheance
+  );
+
+  if (concernesEcheance.length === 0 && concernesSansDate.length === 0) { zone.innerHTML = ''; return; }
+
+  // Montant lu depuis le service "Cotisation annuelle" (onglet Services), pas
+  // une valeur figée dans le code : si Katia change ce prix, ce rappel doit
+  // suivre automatiquement plutôt que d'afficher un ancien montant.
+  const serviceCotisation = currentServices.find(s => s.nom === 'Cotisation annuelle');
+  const prixCotisationActuel = typeof serviceCotisation?.prix === 'number' ? serviceCotisation.prix : 70;
+
+  let html = '';
+  if (concernesEcheance.length > 0) {
+    html += `
+    <div class="banner-alert">
+      💳 Cotisation${concernesEcheance.length > 1 ? 's' : ''} à renouveler bientôt :<br>
+      ${concernesEcheance.map(m => {
+        const echeance = new Date(m.cotisationDateEcheance + 'T00:00:00');
+        const enRetard = echeance < aujourdhui;
+        const reponse = m.cotisationRenouvellement === 'oui' ? ` (a dit oui — facture ${prixCotisationActuel.toFixed(2)}€ TTC possible)`
+          : m.cotisationRenouvellement === 'non' ? ' (a dit non)' : ' (pas encore répondu)';
+        return `${escapeHtml(m.nomMaitre)}${enRetard ? ' — échue' : ''}${reponse}`;
+      }).join('<br>')}
+    </div>`;
+  }
+  if (concernesSansDate.length > 0) {
+    html += `
+    <div class="banner-alert" style="background:#FFF7E6; border-color:#F0D9A0;">
+      ⚠️ Cotisation marquée "à jour" mais sans date d'échéance renseignée (impossible de la relancer plus tard tant que la date n'est pas complétée) :<br>
+      ${concernesSansDate.map(m => escapeHtml(m.nomMaitre)).join('<br>')}
+    </div>`;
+  }
+  zone.innerHTML = html;
+}
+
+// ==========================================================================
+// ABONNEMENTS — rappel quand il reste peu de cours
+// ==========================================================================
+async function chargerAbonnementsARenouveler() {
+  const zone = document.getElementById('abonnementsARenouveler');
+  if (!zone) return;
+
+  // Accès Cours requis, indépendamment d'un groupe hebdo précis déjà choisi ou non.
+  const concernes = currentMembres.filter(m => (m.accesCours !== undefined ? m.accesCours : true) && (m.coursRestants ?? 0) <= 2);
+  if (concernes.length === 0) { zone.innerHTML = ''; return; }
+
+  const serviceAbonnement = currentServices.find(s => s.nom === 'Cours collectif') || {};
+  const prixAbonnement = typeof serviceAbonnement.prix === 'number' ? serviceAbonnement.prix : 70;
+
+  zone.innerHTML = `
+    <div class="banner-alert">
+      📚 Abonnement${concernes.length > 1 ? 's' : ''} bientôt épuisé${concernes.length > 1 ? 's' : ''} :<br>
+      ${concernes.map(m => {
+        const epuise = (m.coursRestants ?? 0) <= 0;
+        const reponse = m.abonnementRenouvellement === 'oui' ? ` (a dit oui — facture ${prixAbonnement.toFixed(2)}€ TTC pour 11 cours possible)`
+          : m.abonnementRenouvellement === 'non' ? ' (a dit non)' : ' (pas encore répondu)';
+        return `${escapeHtml(m.nomMaitre)} — ${m.coursRestants ?? 0} cours restant(s)${epuise ? ', épuisé' : ''}${reponse}`;
+      }).join('<br>')}
+    </div>`;
+}
+
+
+// ==========================================================================
+// DÉTECTION DES NON-RÉPONSES — jusqu'ici, l'enregistrement "absent — non
+// répondu" n'était créé QUE quand le membre lui-même ouvrait sa page (dans
+// son propre navigateur). Un membre qui ne se connecte jamais n'avait donc
+// aucun enregistrement créé, et rien à décompter. Cette fonction fait la
+// même détection côté admin (qui se connecte régulièrement, elle) pour les
+// 60 derniers jours, sans dépendre de la visite du membre.
+// ==========================================================================
+// ==========================================================================
+// RÉPARATION — corrige les décomptes déjà faits à tort sur des cours
+// antérieurs à la date d'inscription du membre (bug du rattrapage 60 jours
+// avant qu'il ne tienne compte de la date d'inscription). Rembourse le
+// cours au membre puis supprime l'enregistrement erroné.
+// ==========================================================================
+async function corrigerAbsencesAvantInscription() {
+  const toutes = await chargerPresencesCache();
+  const aCorriger = toutes.filter(p => {
+    try {
+      if (p.statut !== 'absent-auto') return false;
+      const membre = currentMembres.find(m => m.id === p.uid);
+      if (!membre?.dateInscription?.toDate) return false;
+      const inscriptionISO = dateISOLocale(membre.dateInscription.toDate());
+      return p.dateISO < inscriptionISO;
+    } catch (err) {
+      console.error(`Erreur lors de la vérification de la présence ${p.id} :`, err);
+      return false;
+    }
+  });
+  if (aCorriger.length === 0) return;
+
+  for (const p of aCorriger) {
+    try {
+      if (p.compteAbonnement) {
+        await updateDoc(doc(db, 'membres', p.uid), { coursRestants: increment(1) });
+        await desassocierPresenceAbonnement(p.uid, p.id);
+      }
+      await deleteDoc(doc(db, 'presences', p.id));
+    } catch (err) {
+      console.error(`Erreur lors de la correction de la présence ${p.id} :`, err);
+    }
+  }
+  // Retire du cache en mémoire les entrées supprimées, pour que les étapes
+  // suivantes du même cycle ne les revoient pas sans devoir tout relire.
+  const idsSupprimes = new Set(aCorriger.map(p => p.id));
+  presencesCache = presencesCache.filter(p => !idsSupprimes.has(p.id));
+  renderMembres();
+}
+
+// Date de lancement réel du site — jamais de décompte automatique
+// rétroactif avant cette date, même si un membre a une dateInscription
+// antérieure (import fait avant l'ouverture réelle aux membres). Sans ce
+// garde-fou, la génération rétroactive (60 jours en arrière) recréait sans
+// fin de fausses absences pour des cours d'avant le lancement, y compris
+// après leur suppression manuelle.
+const DATE_LANCEMENT_SITE = '2026-09-04';
+
+async function detecterAbsencesNonRepondues() {
+  const toutes = await chargerPresencesCache();
+  const dejaReponduCles = new Set();
+  toutes.forEach(p => dejaReponduCles.add(`${p.groupeId}_${p.dateISO}_${p.uid}`));
+
+  const annulations = await chargerAnnulationsCache();
+  const annulesCles = new Set(Object.keys(annulations));
+
+  // Changements d'horaire/date exceptionnels (pluie, chaleur...) : AVANT ce
+  // correctif, cette fonction ignorait complètement exceptions_horaire et
+  // calculait toujours le délai de 24h sur l'horaire par défaut du groupe
+  // (g.heureDebut) à sa date habituelle. Un cours exceptionnellement avancé,
+  // retardé ou déplacé à une autre date avait donc une échéance mal
+  // calculée ici (alors que l'espace membre et "Ce soir" géraient déjà
+  // correctement ces exceptions) : certains membres se retrouvaient
+  // "oubliés" par le rattrapage automatique, affichés indéfiniment comme
+  // "n'a pas encore répondu" dans la fiche du cours.
+  const exceptionsHoraire = await chargerExceptionsHoraireCache();
+
+  const maintenant = new Date();
+  const aCreer = [];
+  const occurrencesTraitees = new Set(); // "groupeId_dateISO" déjà traité, évite les doublons entre les deux passes ci-dessous
+
+  // Traite UNE occurrence effective de cours (groupe + date où il a RÉELLEMENT
+  // lieu + heure effective) : calcule le délai de 24h et programme la
+  // création des absences automatiques pour les membres n'ayant pas répondu.
+  // Partagé par la boucle "récurrence habituelle" et la boucle "cours
+  // déplacés vers une autre date" ci-dessous, pour ne jamais dupliquer cette
+  // logique (et donc ne jamais la faire diverger entre les deux).
+  function traiterOccurrence(g, dateISO, heureDebutEffective) {
+    const cleOccurrence = `${g.id}_${dateISO}`;
+    if (occurrencesTraitees.has(cleOccurrence)) return;
+    occurrencesTraitees.add(cleOccurrence);
+
+    if (annulesCles.has(cleOccurrence)) return; // cours annulé, pas de décompte
+    const heureCours = new Date(`${dateISO}T${heureDebutEffective || '00:00'}:00`);
+    const delaiDepasse = maintenant >= new Date(heureCours.getTime() - 24 * 60 * 60 * 1000);
+    if (!delaiDepasse) return;
+
+    currentMembres.filter(m => groupesDuMembre(m).includes(g.id)).forEach(m => {
+      try {
+        // On ne pénalise jamais un membre pour un cours qui a eu lieu
+        // avant sa date d'inscription au club.
+        if (m.dateInscription?.toDate && dateISO < dateISOLocale(m.dateInscription.toDate())) return;
+        const cle = `${g.id}_${dateISO}_${m.id}`;
+        if (!dejaReponduCles.has(cle)) {
+          aCreer.push({ groupeId: g.id, uid: m.id, dateISO });
+          dejaReponduCles.add(cle); // éviter les doublons si le même cours revient
+        }
+      } catch (err) {
+        // Une donnée corrompue chez CE membre (ex: dateInscription
+        // invalide) ne doit jamais empêcher le traitement de tous les
+        // autres membres qui suivent dans la liste.
+        console.error(`Erreur lors du traitement de ${m.nomMaitre || m.id} pour ${g.nom || g.id} du ${dateISO} :`, err);
+      }
+    });
+  }
+
+  for (let i = 0; i <= 60; i++) {
+    const d = new Date(); d.setHours(0, 0, 0, 0); d.setDate(d.getDate() - i);
+    const jour = JOURS[d.getDay()];
+    const dateISOHabituelle = dateISOLocale(d);
+    if (dateISOHabituelle < DATE_LANCEMENT_SITE) continue; // jamais avant le vrai lancement du site
+
+    currentGroupes.filter(g => g.jour === jour).forEach(g => {
+      const exception = exceptionsHoraire[`${g.id}_${dateISOHabituelle}`];
+      // Cours déplacé à une AUTRE date (ex.nouvelleDateISO différent) : ce
+      // créneau habituel n'a pas lieu, le vrai cours est ailleurs — il est
+      // traité par la seconde boucle ci-dessous (qui parcourt directement
+      // les exceptions), pas ici.
+      if (exception && exception.nouvelleDateISO && exception.nouvelleDateISO !== dateISOHabituelle) return;
+
+      const heureDebutEffective = exception ? exception.nouvelleHeureDebut : (g.heureDebut || '00:00');
+      traiterOccurrence(g, dateISOHabituelle, heureDebutEffective);
+    });
+  }
+
+  // Cours déplacés vers une AUTRE date (ex: lundi → mercredi) : la boucle
+  // ci-dessus, qui ne parcourt que les dates correspondant au jour habituel
+  // du groupe (g.jour), ne tombe jamais sur cette autre date si elle tombe
+  // un jour de semaine différent — elle passait donc totalement inaperçue,
+  // et le membre concerné restait affiché "n'a pas encore répondu" sans
+  // fin, même largement après le vrai cours. On parcourt ici directement
+  // les exceptions elles-mêmes pour couvrir ce cas.
+  Object.values(exceptionsHoraire).forEach(ex => {
+    if (!ex.nouvelleDateISO || ex.nouvelleDateISO === ex.dateISOOriginal) return;
+    if (ex.nouvelleDateISO < DATE_LANCEMENT_SITE) return;
+    const dNouvelle = new Date(ex.nouvelleDateISO + 'T00:00:00');
+    if (dNouvelle > maintenant) return; // cours déplacé mais pas encore passé, rien à rattraper
+    const g = currentGroupes.find(gr => gr.id === ex.groupeId);
+    if (!g) return;
+    traiterOccurrence(g, ex.nouvelleDateISO, ex.nouvelleHeureDebut);
+  });
+
+  if (aCreer.length === 0) return;
+
+  // Promise.allSettled (et non Promise.all) : si l'écriture échoue pour UN
+  // membre (ex: fiche supprimée entre-temps, identifiant corrompu...), les
+  // autres doivent quand même être traités. Avec Promise.all, un seul échec
+  // rejetait tout le lot d'un coup — plus aucune absence n'était détectée
+  // ce cycle-ci, pour PERSONNE, et comme l'étape suivante (décompte) et le
+  // rafraîchissement de l'écran dépendaient de cet await, ils ne
+  // s'exécutaient plus non plus : un membre pouvait alors rester affiché
+  // "n'a pas encore répondu" indéfiniment malgré un délai de 24h dépassé.
+  const resultats = await Promise.allSettled(aCreer.map(p =>
+    setDoc(doc(db, 'presences', `${p.groupeId}_${p.dateISO}_${p.uid}`), {
+      groupeId: p.groupeId, uid: p.uid, dateISO: p.dateISO, statut: 'absent-auto',
+      repondu: new Date().toISOString(), compteAbonnement: false
+    })
+  ));
+  // Ajoute au cache en mémoire uniquement les écritures qui ont réellement
+  // réussi : l'étape suivante du même cycle (décompte) les traite sans
+  // re-télécharger toute la collection.
+  resultats.forEach((r, i) => {
+    const p = aCreer[i];
+    if (r.status === 'fulfilled') {
+      presencesCache.push({
+        id: `${p.groupeId}_${p.dateISO}_${p.uid}`, groupeId: p.groupeId, uid: p.uid,
+        dateISO: p.dateISO, statut: 'absent-auto', compteAbonnement: false
+      });
+    } else {
+      console.error(`Échec de la création de l'absence automatique pour ${p.uid} (${p.groupeId} du ${p.dateISO}) :`, r.reason);
+    }
+  });
+}
+
+// ==========================================================================
+// DÉCOMPTE DES COURS — traite les réponses "présent" et les absences
+// automatiques (pas de réponse dans les 24h) : décompte le cours de
+// l'abonnement, une seule fois par cours (via le champ compteAbonnement),
+// jamais sous 0 (seul l'admin a le droit d'écriture sur coursRestants).
+// L'ordre de traitement n'a pas d'importance : chaque présence n'est
+// décomptée qu'une seule fois, indépendamment des autres.
+// ==========================================================================
+async function traiterAbsencesAutomatiques() {
+  const toutes = await chargerPresencesCache();
+  // Un cours annulé après coup (pluie, chaleur...) ne doit jamais décompter
+  // l'abonnement d'un membre, même s'il avait répondu "présent" avant
+  // l'annulation.
+  const annulations = await chargerAnnulationsCache();
+  const annulesCles = new Set(Object.keys(annulations));
+  const exceptionsHoraire = await chargerExceptionsHoraireCache();
+
+  // Un cours "présent" répondu bien à l'avance (ex: 10 jours avant) ne doit
+  // JAMAIS être décompté tout de suite : tant que le délai de 24h de
+  // changement d'avis libre n'est pas dépassé, le membre peut encore
+  // changer d'avis sans justificatif (voir repondrePresence côté membre).
+  // AVANT ce correctif, cette fonction décomptait "present" dès qu'elle
+  // tournait (à chaque connexion admin), sans tenir compte de la date du
+  // cours : un membre ayant répondu "présent" plusieurs jours à l'avance
+  // se voyait déjà décompté avant même d'avoir pu changer d'avis. S'il
+  // revenait ensuite en arrière (toujours à plus de 24h, donc en théorie
+  // libre et gratuit), l'écriture membre (qui réécrit tout le document)
+  // tentait implicitement d'effacer le champ "compteAbonnement" — un champ
+  // qu'un membre n'a pas le droit de toucher — et Firestore refusait la
+  // modification : le bouton "Changer pour absent" ne faisait alors
+  // VISIBLEMENT rien, exactement le bug remonté. Le décompte n'intervient
+  // donc maintenant qu'une fois le délai de 24h réellement dépassé — à ce
+  // moment-là, le membre ne peut plus changer d'avis librement de toute
+  // façon, donc plus aucun conflit possible avec cette écriture-là.
+  function delaiDepasse(groupeId, dateISO) {
+    const g = currentGroupes.find(gr => gr.id === groupeId);
+    if (!g) return true; // groupe introuvable (supprimé) : ne bloque pas le décompte
+    const exception = exceptionsHoraire[`${groupeId}_${dateISO}`];
+    const heureDebutEffective = exception ? exception.nouvelleHeureDebut : (g.heureDebut || '00:00');
+    const heureCours = new Date(`${dateISO}T${heureDebutEffective || '00:00'}:00`);
+    return new Date() >= new Date(heureCours.getTime() - 24 * 60 * 60 * 1000);
+  }
+
+  const aTraiter = toutes.filter(p =>
+    (p.statut === 'present' || p.statut === 'absent-auto') &&
+    !annulesCles.has(`${p.groupeId}_${p.dateISO}`) &&
+    !p.compteAbonnement &&
+    delaiDepasse(p.groupeId, p.dateISO)
+  );
+  if (aTraiter.length === 0) return;
+
+  for (const p of aTraiter) {
+    try {
+      // Revérification "juste à temps", directement en base (PAS depuis le
+      // cache local figé au début de cette fonction) : ce traitement est
+      // volontairement séquentiel et peut prendre plusieurs secondes s'il y
+      // a beaucoup de présences à décompter d'affilée. Si Katia annule un
+      // cours PENDANT que cette boucle tourne (ex: "pas assez de
+      // participants"), l'annulation créée entre-temps n'apparaît pas dans
+      // annulesCles, calculé une seule fois plus haut — sans cette
+      // revérification, le cours serait quand même décompté de
+      // l'abonnement du membre malgré son annulation, et ne serait ensuite
+      // JAMAIS remboursé automatiquement. C'est exactement le bug
+      // remonté : un cours annulé pour manque de participants dont
+      // l'abonnement n'était pas remis à jour (ex: Yuna). window.annulerCours
+      // crée toujours le document d'annulation EN PREMIER, avant toute
+      // autre écriture — cette vérification juste avant le décompte est
+      // donc fiable quel que soit l'ordre d'exécution entre les deux.
+      //
+      // "transaction" (et non deux updateDoc séparés comme avant) : Katia
+      // et le Super Admin peuvent être connectés en même temps, chacun
+      // déclenchant cette même fonction à sa propre connexion. Avec deux
+      // écritures séparées (-1 cours, PUIS compteAbonnement:true), les deux
+      // sessions pouvaient lire "pas encore décompté" avant que l'une des
+      // deux ait fini d'écrire — et décompter le MÊME cours deux fois chez
+      // le membre. La transaction lit et écrit le statut "décompté" de
+      // façon atomique : Firestore garantit qu'une seule des deux sessions
+      // peut gagner cette course, l'autre est automatiquement rejouée et
+      // voit alors "déjà décompté" — plus aucun double décompte possible.
+      let dejaTraite = false;
+      await runTransaction(db, async (tx) => {
+        const annulationRef = doc(db, 'annulations', `${p.groupeId}_${p.dateISO}`);
+        const presenceRef = doc(db, 'presences', p.id);
+        const [annulationSnap, presenceSnap] = await Promise.all([tx.get(annulationRef), tx.get(presenceRef)]);
+        if (annulationSnap.exists()) { dejaTraite = true; return; } // cours annulé entre-temps
+        if (!presenceSnap.exists() || presenceSnap.data().compteAbonnement) { dejaTraite = true; return; } // déjà traité (par cette session ou une autre)
+        tx.update(doc(db, 'membres', p.uid), { coursRestants: increment(-1) });
+        tx.update(presenceRef, { compteAbonnement: true });
+      });
+      if (dejaTraite) continue;
+      const entree = presencesCache.find(x => x.id === p.id);
+      if (entree) entree.compteAbonnement = true;
+      await remplirProchaineCaseAbonnement(p.uid, p.dateISO, p.statut, p.id);
+    } catch (err) {
+      console.error(`Erreur lors du décompte de la présence ${p.id} :`, err);
+    }
+  }
+  renderMembres();
+}
+
+// ==========================================================================
+// VACCINS — rappel des échéances (30 jours, ou 3 mois pour la rage) ou
+// retards. Validité : 1 an après la dernière date indiquée, sauf la rage
+// qui est valable 3 ans.
+// ==========================================================================
+const LABELS_VACCINS = { leptospirose: 'Leptospirose', parvovirose: 'Parvovirose', touxChenils: 'Toux du chenil', rage: 'Rage' };
+const DUREE_VALIDITE_ANNEES_VACCINS = { rage: 3 };
+const FENETRE_RAPPEL_JOURS_VACCINS = { rage: 90 };
+
+function calculerEcheancesVaccins(chien) {
+  const v = chien.vaccins || {};
+  const resultats = [];
+  Object.keys(LABELS_VACCINS).forEach(cle => {
+    const date = v[cle]?.date;
+    if (!date) return;
+    const echeance = new Date(date + 'T00:00:00');
+    echeance.setFullYear(echeance.getFullYear() + (DUREE_VALIDITE_ANNEES_VACCINS[cle] || 1));
+    resultats.push({ vaccin: LABELS_VACCINS[cle], echeance, fenetreRappelJours: FENETRE_RAPPEL_JOURS_VACCINS[cle] || 30 });
+  });
+  return resultats;
+}
+
+async function chargerVaccinsARappeler() {
+  const zone = document.getElementById('vaccinsARappeler');
+  if (!zone) return;
+  const aujourdhui = new Date(); aujourdhui.setHours(0,0,0,0);
+
+  const lignes = [];
+  currentMembres.forEach(m => {
+    (m.chiens || []).filter(c => !c.archive).forEach(c => {
+      calculerEcheancesVaccins(c).forEach(({ vaccin, echeance, fenetreRappelJours }) => {
+        const dateRappel = new Date(aujourdhui); dateRappel.setDate(aujourdhui.getDate() + fenetreRappelJours);
+        if (echeance <= dateRappel) {
+          const enRetard = echeance < aujourdhui;
+          lignes.push(`${escapeHtml(c.nom)} (${escapeHtml(m.nomMaitre)}) — ${vaccin}${enRetard ? ' en retard' : ' à renouveler bientôt'}`);
+        }
+      });
+    });
+  });
+
+  if (lignes.length === 0) { zone.innerHTML = ''; return; }
+  zone.innerHTML = `<div class="banner-alert">💉 Vaccins à surveiller :<br>${lignes.join('<br>')}</div>`;
+}
+
+// ==========================================================================
+// BOUTIQUE — articles, stock, commandes (validation = décompte du stock)
+// ==========================================================================
+const ARTICLES_DE_BASE = [
+  { nom: 'Laisse en cuir', prix: 0, stock: 0, actif: true },
+  { nom: 'Collier en cuir', prix: 0, stock: 0, actif: true },
+  { nom: 'Collier Torquatus', prix: 0, stock: 0, actif: true },
+  { nom: 'Bonbon dressage BBQ', prix: 0, stock: 0, actif: true },
+  { nom: 'Grosse boîte de bonbons os', prix: 0, stock: 0, actif: true }
+];
+
+let currentArticlesBoutique = [];
+
+async function chargerBoutiqueAdmin() {
+  const snap = await getDocs(collection(db, 'articles_boutique'));
+  currentArticlesBoutique = [];
+  snap.forEach(d => currentArticlesBoutique.push({ id: d.id, ...d.data() }));
+  currentArticlesBoutique.sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+  renderArticlesBoutiqueAdmin();
+  await chargerCommandesAdmin();
+}
+
+function renderArticlesBoutiqueAdmin() {
+  const wrap = document.getElementById('listeArticlesBoutique');
+  if (currentArticlesBoutique.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucun article pour l\'instant.</div>';
+    return;
+  }
+  wrap.innerHTML = currentArticlesBoutique.map(a => `
+    <div class="data-row">
+      <div class="data-row-left">
+        ${a.photoURL ? `<img class="data-thumb" src="${escapeAttr(a.photoURL)}">` : ''}
+        <div class="data-main">
+          <div class="data-title">${escapeHtml(a.nom)} ${!a.actif ? '<span class="badge badge-neutral">Masqué</span>' : ''}</div>
+          <div class="data-sub">${Number(a.prix).toFixed(2)} € TTC · <span class="${a.stock <= 0 ? 'badge badge-danger' : 'badge badge-ok'}">${a.stock} en stock</span></div>
+          <div class="data-sub">${a.reference ? `Réf. ${escapeHtml(a.reference)}` : ''}${a.poids ? ` · ${formaterPoids(a.poids, a.poidsUnite)} ${a.poidsUnite || 'g'}` : ''}</div>
+          ${a.infoDescription ? `<div class="data-sub" style="font-style:italic;">${texteAvecLiens(a.infoDescription.length > 100 ? a.infoDescription.slice(0, 100) + '…' : a.infoDescription)}</div>` : ''}
+        </div>
+      </div>
+      <div class="data-actions">
+        <button class="btn-sm" onclick="window.editerArticleBoutique('${a.id}')">Modifier</button>
+        <button class="btn-sm danger" onclick="window.supprimerArticleBoutique('${a.id}')">Supprimer</button>
+      </div>
+    </div>`).join('');
+}
+
+document.getElementById('btnAjouterArticleBoutique').addEventListener('click', () => ouvrirModalArticleBoutique());
+document.getElementById('rechercheCommande').addEventListener('input', () => chargerCommandesAdmin());
+
+window.editerArticleBoutique = (id) => {
+  const a = currentArticlesBoutique.find(x => x.id === id);
+  ouvrirModalArticleBoutique(a);
+};
+
+window.supprimerArticleBoutique = async (id) => {
+  if (!confirm('Supprimer cet article ?')) return;
+  await deleteDoc(doc(db, 'articles_boutique', id));
+  chargerBoutiqueAdmin();
+};
+
+function ouvrirModalArticleBoutique(article) {
+  const isEdit = !!article;
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box">
+        <h3>${isEdit ? 'Modifier l\'article' : 'Ajouter un article'}</h3>
+        <div class="field"><label>Nom</label><input id="ab-nom" value="${isEdit ? escapeAttr(article.nom) : ''}"></div>
+        <div class="field"><label>Photo (URL d'un fichier .jpg/.png, optionnel)</label><input id="ab-photoURL" value="${isEdit ? escapeAttr(article.photoURL||'') : ''}" placeholder="https://exemple.be/photo.jpg"></div>
+        <div class="form-grid">
+          <div class="field"><label>Référence article</label><input id="ab-reference" value="${isEdit ? escapeAttr(article.reference||'') : ''}" placeholder="ex: LAI-CUIR-01"></div>
+          <div class="field"><label>Poids</label>
+            <div style="display:flex; gap:6px;">
+              <input type="number" step="0.01" id="ab-poids" value="${isEdit ? (article.poids ?? '') : ''}" placeholder="ex: 250" style="flex:1;">
+              <select id="ab-poidsUnite" style="flex:none; width:75px;">
+                <option value="g" ${!isEdit || article.poidsUnite !== 'kg' ? 'selected' : ''}>g</option>
+                <option value="kg" ${isEdit && article.poidsUnite === 'kg' ? 'selected' : ''}>kg</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="form-grid">
+          <div class="field"><label>Prix TTC (€)</label><input type="number" step="0.01" id="ab-prix" value="${isEdit ? article.prix : ''}"></div>
+          <div class="field"><label>Stock</label><input type="number" id="ab-stock" value="${isEdit ? article.stock : 0}"></div>
+        </div>
+        <div class="field"><label>Info / description (visible par les membres dans la boutique)</label><textarea id="ab-info" rows="3" spellcheck="true" lang="fr" style="resize:vertical;" placeholder="ex: composition, taille, conseils d'utilisation...">${isEdit ? escapeHtml(article.infoDescription||'') : ''}</textarea></div>
+        <div class="field"><label>Visible dans la boutique</label>
+          <select id="ab-actif">
+            <option value="oui" ${!isEdit || article.actif ? 'selected' : ''}>Oui</option>
+            <option value="non" ${isEdit && !article.actif ? 'selected' : ''}>Non</option>
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="window.fermerModal()">Annuler</button>
+          <button class="btn-sm primary" id="ab-save">Enregistrer</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+  document.getElementById('ab-save').addEventListener('click', async () => {
+    const btnSave = document.getElementById('ab-save');
+    btnSave.disabled = true;
+    const nom = document.getElementById('ab-nom').value.trim();
+    const prix = parseFloat(document.getElementById('ab-prix').value);
+    const stock = parseInt(document.getElementById('ab-stock').value, 10);
+    if (!nom || isNaN(prix) || isNaN(stock)) { alert('Merci de remplir nom, prix et stock.'); btnSave.disabled = false; return; }
+    const data = {
+      nom, prix, stock,
+      photoURL: document.getElementById('ab-photoURL').value.trim(),
+      reference: document.getElementById('ab-reference').value.trim(),
+      infoDescription: document.getElementById('ab-info').value.trim(),
+      poids: document.getElementById('ab-poids').value ? parseFloat(document.getElementById('ab-poids').value) : null,
+      poidsUnite: document.getElementById('ab-poidsUnite').value,
+      actif: document.getElementById('ab-actif').value === 'oui'
+    };
+    if (isEdit) {
+      await updateDoc(doc(db, 'articles_boutique', article.id), data);
+    } else {
+      await addDoc(collection(db, 'articles_boutique'), data);
+    }
+    window.fermerModal();
+    chargerBoutiqueAdmin();
+  });
+}
+
+document.getElementById('btnInitArticles').addEventListener('click', async () => {
+  if (currentArticlesBoutique.length > 0 && !confirm('Ajouter les articles de base en plus des existants (prix et stock à 0, à compléter) ?')) return;
+  try {
+    for (const a of ARTICLES_DE_BASE) {
+      await addDoc(collection(db, 'articles_boutique'), a);
+    }
+    chargerBoutiqueAdmin();
+  } catch (err) {
+    alert('Erreur lors de la création des articles : ' + (err.code || '') + ' — ' + (err.message || err));
+  }
+});
+
+async function chargerCommandesAdmin() {
+  const snap = await getDocs(collection(db, 'commandes'));
+  const commandes = [];
+  snap.forEach(d => commandes.push({ id: d.id, ...d.data() }));
+  commandes.sort((a, b) => (b.dateCreation?.toMillis?.() || 0) - (a.dateCreation?.toMillis?.() || 0));
+
+  const enAttente = commandes.filter(c => c.statut === 'en_attente').length;
+  const precommandesToutes = await chargerPrecommandesCache();
+  const precommandesNonVues = precommandesToutes.filter(p => p.vu === false).length;
+  const tabBtn = document.getElementById('tabBoutiqueBtn');
+  if (tabBtn) tabBtn.classList.toggle('has-unread', enAttente > 0 || precommandesNonVues > 0);
+
+  const wrap = document.getElementById('listeCommandes');
+  if (commandes.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucune commande pour l\'instant.</div>';
+    return;
+  }
+
+  const terme = (document.getElementById('rechercheCommande')?.value || '').trim().toLowerCase();
+  const commandesAffichees = !terme ? commandes : commandes.filter(c => {
+    const membre = currentMembres.find(m => m.id === c.membreId);
+    return membre && ((membre.nomMaitre || '').toLowerCase().includes(terme) || nomsChiensActifs(membre).toLowerCase().includes(terme));
+  });
+  if (commandesAffichees.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucune commande ne correspond à cette recherche.</div>';
+    return;
+  }
+
+  wrap.innerHTML = commandesAffichees.map(c => {
+    const membre = currentMembres.find(m => m.id === c.membreId);
+    const detailLignes = (c.lignes || []).map(l => `${l.quantite} × ${escapeHtml(l.nom)}`).join(', ');
+    const badgeStatut = c.statut === 'validee' ? '<span class="badge badge-ok">Validée</span>'
+      : c.statut === 'annulee' ? '<span class="badge badge-danger">Annulée</span>'
+      : '<span class="badge badge-warn">En attente</span>';
+    return `
+    <div class="data-row">
+      <div class="data-main">
+        <div class="data-title">${escapeHtml(membre?.nomMaitre || '?')}${membre && nomsChiensActifs(membre) ? ' — ' + escapeHtml(nomsChiensActifs(membre)) : ''} — ${Number(c.total).toFixed(2)} € TTC ${badgeStatut}</div>
+        <div class="data-sub">${detailLignes}</div>
+        ${c.numeroFacture ? `<div class="data-sub">Facture n° <strong>${escapeHtml(c.numeroFacture)}</strong></div>` : ''}
+      </div>
+      <div class="data-actions">
+        ${c.statut === 'en_attente' ? `
+          <button class="btn-sm primary" onclick="window.validerCommande('${c.id}')">Valider (décompte le stock)</button>
+          <button class="btn-sm danger" onclick="window.annulerCommande('${c.id}')">Annuler</button>
+        ` : ''}
+        ${c.statut === 'validee' && !c.numeroFacture ? `<button class="btn-sm primary" onclick="window.facturerCommande('${c.id}')">Générer la facture</button>` : ''}
+        ${c.numeroFacture ? `<button class="btn-sm" onclick="window.retelechargerFacture('${c.numeroFacture}')">Retélécharger PDF+XML</button> <button class="btn-sm" onclick="window.envoyerFactureParMail('${c.membreId}','${c.numeroFacture}')">Envoyer par mail</button>` : ''}
+        <button class="btn-sm danger" onclick="window.supprimerCommande('${c.id}')">Supprimer</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+window.supprimerCommande = async (commandeId) => {
+  if (!confirm('Supprimer définitivement cette commande ? Cette action ne peut pas être annulée (le stock ne sera pas modifié).')) return;
+  await deleteDoc(doc(db, 'commandes', commandeId));
+  chargerCommandesAdmin();
+};
+
+window.validerCommande = async (commandeId) => {
+  const commande = (await getDoc(doc(db, 'commandes', commandeId))).data();
+  for (const ligne of commande.lignes || []) {
+    // Décompte atomique (increment), jamais "stock actuel du cache - quantité"
+    // réécrit en valeur absolue : si deux commandes du même article sont
+    // validées coup sur coup (ou si la liste des articles en mémoire n'a pas
+    // été rechargée depuis un moment), l'ancienne méthode pouvait repartir
+    // d'un stock déjà périmé et écraser un décompte entre-temps — exactement
+    // le même type de bug que celui corrigé sur "Cours restants".
+    await updateDoc(doc(db, 'articles_boutique', ligne.articleId), { stock: increment(-ligne.quantite) }).catch(() => {});
+  }
+  await updateDoc(doc(db, 'commandes', commandeId), { statut: 'validee', dateValidation: serverTimestamp() });
+  chargerBoutiqueAdmin();
+};
+
+window.annulerCommande = async (commandeId) => {
+  if (!confirm('Annuler cette commande ? Le stock ne sera pas touché.')) return;
+  await updateDoc(doc(db, 'commandes', commandeId), { statut: 'annulee' });
+  chargerCommandesAdmin();
+};
+
+// ==========================================================================
+// Filet de sécurité : si une zone reste bloquée sur "..." après un moment,
+// c'est qu'un chargement a échoué silencieusement — on le dit clairement
+// plutôt que de laisser croire que quelque chose va encore arriver.
+// ==========================================================================
+setTimeout(() => {
+  document.querySelectorAll('.empty-state').forEach(el => {
+    if (el.textContent.trim() === '...') {
+      el.textContent = 'Page vide — une erreur a peut-être empêché le chargement. Recharge la page (Ctrl+F5).';
+    }
+  });
+}, 7000);
+
+// ==========================================================================
+// FACTURATION — numérotation séquentielle, PDF légal, export UBL/XML
+// (compatible import "factures électroniques" d'Octopus), historique.
+//
+// ⚠️ Ceci génère un document structuré correctement, mais je ne suis pas
+// comptable ni juriste : avant le premier envoi réel à un client, fais
+// vérifier un exemplaire par ta fiduciaire (numérotation, mentions TVA,
+// et compatibilité de l'import UBL avec ton dossier Octopus).
+// ==========================================================================
+
+const ENTREPRISE = {
+  nom: 'LES BEAUX CABOTS SRL',
+  enseigne: 'Les Cabots de Fernelmont',
+  adresse: 'Rue Grande 26',
+  codePostal: '4219',
+  ville: 'Wasseiges (Meeffe)',
+  pays: 'Belgique',
+  tva: 'BE0729593814',
+  email: 'cabotsdefernelmont@gmail.com',
+  tel: '0032 494 05 17 96',
+  iban: 'BE58 7320 5129 6479',
+  bic: 'CREGBEBB'
+};
+const TAUX_TVA = 21;
+const TAUX_ACOMPTE_DOGSITTING = 0.30; // 30% d'acompte exigé pour le Dog Sitting
+
+async function prochainNumeroFacture() {
+  const refDoc = doc(db, 'parametres', 'facturation');
+  const snap = await getDoc(refDoc);
+  const annee = new Date().getFullYear();
+  let compteur = 1;
+  if (snap.exists() && snap.data().annee === annee) {
+    compteur = (snap.data().dernierNumero || 0) + 1;
+  }
+  await setDoc(refDoc, { annee, dernierNumero: compteur });
+  return `${annee}-${String(compteur).padStart(3, '0')}`;
+}
+
+async function prochainNumeroNC() {
+  const refDoc = doc(db, 'parametres', 'notesCredit');
+  const snap = await getDoc(refDoc);
+  const annee = new Date().getFullYear();
+  let compteur = 1;
+  if (snap.exists() && snap.data().annee === annee) {
+    compteur = (snap.data().dernierNumero || 0) + 1;
+  }
+  await setDoc(refDoc, { annee, dernierNumero: compteur });
+  const anneeCourte = String(annee).slice(-2);
+  return `NC${anneeCourte}-${String(compteur).padStart(3, '0')}`;
+}
+
+// lignes : [{ description, quantite, prixUnitaireTTC }]
+async function genererFacture({ membre, lignes, type, refId }) {
+  if (!membre) { alert('Membre introuvable.'); return; }
+  const numero = await prochainNumeroFacture();
+  const dateEmission = dateISOLocale(new Date());
+
+  const lignesCalc = lignes.map(l => {
+    const totalTTC = l.quantite * l.prixUnitaireTTC;
+    const totalHT = totalTTC / (1 + TAUX_TVA / 100);
+    return { ...l, totalTTC, totalHT };
+  });
+  const totalTTC = lignesCalc.reduce((s, l) => s + l.totalTTC, 0);
+  const totalHT = lignesCalc.reduce((s, l) => s + l.totalHT, 0);
+  const totalTVA = totalTTC - totalHT;
+
+  await addDoc(collection(db, 'factures'), {
+    numero, membreId: membre.id, type, refId,
+    dateEmission, lignes: lignesCalc, totalHT, totalTVA, totalTTC,
+    creeLe: serverTimestamp()
+  });
+
+  telechargerFacturePDF({ numero, dateEmission, membre, lignesCalc, totalHT, totalTVA, totalTTC });
+  telechargerFactureUBL({ numero, dateEmission, membre, lignesCalc, totalHT, totalTVA, totalTTC });
+
+  return numero;
+}
+
+// Retélécharge le PDF + XML d'une facture déjà émise (même numéro, aucune
+// nouvelle écriture) — utile si le fichier a été perdu ou mal enregistré.
+window.retelechargerFacture = async (numeroFacture) => {
+  const snap = await getDocs(query(collection(db, 'factures'), where('numero', '==', numeroFacture)));
+  if (snap.empty) { alert('Facture introuvable.'); return; }
+  const facture = snap.docs[0].data();
+  const membre = currentMembres.find(m => m.id === facture.membreId) || currentMembresArchives.find(m => m.id === facture.membreId);
+  if (!membre) { alert('Membre introuvable (peut-être archivé sans fiche retrouvée).'); return; }
+  telechargerFacturePDF({ numero: facture.numero, dateEmission: facture.dateEmission, membre, lignesCalc: facture.lignes, totalHT: facture.totalHT, totalTVA: facture.totalTVA, totalTTC: facture.totalTTC });
+  telechargerFactureUBL({ numero: facture.numero, dateEmission: facture.dateEmission, membre, lignesCalc: facture.lignes, totalHT: facture.totalHT, totalTVA: facture.totalTVA, totalTTC: facture.totalTTC });
+};
+
+function telechargerFacturePDF({ numero, dateEmission, membre, lignesCalc, totalHT, totalTVA, totalTTC }) {
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF();
+  let y = 20;
+
+  pdf.setFontSize(16); pdf.setFont(undefined, 'bold');
+  pdf.text(ENTREPRISE.nom, 15, y);
+  pdf.setFontSize(10); pdf.setFont(undefined, 'normal');
+  y += 6; pdf.text(ENTREPRISE.enseigne, 15, y);
+  y += 5; pdf.text(`${ENTREPRISE.adresse}, ${ENTREPRISE.codePostal} ${ENTREPRISE.ville}`, 15, y);
+  y += 5; pdf.text(`TVA ${ENTREPRISE.tva}`, 15, y);
+  y += 5; pdf.text(`${ENTREPRISE.email} — ${ENTREPRISE.tel}`, 15, y);
+
+  pdf.setFontSize(14); pdf.setFont(undefined, 'bold');
+  pdf.text('FACTURE', 150, 20);
+  pdf.setFontSize(10); pdf.setFont(undefined, 'normal');
+  pdf.text(`N° ${numero}`, 150, 27);
+  pdf.text(`Date : ${new Date(dateEmission + 'T00:00:00').toLocaleDateString('fr-BE')}`, 150, 32);
+
+  y = 55;
+  pdf.setFont(undefined, 'bold'); pdf.text('Client', 15, y); pdf.setFont(undefined, 'normal');
+  y += 6; pdf.text(membre.nomMaitre || '', 15, y);
+  if (membre.adressePostale) { y += 5; pdf.text(membre.adressePostale, 15, y); }
+  if (membre.email) { y += 5; pdf.text(membre.email, 15, y); }
+
+  y += 12;
+  pdf.setFillColor(27, 58, 92);
+  pdf.rect(15, y, 180, 8, 'F');
+  pdf.setTextColor(255, 255, 255); pdf.setFont(undefined, 'bold'); pdf.setFontSize(9);
+  pdf.text('Description', 18, y + 5.5);
+  pdf.text('Qté', 120, y + 5.5);
+  pdf.text('PU TTC', 140, y + 5.5);
+  pdf.text('Total TTC', 168, y + 5.5);
+  pdf.setTextColor(0, 0, 0); pdf.setFont(undefined, 'normal');
+  y += 8;
+
+  lignesCalc.forEach(l => {
+    y += 8;
+    pdf.text(String(l.description).slice(0, 55), 18, y);
+    pdf.text(String(l.quantite), 120, y);
+    pdf.text(l.prixUnitaireTTC.toFixed(2) + ' €', 140, y);
+    pdf.text(l.totalTTC.toFixed(2) + ' €', 168, y);
+  });
+
+  y += 14;
+  pdf.line(120, y, 195, y);
+  y += 6;
+  pdf.text('Total HT :', 140, y); pdf.text(totalHT.toFixed(2) + ' €', 168, y);
+  y += 6;
+  pdf.text(`TVA ${TAUX_TVA}% :`, 140, y); pdf.text(totalTVA.toFixed(2) + ' €', 168, y);
+  y += 6;
+  pdf.setFont(undefined, 'bold');
+  pdf.text('Total TTC :', 140, y); pdf.text(totalTTC.toFixed(2) + ' €', 168, y);
+  pdf.setFont(undefined, 'normal');
+
+  y += 14;
+  pdf.setFontSize(9);
+  pdf.text(`À payer sur le compte ${ENTREPRISE.iban} (BIC ${ENTREPRISE.bic}) — communication : ${numero}`, 15, y);
+
+  y += 14;
+  pdf.setFontSize(8); pdf.setTextColor(90, 100, 110);
+  pdf.text('Facture soumise aux Conditions Générales de Vente disponibles sur le site du club.', 15, y);
+  y += 5;
+  pdf.text('En cas de retard de paiement, des intérêts de retard légaux sont applicables de plein droit.', 15, y);
+  y += 10;
+  pdf.text(`${ENTREPRISE.nom} — TVA ${ENTREPRISE.tva} — ${ENTREPRISE.adresse}, ${ENTREPRISE.codePostal} ${ENTREPRISE.ville}`, 15, y);
+
+  pdf.save(`Facture_${numero}.pdf`);
+}
+
+function telechargerFactureUBL({ numero, dateEmission, membre, lignesCalc, totalHT, totalTVA, totalTTC }) {
+  const ligneXml = lignesCalc.map((l, i) => `
+  <cac:InvoiceLine>
+    <cbc:ID>${i + 1}</cbc:ID>
+    <cbc:InvoicedQuantity unitCode="C62">${l.quantite}</cbc:InvoicedQuantity>
+    <cbc:LineExtensionAmount currencyID="EUR">${l.totalHT.toFixed(2)}</cbc:LineExtensionAmount>
+    <cac:Item>
+      <cbc:Name>${escaperXml(l.description)}</cbc:Name>
+      <cac:ClassifiedTaxCategory>
+        <cbc:ID>S</cbc:ID>
+        <cbc:Percent>${TAUX_TVA}</cbc:Percent>
+        <cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme>
+      </cac:ClassifiedTaxCategory>
+    </cac:Item>
+    <cac:Price>
+      <cbc:PriceAmount currencyID="EUR">${(l.prixUnitaireTTC / (1 + TAUX_TVA / 100)).toFixed(4)}</cbc:PriceAmount>
+    </cac:Price>
+  </cac:InvoiceLine>`).join('');
+
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2"
+         xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2"
+         xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2">
+  <cbc:UBLVersionID>2.1</cbc:UBLVersionID>
+  <cbc:ID>${numero}</cbc:ID>
+  <cbc:IssueDate>${dateEmission}</cbc:IssueDate>
+  <cbc:InvoiceTypeCode>380</cbc:InvoiceTypeCode>
+  <cbc:DocumentCurrencyCode>EUR</cbc:DocumentCurrencyCode>
+  <cac:AccountingSupplierParty>
+    <cac:Party>
+      <cbc:EndpointID schemeID="0208">${ENTREPRISE.tva}</cbc:EndpointID>
+      <cac:PartyName><cbc:Name>${escaperXml(ENTREPRISE.nom)}</cbc:Name></cac:PartyName>
+      <cac:PostalAddress>
+        <cbc:StreetName>${escaperXml(ENTREPRISE.adresse)}</cbc:StreetName>
+        <cbc:CityName>${escaperXml(ENTREPRISE.ville)}</cbc:CityName>
+        <cbc:PostalZone>${ENTREPRISE.codePostal}</cbc:PostalZone>
+        <cac:Country><cbc:IdentificationCode>BE</cbc:IdentificationCode></cac:Country>
+      </cac:PostalAddress>
+      <cac:PartyTaxScheme>
+        <cbc:CompanyID>${ENTREPRISE.tva}</cbc:CompanyID>
+        <cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme>
+      </cac:PartyTaxScheme>
+    </cac:Party>
+  </cac:AccountingSupplierParty>
+  <cac:AccountingCustomerParty>
+    <cac:Party>
+      <cac:PartyName><cbc:Name>${escaperXml(membre.nomMaitre || '')}</cbc:Name></cac:PartyName>
+      <cac:PostalAddress>
+        <cbc:StreetName>${escaperXml(membre.adressePostale || '')}</cbc:StreetName>
+        <cac:Country><cbc:IdentificationCode>BE</cbc:IdentificationCode></cac:Country>
+      </cac:PostalAddress>
+      ${membre.email ? `<cac:Contact><cbc:ElectronicMail>${escaperXml(membre.email)}</cbc:ElectronicMail></cac:Contact>` : ''}
+    </cac:Party>
+  </cac:AccountingCustomerParty>
+  <cac:TaxTotal>
+    <cbc:TaxAmount currencyID="EUR">${totalTVA.toFixed(2)}</cbc:TaxAmount>
+    <cac:TaxSubtotal>
+      <cbc:TaxableAmount currencyID="EUR">${totalHT.toFixed(2)}</cbc:TaxableAmount>
+      <cbc:TaxAmount currencyID="EUR">${totalTVA.toFixed(2)}</cbc:TaxAmount>
+      <cac:TaxCategory>
+        <cbc:ID>S</cbc:ID>
+        <cbc:Percent>${TAUX_TVA}</cbc:Percent>
+        <cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme>
+      </cac:TaxCategory>
+    </cac:TaxSubtotal>
+  </cac:TaxTotal>
+  <cac:LegalMonetaryTotal>
+    <cbc:LineExtensionAmount currencyID="EUR">${totalHT.toFixed(2)}</cbc:LineExtensionAmount>
+    <cbc:TaxExclusiveAmount currencyID="EUR">${totalHT.toFixed(2)}</cbc:TaxExclusiveAmount>
+    <cbc:TaxInclusiveAmount currencyID="EUR">${totalTTC.toFixed(2)}</cbc:TaxInclusiveAmount>
+    <cbc:PayableAmount currencyID="EUR">${totalTTC.toFixed(2)}</cbc:PayableAmount>
+  </cac:LegalMonetaryTotal>
+  ${ligneXml}
+</Invoice>`;
+
+  const blob = new Blob([xml], { type: 'application/xml' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `Facture_${numero}_UBL.xml`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function escaperXml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&apos;'}[c]));
+}
+
+function telechargerNoteCreditPDF({ numero, dateEmission, membre, factureOrigineNumero, lignesCalc, totalHT, totalTVA, totalTTC }) {
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF();
+  let y = 20;
+
+  pdf.setFontSize(16); pdf.setFont(undefined, 'bold');
+  pdf.text(ENTREPRISE.nom, 15, y);
+  pdf.setFontSize(10); pdf.setFont(undefined, 'normal');
+  y += 6; pdf.text(ENTREPRISE.enseigne, 15, y);
+  y += 5; pdf.text(`${ENTREPRISE.adresse}, ${ENTREPRISE.codePostal} ${ENTREPRISE.ville}`, 15, y);
+  y += 5; pdf.text(`TVA ${ENTREPRISE.tva}`, 15, y);
+  y += 5; pdf.text(`${ENTREPRISE.email} — ${ENTREPRISE.tel}`, 15, y);
+
+  pdf.setFontSize(14); pdf.setFont(undefined, 'bold'); pdf.setTextColor(140, 30, 30);
+  pdf.text('NOTE DE CRÉDIT', 138, 20);
+  pdf.setTextColor(0, 0, 0);
+  pdf.setFontSize(10); pdf.setFont(undefined, 'normal');
+  pdf.text(`N° ${numero}`, 150, 27);
+  pdf.text(`Date : ${new Date(dateEmission + 'T00:00:00').toLocaleDateString('fr-BE')}`, 150, 32);
+  pdf.text(`Annule la facture n° ${factureOrigineNumero}`, 150, 37);
+
+  y = 58;
+  pdf.setFont(undefined, 'bold'); pdf.text('Client', 15, y); pdf.setFont(undefined, 'normal');
+  y += 6; pdf.text(membre?.nomMaitre || '', 15, y);
+  if (membre?.adressePostale) { y += 5; pdf.text(membre.adressePostale, 15, y); }
+  if (membre?.email) { y += 5; pdf.text(membre.email, 15, y); }
+
+  y += 12;
+  pdf.setFillColor(140, 30, 30);
+  pdf.rect(15, y, 180, 8, 'F');
+  pdf.setTextColor(255, 255, 255); pdf.setFont(undefined, 'bold'); pdf.setFontSize(9);
+  pdf.text('Description', 18, y + 5.5);
+  pdf.text('Qté', 120, y + 5.5);
+  pdf.text('PU TTC', 140, y + 5.5);
+  pdf.text('Total TTC', 168, y + 5.5);
+  pdf.setTextColor(0, 0, 0); pdf.setFont(undefined, 'normal');
+  y += 8;
+
+  lignesCalc.forEach(l => {
+    y += 8;
+    pdf.text(String(l.description).slice(0, 55), 18, y);
+    pdf.text(String(l.quantite), 120, y);
+    pdf.text('-' + l.prixUnitaireTTC.toFixed(2) + ' €', 140, y);
+    pdf.text('-' + l.totalTTC.toFixed(2) + ' €', 168, y);
+  });
+
+  y += 14;
+  pdf.line(120, y, 195, y);
+  y += 6;
+  pdf.text('Total HT :', 140, y); pdf.text('-' + totalHT.toFixed(2) + ' €', 168, y);
+  y += 6;
+  pdf.text(`TVA ${TAUX_TVA}% :`, 140, y); pdf.text('-' + totalTVA.toFixed(2) + ' €', 168, y);
+  y += 6;
+  pdf.setFont(undefined, 'bold');
+  pdf.text('Total TTC :', 140, y); pdf.text('-' + totalTTC.toFixed(2) + ' €', 168, y);
+  pdf.setFont(undefined, 'normal');
+
+  y += 20;
+  pdf.setFontSize(8); pdf.setTextColor(90, 100, 110);
+  pdf.text(`Cette note de crédit annule et remplace la facture n° ${factureOrigineNumero}.`, 15, y);
+  y += 10;
+  pdf.text(`${ENTREPRISE.nom} — TVA ${ENTREPRISE.tva} — ${ENTREPRISE.adresse}, ${ENTREPRISE.codePostal} ${ENTREPRISE.ville}`, 15, y);
+
+  pdf.save(`NoteCredit_${numero}.pdf`);
+}
+
+window.annulerFactureAvecNoteCredit = async (numeroFacture) => {
+  if (!confirm(`Annuler la facture ${numeroFacture} via une note de crédit ? Cette action génère un document officiel et ne peut pas être défaite.`)) return;
+  try {
+    const snap = await getDocs(query(collection(db, 'factures'), where('numero', '==', numeroFacture)));
+    if (snap.empty) { alert('Facture introuvable.'); return; }
+    const factureDoc = snap.docs[0];
+    const facture = factureDoc.data();
+    const membre = currentMembres.find(m => m.id === facture.membreId) || currentMembresArchives.find(m => m.id === facture.membreId);
+
+    const numeroNC = await prochainNumeroNC();
+    const dateEmission = dateISOLocale(new Date());
+
+    await addDoc(collection(db, 'notes_credit'), {
+      numero: numeroNC, factureOrigineNumero: numeroFacture, membreId: facture.membreId,
+      dateEmission, lignes: facture.lignes, totalHT: facture.totalHT, totalTVA: facture.totalTVA, totalTTC: facture.totalTTC,
+      creeLe: serverTimestamp()
+    });
+    await updateDoc(doc(db, 'factures', factureDoc.id), { statut: 'annulee', noteCreditNumero: numeroNC });
+
+    telechargerNoteCreditPDF({ numero: numeroNC, dateEmission, membre, factureOrigineNumero: numeroFacture, lignesCalc: facture.lignes, totalHT: facture.totalHT, totalTVA: facture.totalTVA, totalTTC: facture.totalTTC });
+
+    chargerComptaAdmin();
+  } catch (err) {
+    alert('Erreur : ' + (err.code || '') + ' — ' + (err.message || err));
+  }
+};
+
+window.retelechargerNoteCredit = async (numeroNC) => {
+  const snap = await getDocs(query(collection(db, 'notes_credit'), where('numero', '==', numeroNC)));
+  if (snap.empty) { alert('Note de crédit introuvable.'); return; }
+  const nc = snap.docs[0].data();
+  const membre = currentMembres.find(m => m.id === nc.membreId) || currentMembresArchives.find(m => m.id === nc.membreId);
+  telechargerNoteCreditPDF({ numero: nc.numero, dateEmission: nc.dateEmission, membre, factureOrigineNumero: nc.factureOrigineNumero, lignesCalc: nc.lignes, totalHT: nc.totalHT, totalTVA: nc.totalTVA, totalTTC: nc.totalTTC });
+};
+
+// ==========================================================================
+// COMPTA — historique factures + notes de crédit, réglage numérotation
+// ==========================================================================
+async function chargerComptaAdmin() {
+  const facturesSnap = await getDocs(collection(db, 'factures'));
+  const factures = [];
+  // IMPORTANT : le document facture a lui-même un champ "type" (ex: 'commande',
+  // 'paiement' — la nature de l'achat facturé). On utilise donc "_docCompta"
+  // pour ce marqueur interne (facture / note de crédit) afin de ne jamais
+  // l'écraser avec ...d.data() — c'était le bug qui affichait certaines
+  // factures comme "Note de crédit".
+  facturesSnap.forEach(d => factures.push({ id: d.id, ...d.data(), _docCompta: 'facture' }));
+
+  const ncSnap = await getDocs(collection(db, 'notes_credit'));
+  const notesCredit = [];
+  ncSnap.forEach(d => notesCredit.push({ id: d.id, ...d.data(), _docCompta: 'nc' }));
+
+  let tous = [...factures, ...notesCredit];
+  tous.sort((a, b) => (b.dateEmission || '').localeCompare(a.dateEmission || ''));
+
+  const terme = (document.getElementById('rechercheCompta')?.value || '').trim().toLowerCase();
+  if (terme) {
+    tous = tous.filter(doc => {
+      const membre = currentMembres.find(m => m.id === doc.membreId) || currentMembresArchives.find(m => m.id === doc.membreId);
+      return (membre?.nomMaitre || '').toLowerCase().includes(terme) || doc.numero.toLowerCase().includes(terme);
+    });
+  }
+
+  const wrap = document.getElementById('listeCompta');
+  if (tous.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucun document pour l\'instant.</div>';
+    return;
+  }
+
+  wrap.innerHTML = tous.map(doc => {
+    const membre = currentMembres.find(m => m.id === doc.membreId) || currentMembresArchives.find(m => m.id === doc.membreId);
+    if (doc._docCompta === 'facture') {
+      const badge = doc.statut === 'annulee' ? '<span class="badge badge-danger">Annulée</span>' : '<span class="badge badge-ok">Facture</span>';
+      return `
+      <div class="data-row">
+        <div class="data-main">
+          <div class="data-title">${escapeHtml(doc.numero)} — ${escapeHtml(membre?.nomMaitre || '?')} ${badge}</div>
+          <div class="data-sub">${doc.dateEmission} · ${Number(doc.totalTTC).toFixed(2)} € TTC${doc.noteCreditNumero ? ` · annulée par ${escapeHtml(doc.noteCreditNumero)}` : ''}</div>
+        </div>
+        <div class="data-actions">
+          <button class="btn-sm" onclick="window.retelechargerFacture('${doc.numero}')">PDF</button>
+          ${doc.statut !== 'annulee' ? `<button class="btn-sm danger" onclick="window.annulerFactureAvecNoteCredit('${doc.numero}')">Annuler (note de crédit)</button>` : ''}
+        </div>
+      </div>`;
+    } else {
+      return `
+      <div class="data-row">
+        <div class="data-main">
+          <div class="data-title">${escapeHtml(doc.numero)} — ${escapeHtml(membre?.nomMaitre || '?')} <span class="badge badge-danger">Note de crédit</span></div>
+          <div class="data-sub">${doc.dateEmission} · -${Number(doc.totalTTC).toFixed(2)} € TTC · annule ${escapeHtml(doc.factureOrigineNumero)}</div>
+        </div>
+        <div class="data-actions">
+          <button class="btn-sm" onclick="window.retelechargerNoteCredit('${doc.numero}')">PDF</button>
+        </div>
+      </div>`;
+    }
+  }).join('');
+}
+
+document.getElementById('rechercheCompta').addEventListener('input', () => chargerComptaAdmin());
+
+async function chargerNumerotationCompta() {
+  const anneeActuelle = new Date().getFullYear();
+  const facDoc = await getDoc(doc(db, 'parametres', 'facturation'));
+  document.getElementById('cpt-facture-annee').value = facDoc.exists() ? facDoc.data().annee : anneeActuelle;
+  document.getElementById('cpt-facture-dernier').value = facDoc.exists() ? facDoc.data().dernierNumero : 0;
+
+  const ncDoc = await getDoc(doc(db, 'parametres', 'notesCredit'));
+  document.getElementById('cpt-nc-annee').value = ncDoc.exists() ? ncDoc.data().annee : anneeActuelle;
+  document.getElementById('cpt-nc-dernier').value = ncDoc.exists() ? ncDoc.data().dernierNumero : 0;
+}
+
+// ==========================================================================
+// RÉCAPITULATIF DU CHIFFRE D'AFFAIRES — pour reconstituer le CA en cas de
+// contrôle fiscal : total par mois et par type, à partir des paiements
+// enregistrés (Cotisation, Abonnement, Cours individuel, Séance de
+// comportement, Dog Sitting, Toilettage, Vente diverse, Autre) et des
+// commandes boutique validées.
+// ==========================================================================
+const TYPES_RECAP_CA = ['Cotisation', 'Abonnement', 'Cours individuel', 'Séance de comportement', 'Dog Sitting', 'Toilettage', 'Vente diverse', 'Autre', 'Boutique'];
+const MOIS_COURTS = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Jun', 'Jul', 'Aoû', 'Sep', 'Oct', 'Nov', 'Déc'];
+
+document.getElementById('cptRecapAnnee').value = new Date().getFullYear();
+
+async function calculerRecapCA(annee) {
+  // matrice[mois 0-11][type] = montant
+  const matrice = Array.from({ length: 12 }, () => Object.fromEntries(TYPES_RECAP_CA.map(t => [t, 0])));
+
+  const paiementsSnap = await getDocs(query(collection(db, 'paiements'), where('date', '>=', `${annee}-01-01`), where('date', '<=', `${annee}-12-31`)));
+  paiementsSnap.forEach(d => {
+    const p = d.data();
+    const mois = parseInt(p.date.slice(5, 7), 10) - 1;
+    const type = TYPES_RECAP_CA.includes(p.type) ? p.type : 'Autre';
+    matrice[mois][type] += Number(p.montant) || 0;
+  });
+
+  const commandesSnap = await getDocs(query(collection(db, 'commandes'), where('statut', '==', 'validee')));
+  commandesSnap.forEach(d => {
+    const c = d.data();
+    if (!c.dateCreation?.toDate) return;
+    const dateCmd = c.dateCreation.toDate();
+    if (dateCmd.getFullYear() !== Number(annee)) return;
+    matrice[dateCmd.getMonth()]['Boutique'] += Number(c.total) || 0;
+  });
+
+  return matrice;
+}
+
+function tableauRecapCAHtml(matrice) {
+  let html = '<table style="width:100%; border-collapse:collapse; font-size:0.85rem;">';
+  html += '<tr style="background:var(--navy); color:#fff;"><th style="padding:6px 8px; text-align:left;">Mois</th>' +
+    TYPES_RECAP_CA.map(t => `<th style="padding:6px 8px; text-align:right;">${t}</th>`).join('') +
+    '<th style="padding:6px 8px; text-align:right;">Total</th></tr>';
+
+  const totauxParType = Object.fromEntries(TYPES_RECAP_CA.map(t => [t, 0]));
+  matrice.forEach((ligne, i) => {
+    const totalMois = TYPES_RECAP_CA.reduce((s, t) => s + ligne[t], 0);
+    TYPES_RECAP_CA.forEach(t => { totauxParType[t] += ligne[t]; });
+    html += `<tr style="border-bottom:1px solid #E3E7EB; ${i % 2 === 1 ? 'background:var(--paper);' : ''}">
+      <td style="padding:6px 8px;">${MOIS_COURTS[i]}</td>` +
+      TYPES_RECAP_CA.map(t => `<td style="padding:6px 8px; text-align:right;">${ligne[t] ? ligne[t].toFixed(2) : '—'}</td>`).join('') +
+      `<td style="padding:6px 8px; text-align:right; font-weight:600;">${totalMois.toFixed(2)}</td></tr>`;
+  });
+  const totalGeneral = TYPES_RECAP_CA.reduce((s, t) => s + totauxParType[t], 0);
+  html += `<tr style="background:var(--paper-warm); font-weight:700;"><td style="padding:6px 8px;">Total</td>` +
+    TYPES_RECAP_CA.map(t => `<td style="padding:6px 8px; text-align:right;">${totauxParType[t].toFixed(2)}</td>`).join('') +
+    `<td style="padding:6px 8px; text-align:right;">${totalGeneral.toFixed(2)}</td></tr>`;
+  html += '</table>';
+  return html;
+}
+
+let dernierRecapCA = null;
+let derniereAnneeRecapCA = null;
+
+document.getElementById('btnChargerRecapCA').addEventListener('click', async () => {
+  const annee = document.getElementById('cptRecapAnnee').value;
+  if (!annee) { alert('Indique une année.'); return; }
+  const zone = document.getElementById('cptRecapTableau');
+  zone.innerHTML = '<p style="color:var(--slate); font-size:0.85rem;">Calcul en cours...</p>';
+  dernierRecapCA = await calculerRecapCA(annee);
+  derniereAnneeRecapCA = annee;
+  zone.innerHTML = tableauRecapCAHtml(dernierRecapCA);
+});
+
+document.getElementById('btnExporterRecapCA').addEventListener('click', async () => {
+  if (!dernierRecapCA) { alert('Clique d\'abord sur "Afficher".'); return; }
+  const lignes = dernierRecapCA.map((ligne, i) => {
+    const row = { 'Mois': MOIS_COURTS[i] + ' ' + derniereAnneeRecapCA };
+    TYPES_RECAP_CA.forEach(t => { row[t] = Number(ligne[t].toFixed(2)); });
+    row['Total'] = Number(TYPES_RECAP_CA.reduce((s, t) => s + ligne[t], 0).toFixed(2));
+    return row;
+  });
+  const totalRow = { 'Mois': 'TOTAL ' + derniereAnneeRecapCA };
+  TYPES_RECAP_CA.forEach(t => { totalRow[t] = Number(dernierRecapCA.reduce((s, l) => s + l[t], 0).toFixed(2)); });
+  totalRow['Total'] = Number(Object.values(totalRow).slice(1).reduce((s, v) => s + v, 0).toFixed(2));
+  lignes.push(totalRow);
+
+  const feuille = XLSX.utils.json_to_sheet(lignes);
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, feuille, `CA ${derniereAnneeRecapCA}`);
+  XLSX.writeFile(classeur, `Chiffre-affaires-${derniereAnneeRecapCA}.xlsx`);
+});
+
+document.getElementById('btnDetailParMembre').addEventListener('click', async () => {
+  const type = document.getElementById('cptDetailType').value;
+  const mois = document.getElementById('cptDetailMois').value; // format YYYY-MM
+  if (!mois) { alert('Choisis un mois.'); return; }
+  const zone = document.getElementById('cptDetailTableau');
+  zone.innerHTML = '<p style="color:var(--slate); font-size:0.85rem;">Chargement...</p>';
+
+  let lignes = [];
+  if (type === 'Boutique') {
+    const snap = await getDocs(query(collection(db, 'commandes'), where('statut', '==', 'validee')));
+    snap.forEach(d => {
+      const c = d.data();
+      if (!c.dateCreation?.toDate) return;
+      const dISO = dateISOLocale(c.dateCreation.toDate());
+      if (!dISO.startsWith(mois)) return;
+      const membre = currentMembres.find(m => m.id === c.membreId) || currentMembresArchives.find(m => m.id === c.membreId);
+      lignes.push({ date: dISO, nom: membre?.nomMaitre || '(membre inconnu)', montant: Number(c.total) || 0 });
+    });
+  } else {
+    // Filtre uniquement par type côté Firestore (index simple), le mois est
+    // filtré ensuite côté client — évite d'avoir besoin d'un index composite
+    // Firestore (type + date) pour cette requête ponctuelle.
+    const snap = await getDocs(query(collection(db, 'paiements'), where('type', '==', type)));
+    snap.forEach(d => {
+      const p = d.data();
+      if (!p.date || !p.date.startsWith(mois)) return;
+      const membre = currentMembres.find(m => m.id === p.membreId) || currentMembresArchives.find(m => m.id === p.membreId);
+      lignes.push({ date: p.date, nom: membre?.nomMaitre || '(membre inconnu)', montant: Number(p.montant) || 0, note: p.note || '' });
+    });
+  }
+  lignes.sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+
+  if (lignes.length === 0) {
+    zone.innerHTML = '<div class="empty-state">Aucun paiement de ce type sur cette période.</div>';
+    dernierDetailMembre = null;
+    return;
+  }
+  const total = lignes.reduce((s, l) => s + l.montant, 0);
+  zone.innerHTML = `
+    <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+      <tr style="background:var(--navy); color:#fff;"><th style="padding:6px 8px; text-align:left;">Date</th><th style="padding:6px 8px; text-align:left;">Membre</th><th style="padding:6px 8px; text-align:right;">Montant</th></tr>
+      ${lignes.map((l, i) => `<tr style="border-bottom:1px solid #E3E7EB; ${i % 2 === 1 ? 'background:var(--paper);' : ''}">
+        <td style="padding:6px 8px;">${l.date}</td><td style="padding:6px 8px;">${escapeHtml(l.nom)}</td><td style="padding:6px 8px; text-align:right;">${l.montant.toFixed(2)} €</td>
+      </tr>`).join('')}
+      <tr style="background:var(--paper-warm); font-weight:700;"><td colspan="2" style="padding:6px 8px;">Total (${lignes.length})</td><td style="padding:6px 8px; text-align:right;">${total.toFixed(2)} €</td></tr>
+    </table>`;
+  dernierDetailMembre = { type, mois, lignes };
+});
+
+let dernierDetailMembre = null;
+document.getElementById('btnExporterDetailMembre').addEventListener('click', () => {
+  if (!dernierDetailMembre || dernierDetailMembre.lignes.length === 0) { alert('Clique d\'abord sur "Voir le détail".'); return; }
+  const lignesExport = dernierDetailMembre.lignes.map(l => ({ Date: l.date, Membre: l.nom, 'Montant (€)': l.montant, Note: l.note || '' }));
+  const feuille = XLSX.utils.json_to_sheet(lignesExport);
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, feuille, 'Détail');
+  XLSX.writeFile(classeur, `Detail-${dernierDetailMembre.type}-${dernierDetailMembre.mois}.xlsx`);
+});
+
+// ---- Total par type sur une période personnalisée (pas forcément une année civile) ----
+let dernierePeriodeCA = null;
+
+async function calculerPeriodeCA(du, au) {
+  const totaux = Object.fromEntries(TYPES_RECAP_CA.map(t => [t, 0]));
+  const paiementsSnap = await getDocs(query(collection(db, 'paiements'), where('date', '>=', du), where('date', '<=', au)));
+  paiementsSnap.forEach(d => {
+    const p = d.data();
+    const type = TYPES_RECAP_CA.includes(p.type) ? p.type : 'Autre';
+    totaux[type] += Number(p.montant) || 0;
+  });
+  const commandesSnap = await getDocs(query(collection(db, 'commandes'), where('statut', '==', 'validee')));
+  commandesSnap.forEach(d => {
+    const c = d.data();
+    if (!c.dateCreation?.toDate) return;
+    const dISO = dateISOLocale(c.dateCreation.toDate());
+    if (dISO < du || dISO > au) return;
+    totaux['Boutique'] += Number(c.total) || 0;
+  });
+  return totaux;
+}
+
+document.getElementById('btnCalculerPeriodeCA').addEventListener('click', async () => {
+  const du = document.getElementById('cptPeriodeDu').value;
+  const au = document.getElementById('cptPeriodeAu').value;
+  if (!du || !au) { alert('Choisis une date de début et de fin.'); return; }
+  const zone = document.getElementById('cptPeriodeTableau');
+  zone.innerHTML = '<p style="color:var(--slate); font-size:0.85rem;">Calcul en cours...</p>';
+  const totaux = await calculerPeriodeCA(du, au);
+  dernierePeriodeCA = { du, au, totaux };
+  const totalGeneral = TYPES_RECAP_CA.reduce((s, t) => s + totaux[t], 0);
+  zone.innerHTML = `
+    <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+      <tr style="background:var(--navy); color:#fff;"><th style="padding:6px 8px; text-align:left;">Type</th><th style="padding:6px 8px; text-align:right;">Total</th></tr>
+      ${TYPES_RECAP_CA.map((t, i) => `<tr style="border-bottom:1px solid #E3E7EB; ${i % 2 === 1 ? 'background:var(--paper);' : ''}"><td style="padding:6px 8px;">${t}</td><td style="padding:6px 8px; text-align:right;">${totaux[t].toFixed(2)} €</td></tr>`).join('')}
+      <tr style="background:var(--paper-warm); font-weight:700;"><td style="padding:6px 8px;">Total général</td><td style="padding:6px 8px; text-align:right;">${totalGeneral.toFixed(2)} €</td></tr>
+    </table>`;
+});
+
+document.getElementById('btnExporterPeriodeCA').addEventListener('click', () => {
+  if (!dernierePeriodeCA) { alert('Clique d\'abord sur "Calculer".'); return; }
+  const lignes = TYPES_RECAP_CA.map(t => ({ Type: t, 'Total (€)': Number(dernierePeriodeCA.totaux[t].toFixed(2)) }));
+  lignes.push({ Type: 'TOTAL GÉNÉRAL', 'Total (€)': Number(TYPES_RECAP_CA.reduce((s, t) => s + dernierePeriodeCA.totaux[t], 0).toFixed(2)) });
+  const feuille = XLSX.utils.json_to_sheet(lignes);
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, feuille, 'CA période');
+  XLSX.writeFile(classeur, `CA-${dernierePeriodeCA.du}-au-${dernierePeriodeCA.au}.xlsx`);
+});
+
+// ---- Cours utilisés par membre sur une période ----
+let dernierCoursParMembre = null;
+
+document.getElementById('btnCalculerCoursMembre').addEventListener('click', async () => {
+  const du = document.getElementById('cptCoursDu').value;
+  const au = document.getElementById('cptCoursAu').value;
+  if (!du || !au) { alert('Choisis une date de début et de fin.'); return; }
+  const zone = document.getElementById('cptCoursTableau');
+  zone.innerHTML = '<p style="color:var(--slate); font-size:0.85rem;">Calcul en cours...</p>';
+
+  const snap = await getDocs(query(collection(db, 'presences'), where('dateISO', '>=', du), where('dateISO', '<=', au)));
+  const compte = {};
+  snap.forEach(d => {
+    const p = d.data();
+    // Ne compte que les cours réellement décomptés de l'abonnement : à la
+    // fois le statut ("present" ou "absent-auto" = non répondu à temps)
+    // ET le indicateur compteAbonnement. Double vérification volontaire :
+    // si un cours annulé par Katia a été correctement remboursé, ou si le
+    // membre a répondu "absent" à temps (jamais décompté), il ne doit
+    // jamais apparaître ici — même si d'anciennes données restaient
+    // incohérentes suite à un bug déjà corrigé par ailleurs.
+    if (p.statut !== 'present' && p.statut !== 'absent-auto') return;
+    if (!p.compteAbonnement) return;
+    compte[p.uid] = (compte[p.uid] || 0) + 1;
+  });
+
+  const lignes = Object.entries(compte).map(([uid, nb]) => {
+    const membre = currentMembres.find(m => m.id === uid) || currentMembresArchives.find(m => m.id === uid);
+    return { nom: membre?.nomMaitre || '(membre inconnu)', nb };
+  }).sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+
+  dernierCoursParMembre = { du, au, lignes };
+
+  if (lignes.length === 0) {
+    zone.innerHTML = '<div class="empty-state">Aucun cours décompté sur cette période.</div>';
+    return;
+  }
+  const total = lignes.reduce((s, l) => s + l.nb, 0);
+  zone.innerHTML = `
+    <table style="width:100%; border-collapse:collapse; font-size:0.85rem;">
+      <tr style="background:var(--navy); color:#fff;"><th style="padding:6px 8px; text-align:left;">Membre</th><th style="padding:6px 8px; text-align:right;">Cours utilisés</th></tr>
+      ${lignes.map((l, i) => `<tr style="border-bottom:1px solid #E3E7EB; ${i % 2 === 1 ? 'background:var(--paper);' : ''}"><td style="padding:6px 8px;">${escapeHtml(l.nom)}</td><td style="padding:6px 8px; text-align:right;">${l.nb}</td></tr>`).join('')}
+      <tr style="background:var(--paper-warm); font-weight:700;"><td style="padding:6px 8px;">Total (${lignes.length} membre(s))</td><td style="padding:6px 8px; text-align:right;">${total}</td></tr>
+    </table>`;
+});
+
+document.getElementById('btnExporterCoursMembre').addEventListener('click', () => {
+  if (!dernierCoursParMembre || dernierCoursParMembre.lignes.length === 0) { alert('Clique d\'abord sur "Calculer".'); return; }
+  const lignesExport = dernierCoursParMembre.lignes.map(l => ({ Membre: l.nom, 'Cours utilisés': l.nb }));
+  const feuille = XLSX.utils.json_to_sheet(lignesExport);
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, feuille, 'Cours utilisés');
+  XLSX.writeFile(classeur, `Cours-utilises-${dernierCoursParMembre.du}-au-${dernierCoursParMembre.au}.xlsx`);
+});
+
+document.getElementById('btnSauverNumFacture').addEventListener('click', async () => {
+  const annee = parseInt(document.getElementById('cpt-facture-annee').value, 10);
+  const dernierNumero = parseInt(document.getElementById('cpt-facture-dernier').value, 10) || 0;
+  await setDoc(doc(db, 'parametres', 'facturation'), { annee, dernierNumero });
+  alert(`Enregistré. La prochaine facture générée pour ${annee} sera numérotée ${annee}-${String(dernierNumero + 1).padStart(3, '0')}.`);
+});
+
+document.getElementById('btnSauverNumNC').addEventListener('click', async () => {
+  const annee = parseInt(document.getElementById('cpt-nc-annee').value, 10);
+  const dernierNumero = parseInt(document.getElementById('cpt-nc-dernier').value, 10) || 0;
+  await setDoc(doc(db, 'parametres', 'notesCredit'), { annee, dernierNumero });
+  const anneeCourte = String(annee).slice(-2);
+  alert(`Enregistré. La prochaine note de crédit générée pour ${annee} sera numérotée NC${anneeCourte}-${String(dernierNumero + 1).padStart(3, '0')}.`);
+});
+
+window.envoyerFactureParMail = (membreId, numero) => {
+  const membre = currentMembres.find(m => m.id === membreId);
+  if (!membre?.email) { alert('Ce membre n\'a pas d\'adresse e-mail renseignée dans sa fiche.'); return; }
+  const sujet = encodeURIComponent(`Facture ${numero} — Les Beaux Cabots`);
+  const corps = encodeURIComponent(`Bonjour ${membre.nomMaitre},\n\nVeuillez trouver ci-joint votre facture n° ${numero}.\n\nMerci de joindre le PDF téléchargé juste avant à cet e-mail (le navigateur ne permet pas de le faire automatiquement).\n\nBien à vous,\nKatia — Les Beaux Cabots`);
+  window.location.href = `mailto:${membre.email}?subject=${sujet}&body=${corps}`;
+};
+
+window.facturerCommande = async (commandeId) => {
+  try {
+    const commande = (await getDoc(doc(db, 'commandes', commandeId))).data();
+    const membre = currentMembres.find(m => m.id === commande.membreId);
+    const lignes = (commande.lignes || []).map(l => ({ description: l.nom, quantite: l.quantite, prixUnitaireTTC: l.prixUnitaire }));
+    const numero = await genererFacture({ membre, lignes, type: 'commande', refId: commandeId });
+    if (numero) {
+      await updateDoc(doc(db, 'commandes', commandeId), { numeroFacture: numero });
+      chargerCommandesAdmin();
+      chargerComptaAdmin();
+      chargerNumerotationCompta();
+    }
+  } catch (err) {
+    alert('Erreur lors de la génération de la facture : ' + (err.message || err) + '\n\nVérifie que ton navigateur n\'a pas bloqué le téléchargement (souvent affiché en haut de la fenêtre).');
+  }
+};
+
+window.facturerPaiement = async (paiementId) => {
+  try {
+    const paiement = (await getDoc(doc(db, 'paiements', paiementId))).data();
+    const membre = currentMembres.find(m => m.id === paiement.membreId);
+    const lignes = [{ description: `${paiement.type}${paiement.note ? ' — ' + paiement.note : ''}`, quantite: 1, prixUnitaireTTC: paiement.montant }];
+    const numero = await genererFacture({ membre, lignes, type: 'paiement', refId: paiementId });
+    if (numero) {
+      await updateDoc(doc(db, 'paiements', paiementId), { numeroFacture: numero });
+      chargerHistoriquePaiements(paiement.membreId);
+      chargerComptaAdmin();
+      chargerNumerotationCompta();
+    }
+  } catch (err) {
+    alert('Erreur lors de la génération de la facture : ' + (err.message || err) + '\n\nVérifie que ton navigateur n\'a pas bloqué le téléchargement (souvent affiché en haut de la fenêtre).');
+  }
+};
+
+// ==========================================================================
+// DOG SITTING — calendrier + validation des demandes
+// Règle : un seul chien en Dog Sitting à la fois. Si la période demandée
+// chevauche une période déjà validée, la nouvelle demande reste "en attente"
+// et Katia doit la valider explicitement (2e chien accepté volontairement).
+// ==========================================================================
+let currentDogSitting = [];
+let currentDogSittingArchives = [];
+
+// Miroir minimal (dates + statut uniquement — jamais de nom de membre, de
+// chien, de notes ou de motif) de chaque entrée Dog Sitting, dans une
+// collection à part et largement lisible par les membres, pour que la
+// vérification de chevauchement de dates reste possible côté membre SANS
+// jamais exposer les données personnelles des autres membres (ni le motif
+// des périodes bloquées par Katia elle-même).
+async function syncDogSittingDates(id, dateDebut, dateFin, statut) {
+  await setDoc(doc(db, 'dogsitting_dates', id), { dateDebut, dateFin, statut });
+}
+let dsMoisAffiche = new Date(); dsMoisAffiche.setDate(1);
+
+async function tarifsDogSittingParNuitAdmin() {
+  let membre = 22, nonMembre = 25;
+  const service = currentServices.find(s => s.categorie === 'Dog Sitting');
+  if (service) {
+    if (typeof service.prix === 'number') membre = service.prix;
+    if (typeof service.prixNonMembre === 'number') nonMembre = service.prixNonMembre;
+  }
+  return { membre, nonMembre };
+}
+
+function calculerNuitsDogSittingAdmin(dateDebut, dateFin, heureArrivee, heureDepart) {
+  const d1 = new Date(dateDebut + 'T00:00:00');
+  const d2 = new Date(dateFin + 'T00:00:00');
+  let nuits = Math.max(1, Math.round((d2 - d1) / (1000 * 60 * 60 * 24)));
+  if (heureArrivee && heureArrivee < '14:00') nuits += 1;
+  if (heureDepart && heureDepart > '12:00') nuits += 1;
+  return nuits;
+}
+
+// Calcul "par défaut" complet (tarif x nuits - réduction) pour une
+// réservation — factorisé ici car utilisé à l'identique à 3 endroits
+// (bouton "Recalculer le tarif" sur une ligne, bouton "Recalculer tout",
+// et application de nouvelles dates). La réduction (en demi-nuits) est
+// toujours plafonnée à la durée du séjour, pour ne jamais produire un
+// total négatif silencieusement ramené à 0€ sans que ce soit voulu.
+async function calculerTotalDogSittingAdmin(r, dateDebut, dateFin, heureArrivee, heureDepart) {
+  const tarifs = await tarifsDogSittingParNuitAdmin();
+  const membre = currentMembres.find(m => m.id === r.membreId) || currentMembresArchives.find(m => m.id === r.membreId);
+  const tarifNuit = membre?.accesCours ? tarifs.membre : tarifs.nonMembre;
+  const nbNuits = calculerNuitsDogSittingAdmin(dateDebut, dateFin, heureArrivee, heureDepart);
+  let reductionDemiNuits = r.reductionDemiNuits || 0;
+  let reductionLimitee = false;
+  if (reductionDemiNuits > nbNuits * 2) {
+    reductionLimitee = true;
+    reductionDemiNuits = nbNuits * 2;
+  }
+  const total = Number(Math.max(0, tarifNuit * nbNuits - reductionDemiNuits * 0.5 * tarifNuit).toFixed(2));
+  return { tarifNuit, nbNuits, reductionDemiNuits, total, reductionLimitee };
+}
+
+async function chargerDogSittingAdmin() {
+  const snap = await getDocs(collection(db, 'dogsitting'));
+  const tous = [];
+  snap.forEach(d => tous.push({ id: d.id, ...d.data() }));
+  tous.sort((a, b) => (a.dateDebut || '').localeCompare(b.dateDebut || ''));
+  // Les réservations archivées (pour mémoire, ex : vieilles périodes passées
+  // qu'on ne veut plus voir dans la liste active) restent consultables à
+  // part, mais sortent du calendrier et de la liste principale.
+  currentDogSitting = tous.filter(r => !r.archive);
+  currentDogSittingArchives = tous.filter(r => r.archive);
+
+  const nonVues = currentDogSitting.filter(r => r.vuParAdmin === false).length;
+  document.getElementById('tabDogSittingBtn')?.classList.toggle('has-unread', nonVues > 0);
+
+  renderCalendrierDogSitting();
+  renderListeDogSittingAdmin();
+  renderDogSittingArchives();
+}
+
+function joursOccupesDansLeMois(annee, mois) {
+  // Renvoie une map jour(1-31) -> 'indispo' (blocage admin) | 'bloque' (acompte validé) |
+  // 'validee' (approuvé, acompte pas encore validé) | 'attente'
+  // Priorité d'affichage : attente > indispo > validee > bloque (pour ne jamais masquer un conflit).
+  const map = {};
+  currentDogSitting.forEach(r => {
+    if (r.statut === 'refusee' || r.statut === 'annulee') return;
+    const statutCase = r.isBlocage ? 'indispo' : r.statut === 'attente' ? 'attente' : (r.acompteValide ? 'bloque' : 'validee');
+    const debut = new Date(r.dateDebut + 'T00:00:00');
+    const fin = new Date(r.dateFin + 'T00:00:00');
+    for (let d = new Date(debut); d <= fin; d.setDate(d.getDate() + 1)) {
+      if (d.getFullYear() === annee && d.getMonth() === mois) {
+        const j = d.getDate();
+        const ordre = { attente: 3, indispo: 2, validee: 1, bloque: 0 };
+        if (!map[j] || ordre[statutCase] > ordre[map[j]]) map[j] = statutCase;
+      }
+    }
+  });
+  return map;
+}
+
+function renderCalendrierDogSitting() {
+  const wrap = document.getElementById('dsCalendrier');
+  const annee = dsMoisAffiche.getFullYear();
+  const mois = dsMoisAffiche.getMonth();
+  const occupes = joursOccupesDansLeMois(annee, mois);
+
+  const premierJourSemaine = (new Date(annee, mois, 1).getDay() + 6) % 7; // lundi = 0
+  const nbJours = new Date(annee, mois + 1, 0).getDate();
+  const labelMois = dsMoisAffiche.toLocaleDateString('fr-BE', { month: 'long', year: 'numeric' });
+
+  let cases = '';
+  for (let i = 0; i < premierJourSemaine; i++) cases += '<div class="ds-case ds-vide"></div>';
+  for (let j = 1; j <= nbJours; j++) {
+    const statut = occupes[j];
+    const classe = statut === 'attente' ? 'ds-attente' : statut === 'indispo' ? 'ds-indispo' : statut === 'bloque' ? 'ds-bloque' : statut === 'validee' ? 'ds-occupe' : '';
+    const dateISO = `${annee}-${String(mois+1).padStart(2,'0')}-${String(j).padStart(2,'0')}`;
+    cases += `<div class="ds-case ${classe}" ${classe ? `onclick="window.voirDogSittingJour('${dateISO}')"` : ''}>${j}</div>`;
+  }
+
+  wrap.innerHTML = `
+    <div class="ds-calendrier-header">
+      <button class="btn-sm" onclick="window.dsMoisPrecedent()">◀</button>
+      <h3>${capitalize(labelMois)}</h3>
+      <button class="btn-sm" onclick="window.dsMoisSuivant()">▶</button>
+    </div>
+    <div class="ds-grille">
+      <div class="ds-jour-label">L</div><div class="ds-jour-label">M</div><div class="ds-jour-label">M</div>
+      <div class="ds-jour-label">J</div><div class="ds-jour-label">V</div><div class="ds-jour-label">S</div><div class="ds-jour-label">D</div>
+      ${cases}
+    </div>
+    <p style="font-size:0.78rem; color:var(--slate); margin-top:10px;">
+      <span style="background:#DCEEE0; padding:2px 8px; border-radius:4px;">Bloqué (acompte validé)</span>
+      &nbsp; <span style="background:#FFE58A; padding:2px 8px; border-radius:4px;">Validé, acompte en attente</span>
+      &nbsp; <span style="background:#DADFE3; padding:2px 8px; border-radius:4px;">Indisponible (club)</span>
+      &nbsp; <span style="background:#FBEAEA; padding:2px 8px; border-radius:4px;">En attente / conflit</span>
+    </p>`;
+}
+
+window.dsMoisPrecedent = () => { dsMoisAffiche.setMonth(dsMoisAffiche.getMonth() - 1); renderCalendrierDogSitting(); };
+window.dsMoisSuivant = () => { dsMoisAffiche.setMonth(dsMoisAffiche.getMonth() + 1); renderCalendrierDogSitting(); };
+
+document.getElementById('btnBloquerPeriode').addEventListener('click', () => {
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box">
+        <h3>🚫 Bloquer une période</h3>
+        <p style="color:var(--slate); font-size:0.85rem;">Ex : vacances de Katia, indisponibilité du club. Aucun membre ne pourra réserver le Dog Sitting sur cette période.</p>
+        <div class="form-grid">
+          <div class="field"><label>Du</label><input type="date" id="bl-dateDebut"></div>
+          <div class="field"><label>Au</label><input type="date" id="bl-dateFin"></div>
+        </div>
+        <div class="field"><label>Motif (visible uniquement par toi)</label><input id="bl-motif" placeholder="ex: Vacances de Katia"></div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="window.fermerModal()">Annuler</button>
+          <button class="btn-sm primary" id="bl-save">Bloquer cette période</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+  document.getElementById('bl-save').addEventListener('click', async () => {
+    const dateDebut = document.getElementById('bl-dateDebut').value;
+    const dateFin = document.getElementById('bl-dateFin').value;
+    const motif = document.getElementById('bl-motif').value.trim() || 'Indisponible';
+    if (!dateDebut || !dateFin) { alert('Merci de renseigner les deux dates.'); return; }
+    if (dateFin < dateDebut) { alert('La date de fin doit être après la date de début.'); return; }
+    const refBlocage = await addDoc(collection(db, 'dogsitting'), {
+      membreId: null, chienNom: null, isBlocage: true, motifBlocage: motif,
+      dateDebut, dateFin, heureArrivee: '', heureDepart: '',
+      statut: 'validee', acompte: null, acompteValide: true,
+      vuParAdmin: true, vuParMembre: true,
+      dateCreation: serverTimestamp()
+    });
+    await syncDogSittingDates(refBlocage.id, dateDebut, dateFin, 'validee');
+    window.fermerModal();
+    chargerDogSittingAdmin();
+  });
+});
+
+window.supprimerBlocage = async (id) => {
+  if (!confirm('Supprimer ce blocage ? Les membres pourront à nouveau réserver sur cette période.')) return;
+  await deleteDoc(doc(db, 'dogsitting', id));
+  await deleteDoc(doc(db, 'dogsitting_dates', id)).catch(() => {});
+  chargerDogSittingAdmin();
+};
+
+window.voirDogSittingJour = (dateISO) => {
+  const concernes = currentDogSitting.filter(r => r.statut !== 'refusee' && r.statut !== 'annulee' && r.dateDebut <= dateISO && dateISO <= r.dateFin);
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box">
+        <h3>${new Date(dateISO + 'T00:00:00').toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' })}</h3>
+        <div class="data-list">
+          ${concernes.map(r => {
+            if (r.isBlocage) {
+              return `<div class="data-row"><div class="data-main">
+                <div class="data-title">🚫 ${escapeHtml(r.motifBlocage || 'Indisponible')}</div>
+                <div class="data-sub">${r.dateDebut} → ${r.dateFin} — <span class="badge badge-neutral">Blocage club</span></div>
+              </div></div>`;
+            }
+            const m = currentMembres.find(mm => mm.id === r.membreId);
+            return `<div class="data-row"><div class="data-main">
+              <div class="data-title">${escapeHtml(r.chienNom)} (${escapeHtml(m?.nomMaitre || '?')})</div>
+              <div class="data-sub">${r.dateDebut} ${r.heureArrivee || ''} → ${r.dateFin} ${r.heureDepart || ''} — ${r.statut === 'attente' ? '<span class="badge badge-warn">En attente</span>' : '<span class="badge badge-ok">Validé</span>'}</div>
+            </div></div>`;
+          }).join('')}
+        </div>
+        <div class="modal-actions"><button class="btn-sm" onclick="window.fermerModal()">Fermer</button></div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+};
+
+function renderListeDogSittingAdmin() {
+  const wrap = document.getElementById('listeDogSitting');
+  if (currentDogSitting.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucune demande pour l\'instant.</div>';
+    return;
+  }
+  wrap.innerHTML = currentDogSitting.map(r => {
+    if (r.isBlocage) {
+      return `
+      <div class="data-row">
+        <div class="data-main">
+          <div class="data-title">🚫 ${escapeHtml(r.motifBlocage || 'Indisponible')} <span class="badge badge-neutral">Blocage club</span></div>
+          <div class="data-sub">Du ${r.dateDebut} au ${r.dateFin}</div>
+        </div>
+        <div class="data-actions ds-actions">
+          <button class="btn-sm" onclick="window.archiverDogSitting('${r.id}')">Archiver</button>
+          <button class="btn-sm danger" onclick="window.supprimerBlocage('${r.id}')">Supprimer le blocage</button>
+        </div>
+      </div>`;
+    }
+
+    const m = currentMembres.find(mm => mm.id === r.membreId);
+    const badge = r.statut === 'validee' ? '<span class="badge badge-ok">Validé</span>'
+      : r.statut === 'refusee' ? '<span class="badge badge-danger">Refusé</span>'
+      : r.statut === 'annulee' ? '<span class="badge badge-danger">Annulé</span>'
+      : '<span class="badge badge-warn">En attente de validation</span>';
+
+    let infoAcompte = '';
+    if (r.statut === 'validee' && r.acompte) {
+      if (r.acompteValide) {
+        // Même une fois l'acompte validé, on garde une trace du montant
+        // réellement payé (modifiable à tout moment — Katia peut avoir
+        // redemandé un autre montant au membre après coup) pour s'en
+        // souvenir, distinct du montant initialement attendu.
+        const montantPaye = r.montantAcomptePaye ?? r.acompte;
+        infoAcompte = `<div class="data-sub"><span class="badge badge-ok">✅ Acompte validé — date bloquée</span></div>
+          <div class="data-sub">Montant payé : <strong>${montantPaye.toFixed(2)} €</strong></div>
+          <div class="data-sub" style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+            Modifier le montant payé (€) :
+            <input type="number" step="0.01" min="0" id="ds-acompte-paye-${r.id}" placeholder="${montantPaye.toFixed(2)}" style="width:90px;">
+            <button class="btn-sm" onclick="window.modifierMontantAcomptePaye('${r.id}')">Enregistrer</button>
+          </div>`;
+      } else {
+        infoAcompte = `<div class="data-sub">Acompte attendu : <strong>${r.acompte.toFixed(2)} €</strong> ${r.acompteFixeManuellement ? '<span class="badge badge-neutral">Acompte fixé manuellement</span>' : `(30% de ${r.total.toFixed(2)} €)`} ${r.acomptePaye ? '<span class="badge badge-warn">Membre indique avoir payé</span>' : '<span class="badge badge-neutral">Le membre n\'a pas encore signalé avoir payé l\'acompte</span>'}</div>
+          <div class="data-sub" style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+            Fixer l'acompte manuellement (€) — ex: dates changées sans changer l'acompte déjà convenu :
+            <input type="number" step="0.01" min="0" id="ds-acompte-manuel-${r.id}" placeholder="${r.acompte.toFixed(2)}" style="width:90px;">
+            <button class="btn-sm" onclick="window.fixerAcompteManuelDogSitting('${r.id}')">Fixer cet acompte</button>
+          </div>`;
+      }
+    }
+    if (r.statut === 'annulee' && r.motifAnnulation) {
+      infoAcompte += `<div class="data-sub">Motif d'annulation : <em>${escapeHtml(r.motifAnnulation)}</em></div>`;
+    }
+
+    // Demande de modification de dates envoyée par le membre — toujours mise
+    // en avant quand elle est en attente, pour ne jamais la manquer.
+    let blocDemandeModif = '';
+    if (r.demandeModifStatut === 'attente') {
+      blocDemandeModif = `
+        <div class="banner-alert" style="margin-top:8px;">
+          🔔 Demande de modification de dates — en attente de validation<br>
+          Actuellement : du ${r.dateDebut} ${r.heureArrivee || ''} au ${r.dateFin} ${r.heureDepart || ''}<br>
+          Demandé : du <strong>${r.demandeModifDateDebut}</strong> ${r.demandeModifHeureArrivee || ''} au <strong>${r.demandeModifDateFin}</strong> ${r.demandeModifHeureDepart || ''}<br>
+          Motif : <em>${escapeHtml(r.demandeModifMotif || '')}</em>
+          <div class="presence-btns" style="margin-top:8px;">
+            <button class="btn-sm primary" onclick="window.validerModifDogSitting('${r.id}')">Valider la modification</button>
+            <button class="btn-sm danger" onclick="window.refuserModifDogSitting('${r.id}')">Refuser la modification</button>
+          </div>
+        </div>`;
+    }
+
+    // Total toujours visible, quel que soit le statut — coût du service
+    // consultable à tout moment, comme demandé. Si le total est à 0 ou
+    // manquant, on le signale clairement plutôt que de l'afficher comme
+    // si c'était normal.
+    const totalSuspect = !r.isBlocage && (r.total == null || r.total === 0);
+    const infoTotal = !r.isBlocage ? `
+      <div class="data-sub">
+        <strong>Total TTC : ${(r.total ?? 0).toFixed(2)} €</strong>
+        ${r.nbNuits ? ` (${r.nbNuits} nuit${r.nbNuits > 1 ? 's' : ''} à ${(r.tarifNuit ?? 0).toFixed(2)} €)` : ''}
+        ${r.reductionDemiNuits ? ` — réduction de ${(r.reductionDemiNuits / 2)} nuit(s) appliquée` : ''}
+        ${r.totalFixeManuellement ? ' <span class="badge badge-neutral">Prix fixé manuellement</span>' : ''}
+      </div>
+      ${totalSuspect ? `<div class="banner-alert" style="margin-top:4px; padding:6px 10px; background:#FBEAEA;border-color:#E3B4B4;color:#8A2E2E; font-size:0.82rem;">⚠️ Total à 0€ ou manquant — à vérifier et corriger ci-dessous.</div>` : ''}
+      <div class="data-sub" style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+        Réduction (en demi-nuits, au tarif de cette réservation) :
+        <input type="number" step="1" min="0" id="ds-reduc-${r.id}" value="${r.reductionDemiNuits || 0}" style="width:60px;">
+        <button class="btn-sm" onclick="window.appliquerReductionDogSitting('${r.id}')">Appliquer</button>
+      </div>
+      <div class="data-sub" style="display:flex; align-items:center; gap:6px; flex-wrap:wrap;">
+        Fixer le total manuellement (€) :
+        <input type="number" step="0.01" min="0" id="ds-total-manuel-${r.id}" placeholder="${(r.total ?? 0).toFixed(2)}" style="width:90px;">
+        <button class="btn-sm" onclick="window.fixerTotalManuelDogSitting('${r.id}')">Fixer ce prix</button>
+      </div>` : '';
+
+    const apporteLabels = { carnet: 'carnet de santé', couche: 'couche/panier', gamelle: 'gamelle', nourriture: 'nourriture' };
+    const apporteListe = r.apporte ? Object.keys(apporteLabels).filter(k => r.apporte[k]).map(k => apporteLabels[k]).join(', ') : '';
+    const servicesListe = r.servicesDemandes ? [
+      r.servicesDemandes.domicile ? 'prise/remise à domicile' : null,
+      r.servicesDemandes.balades ? 'balades' : null,
+      r.servicesDemandes.reeducation ? 'rééducation' : null,
+      r.servicesDemandes.toilettage || null
+    ].filter(Boolean).join(', ') : '';
+
+    let detailFiche = '';
+    if (apporteListe || servicesListe || r.habitudesDeVie) {
+      detailFiche = `<div class="data-sub">
+        ${apporteListe ? `Apporte : ${escapeHtml(apporteListe)}<br>` : ''}
+        ${servicesListe ? `Services en plus : ${escapeHtml(servicesListe)}<br>` : ''}
+        ${r.habitudesDeVie ? `Habitudes de vie : <em>${escapeHtml(r.habitudesDeVie)}</em>` : ''}
+      </div>`;
+    }
+
+    return `
+    <div class="data-row">
+      <div class="data-main">
+        <div class="data-title">${escapeHtml(m?.nomMaitre || '?')} — ${escapeHtml(r.chienNom)} ${badge}</div>
+        <div class="data-sub">Du ${r.dateDebut} ${r.heureArrivee || ''} au ${r.dateFin} ${r.heureDepart || ''}</div>
+        ${infoTotal}
+        ${infoAcompte}
+        ${detailFiche}
+        ${blocDemandeModif}
+      </div>
+      <div class="data-actions ds-actions">
+        ${r.statut === 'attente' ? `
+          <button class="btn-sm primary" onclick="window.validerDogSitting('${r.id}')">Valider</button>
+          <button class="btn-sm danger" onclick="window.refuserDogSitting('${r.id}')">Refuser</button>
+        ` : ''}
+        ${r.statut === 'validee' && r.acompte && !r.acompteValide ? `<button class="btn-sm primary" style="line-height:1.25;" onclick="window.validerAcompteDogSitting('${r.id}')">Valider l'acompte<br>(bloque la date)</button>` : ''}
+        ${!r.isBlocage && (r.statut === 'attente' || r.statut === 'validee') ? `<button class="btn-sm" onclick="window.recalculerTarifDogSitting('${r.id}')">🔄 Recalculer le tarif</button>` : ''}
+        ${r.statut === 'validee' ? `<button class="btn-sm" onclick="window.ouvrirModifDatesAdmin('${r.id}')">✏️ Modifier les dates</button>` : ''}
+        ${r.statut === 'validee' ? `<button class="btn-sm danger" onclick="window.annulerReservationDogSitting('${r.id}')">Annuler cette réservation</button>` : ''}
+        <button class="btn-sm" onclick="window.archiverDogSitting('${r.id}')">Archiver</button>
+        <button class="btn-sm danger" onclick="window.supprimerDogSitting('${r.id}')">Supprimer</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+window.fixerTotalManuelDogSitting = async (id) => {
+  const inputEl = document.getElementById(`ds-total-manuel-${id}`);
+  const valeur = parseFloat(inputEl.value);
+  if (isNaN(valeur) || valeur < 0) { alert('Merci d\'indiquer un montant valide.'); return; }
+  if (!confirm(`Fixer le total de cette réservation à ${valeur.toFixed(2)} € ? Ce prix restera figé — il ne sera plus jamais recalculé automatiquement.`)) return;
+  const r = currentDogSitting.find(x => x.id === id);
+  const data = { total: Number(valeur.toFixed(2)), totalFixeManuellement: true };
+  // Si l'acompte n'a pas lui-même été fixé manuellement, on le recalcule à
+  // 30% du nouveau total, comme avant.
+  if (r?.acompte != null && !r.acompteFixeManuellement) data.acompte = Number((valeur * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
+  await updateDoc(doc(db, 'dogsitting', id), data);
+  chargerDogSittingAdmin();
+};
+
+// Fixe le montant de l'acompte indépendamment du total — utile car un
+// changement de dates ne doit généralement PAS changer l'acompte déjà
+// convenu avec le membre. Une fois fixé manuellement, l'acompte ne sera
+// plus jamais recalculé automatiquement (ni par un changement de dates, ni
+// par le bouton "Recalculer le tarif"), jusqu'à ce qu'on le refixe ici.
+window.fixerAcompteManuelDogSitting = async (id) => {
+  const inputEl = document.getElementById(`ds-acompte-manuel-${id}`);
+  const valeur = parseFloat(inputEl.value);
+  if (isNaN(valeur) || valeur < 0) { alert('Merci d\'indiquer un montant valide.'); return; }
+  if (!confirm(`Fixer l'acompte de cette réservation à ${valeur.toFixed(2)} € ? Il ne sera plus recalculé automatiquement (même si les dates ou le total changent ensuite).`)) return;
+  await updateDoc(doc(db, 'dogsitting', id), { acompte: Number(valeur.toFixed(2)), acompteFixeManuellement: true });
+  chargerDogSittingAdmin();
+};
+
+// Archivage "pour mémoire" : la réservation (ou le blocage) sort de la
+// liste active et du calendrier, mais reste consultable dans "Voir les
+// réservations archivées" — à la différence de Supprimer, qui efface
+// définitivement.
+window.archiverDogSitting = async (id) => {
+  if (!confirm('Archiver cette réservation ? Elle disparaîtra de la liste active et du calendrier, mais restera consultable dans les archives.')) return;
+  await updateDoc(doc(db, 'dogsitting', id), { archive: true });
+  chargerDogSittingAdmin();
+};
+window.desarchiverDogSitting = async (id) => {
+  await updateDoc(doc(db, 'dogsitting', id), { archive: false });
+  chargerDogSittingAdmin();
+};
+
+function renderDogSittingArchives() {
+  const wrap = document.getElementById('listeDogSittingArchives');
+  if (!wrap) return;
+  if (currentDogSittingArchives.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucune réservation archivée.</div>';
+    return;
+  }
+  wrap.innerHTML = currentDogSittingArchives.map(r => {
+    if (r.isBlocage) {
+      return `
+      <div class="data-row">
+        <div class="data-main">
+          <div class="data-title">🚫 ${escapeHtml(r.motifBlocage || 'Indisponible')} <span class="badge badge-neutral">Blocage club — archivé</span></div>
+          <div class="data-sub">Du ${r.dateDebut} au ${r.dateFin}</div>
+        </div>
+        <div class="data-actions ds-actions">
+          <button class="btn-sm primary" onclick="window.desarchiverDogSitting('${r.id}')">Désarchiver</button>
+          <button class="btn-sm danger" onclick="window.supprimerBlocage('${r.id}')">Supprimer</button>
+        </div>
+      </div>`;
+    }
+    const m = currentMembres.find(mm => mm.id === r.membreId) || currentMembresArchives.find(mm => mm.id === r.membreId);
+    const badge = r.statut === 'validee' ? '<span class="badge badge-ok">Validé</span>'
+      : r.statut === 'refusee' ? '<span class="badge badge-danger">Refusé</span>'
+      : r.statut === 'annulee' ? '<span class="badge badge-danger">Annulé</span>'
+      : '<span class="badge badge-warn">En attente de validation</span>';
+    return `
+    <div class="data-row">
+      <div class="data-main">
+        <div class="data-title">${escapeHtml(m?.nomMaitre || '?')} — ${escapeHtml(r.chienNom)} ${badge} <span class="badge badge-neutral">Archivé</span></div>
+        <div class="data-sub">Du ${r.dateDebut} ${r.heureArrivee || ''} au ${r.dateFin} ${r.heureDepart || ''}</div>
+        <div class="data-sub"><strong>Total TTC : ${(r.total ?? 0).toFixed(2)} €</strong></div>
+      </div>
+      <div class="data-actions ds-actions">
+        <button class="btn-sm primary" onclick="window.desarchiverDogSitting('${r.id}')">Désarchiver</button>
+        <button class="btn-sm danger" onclick="window.supprimerDogSitting('${r.id}')">Supprimer</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('btnVoirDogSittingArchives')?.addEventListener('click', () => {
+  const wrap = document.getElementById('listeDogSittingArchives');
+  const visible = wrap.style.display !== 'none';
+  wrap.style.display = visible ? 'none' : 'block';
+});
+
+// Relance le calcul par défaut du tarif pour UNE réservation, avec les
+// dates actuellement enregistrées (d'origine ou déjà modifiées) — utile
+// après un changement de tarif de base, ou pour annuler un prix fixé
+// manuellement. Le total est écrit directement sur le document Firestore,
+// donc il se met à jour aussi côté membre (même document, lu en direct).
+window.recalculerTarifDogSitting = async (id) => {
+  const r = currentDogSitting.find(x => x.id === id);
+  if (!r || r.isBlocage) return;
+
+  let message = `Relancer le calcul par défaut du tarif pour cette réservation, avec les dates actuelles (du ${r.dateDebut} au ${r.dateFin}) ?`;
+  if (r.totalFixeManuellement) message += "\n\n⚠️ Le prix actuel a été fixé manuellement — il sera remplacé par le calcul par défaut.";
+  if (r.acompteValide) message += "\n\n⚠️ L'acompte de cette réservation a déjà été validé — son montant sera recalculé en fonction du nouveau total.";
+  if (!confirm(message)) return;
+
+  const anciRedDemiNuits = r.reductionDemiNuits || 0;
+  const { tarifNuit, nbNuits, reductionDemiNuits, total, reductionLimitee } =
+    await calculerTotalDogSittingAdmin(r, r.dateDebut, r.dateFin, r.heureArrivee, r.heureDepart);
+  const maj = { tarifNuit, nbNuits, reductionDemiNuits, total, totalFixeManuellement: false };
+  if (r.acompte != null && !r.acompteFixeManuellement) maj.acompte = Number((total * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
+
+  await updateDoc(doc(db, 'dogsitting', id), maj);
+  chargerDogSittingAdmin();
+  if (reductionLimitee) {
+    alert(`La réduction déjà enregistrée sur cette réservation (${anciRedDemiNuits / 2} nuit(s)) dépassait la durée actuelle du séjour (${nbNuits} nuit(s)) — elle a été limitée à ${nbNuits} nuit(s) et le total a été recalculé en conséquence (${total.toFixed(2)} €). Vérifiez la réduction affichée et ajustez-la si besoin.`);
+  }
+};
+
+window.appliquerReductionDogSitting = async (id) => {
+  const r = currentDogSitting.find(x => x.id === id);
+  if (!r) return;
+  const inputEl = document.getElementById(`ds-reduc-${id}`);
+  const reductionSaisie = Math.max(0, parseInt(inputEl.value, 10) || 0);
+  // Passe par calculerTotalDogSittingAdmin (comme "Recalculer le tarif" et
+  // "Recalculer tout") au lieu de recalculer ici à la main : ce bouton
+  // recalculait le total SANS plafonner la réduction à la durée du séjour,
+  // ce qui pouvait reproduire silencieusement le bug du total à 0,00 € déjà
+  // corrigé ailleurs (réduction saisie ici supérieure au nombre de nuits).
+  const { tarifNuit, nbNuits, reductionDemiNuits, total, reductionLimitee } =
+    await calculerTotalDogSittingAdmin({ ...r, reductionDemiNuits: reductionSaisie }, r.dateDebut, r.dateFin, r.heureArrivee, r.heureDepart);
+  const data = { tarifNuit, nbNuits, reductionDemiNuits, total };
+  // Si un acompte de 30% était déjà calculé sur l'ancien total, on le
+  // recalcule aussi pour rester cohérent avec le nouveau total (sauf s'il a
+  // été fixé manuellement, même règle que partout ailleurs).
+  if (r.acompte != null && !r.acompteFixeManuellement) {
+    data.acompte = Number((total * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
+  }
+  await updateDoc(doc(db, 'dogsitting', id), data);
+  chargerDogSittingAdmin();
+  if (reductionLimitee) {
+    alert(`La réduction saisie (${reductionSaisie / 2} nuit(s)) dépassait la durée du séjour (${nbNuits} nuit(s)) — elle a été limitée à ${nbNuits} nuit(s) et le total a été recalculé en conséquence (${total.toFixed(2)} €).`);
+  }
+};
+
+document.getElementById('btnRecalculerDogSitting')?.addEventListener('click', async () => {
+  if (!confirm("Recalculer le tarif, le nombre de nuits et le total des réservations Dog Sitting en attente ou validées (acompte non encore validé) avec les nouvelles règles ? Les réservations déjà bloquées, refusées ou annulées ne seront pas touchées.")) return;
+  const btn = document.getElementById('btnRecalculerDogSitting');
+  const zone = document.getElementById('recalculerDogSittingResultat');
+  btn.disabled = true;
+  zone.textContent = 'Recalcul en cours...';
+  try {
+    const snap = await getDocs(collection(db, 'dogsitting'));
+    let compte = 0;
+    for (const d of snap.docs) {
+      const r = d.data();
+      if (r.isBlocage) continue;
+      if (!['attente', 'validee'].includes(r.statut)) continue;
+      if (r.acompteValide) continue; // ne jamais retoucher un prix déjà bloqué par un acompte validé
+      if (r.totalFixeManuellement) continue; // ni un prix fixé manuellement par l'admin
+      if (!r.dateDebut || !r.dateFin) continue;
+
+      const { tarifNuit, nbNuits, reductionDemiNuits, total } =
+        await calculerTotalDogSittingAdmin(r, r.dateDebut, r.dateFin, r.heureArrivee, r.heureDepart);
+      const maj = { tarifNuit, nbNuits, reductionDemiNuits, total };
+      if (r.acompte != null && !r.acompteFixeManuellement) maj.acompte = Number((total * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
+
+      await updateDoc(doc(db, 'dogsitting', d.id), maj);
+      compte++;
+    }
+    zone.textContent = `Terminé : ${compte} réservation(s) recalculée(s) avec les nouvelles règles.`;
+    chargerDogSittingAdmin();
+  } catch (err) {
+    zone.textContent = 'Erreur pendant le recalcul : ' + err.message;
+  }
+  btn.disabled = false;
+});
+
+window.validerDogSitting = async (id) => {
+  await updateDoc(doc(db, 'dogsitting', id), { statut: 'validee', vuParMembre: false });
+  const r = currentDogSitting.find(x => x.id === id);
+  if (r) await syncDogSittingDates(id, r.dateDebut, r.dateFin, 'validee');
+  chargerDogSittingAdmin();
+};
+window.validerAcompteDogSitting = async (id) => {
+  const r = currentDogSitting.find(x => x.id === id);
+  // Le montant payé démarre égal au montant attendu — modifiable ensuite si
+  // Katia a redemandé un autre montant au membre.
+  await updateDoc(doc(db, 'dogsitting', id), { acompteValide: true, vuParMembre: false, montantAcomptePaye: r?.acompte ?? null });
+  chargerDogSittingAdmin();
+};
+
+// Garde en mémoire le montant réellement payé par le membre pour
+// l'acompte — modifiable à tout moment, même après validation, car Katia
+// peut avoir redemandé un autre montant après coup.
+window.modifierMontantAcomptePaye = async (id) => {
+  const inputEl = document.getElementById(`ds-acompte-paye-${id}`);
+  const valeur = parseFloat(inputEl.value);
+  if (isNaN(valeur) || valeur < 0) { alert('Merci d\'indiquer un montant valide.'); return; }
+  await updateDoc(doc(db, 'dogsitting', id), { montantAcomptePaye: Number(valeur.toFixed(2)) });
+  chargerDogSittingAdmin();
+};
+window.refuserDogSitting = async (id) => {
+  await updateDoc(doc(db, 'dogsitting', id), { statut: 'refusee', vuParMembre: false });
+  const r = currentDogSitting.find(x => x.id === id);
+  if (r) await syncDogSittingDates(id, r.dateDebut, r.dateFin, 'refusee');
+  chargerDogSittingAdmin();
+};
+window.annulerReservationDogSitting = (id) => {
+  const html = `
+    <div class="modal-overlay" id="modalOverlayAnnulDS">
+      <div class="modal-box">
+        <h3>Annuler cette réservation</h3>
+        <p style="color:var(--slate); font-size:0.85rem;">La date sera libérée sur le calendrier et le membre en sera informé.</p>
+        <div class="field"><label>Motif de l'annulation</label><textarea id="ds-motif-annul" rows="3" style="width:100%; box-sizing:border-box; resize:vertical;" placeholder="ex: Katia indisponible finalement sur cette période"></textarea></div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="document.getElementById('modalOverlayAnnulDS').remove()">Retour</button>
+          <button class="btn-sm danger" id="ds-motif-annul-save">Confirmer l'annulation</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  document.getElementById('ds-motif-annul-save').addEventListener('click', async () => {
+    const motif = document.getElementById('ds-motif-annul').value.trim();
+    if (!motif) { alert('Merci d\'indiquer un motif.'); return; }
+    await updateDoc(doc(db, 'dogsitting', id), { statut: 'annulee', motifAnnulation: motif, vuParMembre: false });
+    const r = currentDogSitting.find(x => x.id === id);
+    if (r) await syncDogSittingDates(id, r.dateDebut, r.dateFin, 'annulee');
+    document.getElementById('modalOverlayAnnulDS').remove();
+    chargerDogSittingAdmin();
+  });
+};
+
+// --- Modification de dates (demande du membre, ou modification directe par
+// Katia) — le prix suit toujours les nouvelles dates/heures (même règle de
+// calcul que pour la création), sauf si le total a été fixé manuellement.
+async function appliquerNouvellesDatesDogSitting(id, nouvDateDebut, nouvDateFin, nouvHeureArrivee, nouvHeureDepart) {
+  const r = currentDogSitting.find(x => x.id === id);
+  if (!r) return null;
+
+  // Avertit (sans bloquer) si les nouvelles dates chevauchent une autre
+  // réservation/période bloquée — à Katia de décider si elle confirme quand même.
+  const conflit = currentDogSitting.some(autre => autre.id !== id && autre.statut !== 'refusee' && autre.statut !== 'annulee'
+    && nouvDateDebut <= autre.dateFin && autre.dateDebut <= nouvDateFin);
+  if (conflit && !confirm('Attention : ces nouvelles dates chevauchent une autre réservation ou période bloquée. Confirmer quand même ?')) {
+    return null;
+  }
+
+  const maj = { dateDebut: nouvDateDebut, dateFin: nouvDateFin, heureArrivee: nouvHeureArrivee, heureDepart: nouvHeureDepart, vuParMembre: false };
+  let reductionLimitee = false;
+  const anciRedDemiNuits = r.reductionDemiNuits || 0;
+  if (!r.isBlocage && !r.totalFixeManuellement) {
+    const resultat = await calculerTotalDogSittingAdmin(r, nouvDateDebut, nouvDateFin, nouvHeureArrivee, nouvHeureDepart);
+    maj.tarifNuit = resultat.tarifNuit;
+    maj.nbNuits = resultat.nbNuits;
+    maj.reductionDemiNuits = resultat.reductionDemiNuits;
+    maj.total = resultat.total;
+    reductionLimitee = resultat.reductionLimitee;
+    // Important : contrairement au total, l'acompte n'est PAS recalculé
+    // automatiquement quand on change les dates — en général l'acompte déjà
+    // convenu avec le membre ne doit pas bouger. L'admin/Super Admin peut
+    // toujours le changer à la main via "Fixer cet acompte" si besoin.
+  }
+
+  await updateDoc(doc(db, 'dogsitting', id), maj);
+  await syncDogSittingDates(id, nouvDateDebut, nouvDateFin, r.statut);
+  if (reductionLimitee) {
+    alert(`La réduction déjà enregistrée sur cette réservation (${anciRedDemiNuits / 2} nuit(s)) dépassait la nouvelle durée du séjour (${maj.nbNuits} nuit(s)) — elle a été limitée à ${maj.nbNuits} nuit(s) et le total a été recalculé en conséquence. Vérifiez la réduction affichée et ajustez-la si besoin.`);
+  }
+  return maj;
+}
+
+async function envoyerMessageModifDogSitting(r, maj, texteIntro) {
+  if (!r.membreId) return; // jamais pour une période bloquée par le club
+  const total = maj.total ?? r.total;
+  const nbNuits = maj.nbNuits ?? r.nbNuits;
+  const texte = `${texteIntro} Nouvelles dates : du ${maj.dateDebut} ${maj.heureArrivee || ''} au ${maj.dateFin} ${maj.heureDepart || ''}.${total != null ? ` Nouveau total : ${total.toFixed(2)} € TTC${nbNuits ? ` (${nbNuits} nuit${nbNuits > 1 ? 's' : ''})` : ''}.` : ''}`;
+  await addDoc(collection(db, 'conversations', r.membreId, 'messages'), {
+    texte, expediteur: 'admin', dateEnvoi: new Date().toISOString(), lu: false
+  });
+  await setDoc(doc(db, 'conversations', r.membreId), {
+    dernierMessage: texte, dateDernierMessage: new Date().toISOString(), nonLuMembre: true
+  }, { merge: true });
+}
+
+window.validerModifDogSitting = async (id) => {
+  const r = currentDogSitting.find(x => x.id === id);
+  if (!r || r.demandeModifStatut !== 'attente') return;
+  if (!confirm('Valider cette demande de modification de dates ? Le prix sera recalculé automatiquement.')) return;
+
+  const maj = await appliquerNouvellesDatesDogSitting(id, r.demandeModifDateDebut, r.demandeModifDateFin, r.demandeModifHeureArrivee, r.demandeModifHeureDepart);
+  if (!maj) return; // conflit refusé par Katia, rien n'a changé
+  await updateDoc(doc(db, 'dogsitting', id), { demandeModifStatut: 'validee' });
+  await envoyerMessageModifDogSitting(r, maj, '✅ Votre demande de modification de dates Dog Sitting a été validée par Katia.');
+  chargerDogSittingAdmin();
+};
+
+window.refuserModifDogSitting = (id) => {
+  const html = `
+    <div class="modal-overlay" id="modalOverlayRefusModifDS">
+      <div class="modal-box">
+        <h3>Refuser la demande de modification</h3>
+        <p style="color:var(--slate); font-size:0.85rem;">Les dates actuelles restent inchangées. Le membre en sera informé.</p>
+        <div class="field"><label>Motif (optionnel)</label><textarea id="ds-motif-refus-modif" rows="3" style="width:100%; box-sizing:border-box; resize:vertical;" placeholder="ex: dates déjà prises par un autre chien"></textarea></div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="document.getElementById('modalOverlayRefusModifDS').remove()">Retour</button>
+          <button class="btn-sm danger" id="ds-motif-refus-modif-save">Confirmer le refus</button>
+        </div>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  document.getElementById('ds-motif-refus-modif-save').addEventListener('click', async () => {
+    const motif = document.getElementById('ds-motif-refus-modif').value.trim();
+    const r = currentDogSitting.find(x => x.id === id);
+    await updateDoc(doc(db, 'dogsitting', id), { demandeModifStatut: 'refusee', demandeModifMotifRefus: motif || null, vuParMembre: false });
+    if (r && r.membreId) {
+      const texte = `❌ Votre demande de modification de dates Dog Sitting (du ${r.demandeModifDateDebut} au ${r.demandeModifDateFin}) a été refusée par Katia.${motif ? ` Motif : ${motif}.` : ''} Les dates actuelles (du ${r.dateDebut} au ${r.dateFin}) restent inchangées.`;
+      await addDoc(collection(db, 'conversations', r.membreId, 'messages'), {
+        texte, expediteur: 'admin', dateEnvoi: new Date().toISOString(), lu: false
+      });
+      await setDoc(doc(db, 'conversations', r.membreId), {
+        dernierMessage: texte, dateDernierMessage: new Date().toISOString(), nonLuMembre: true
+      }, { merge: true });
+    }
+    document.getElementById('modalOverlayRefusModifDS').remove();
+    chargerDogSittingAdmin();
+  });
+};
+
+window.ouvrirModifDatesAdmin = (id) => {
+  const r = currentDogSitting.find(x => x.id === id);
+  if (!r) return;
+  const demandeEnAttente = r.demandeModifStatut === 'attente';
+  const prefDebut = demandeEnAttente ? r.demandeModifDateDebut : r.dateDebut;
+  const prefFin = demandeEnAttente ? r.demandeModifDateFin : r.dateFin;
+  const prefArrivee = demandeEnAttente ? r.demandeModifHeureArrivee : r.heureArrivee;
+  const prefDepart = demandeEnAttente ? r.demandeModifHeureDepart : r.heureDepart;
+  const html = `
+    <div class="modal-overlay" id="modalOverlayModifDatesAdmin">
+      <div class="modal-box">
+        <h3>✏️ Modifier les dates de cette réservation</h3>
+        <p style="color:var(--slate); font-size:0.85rem;">Le membre recevra un message automatique avec le prix recalculé.</p>
+        <div class="form-grid">
+          <div class="field"><label>Date d'arrivée</label><input type="date" id="madm-dateDebut" value="${prefDebut || ''}"></div>
+          <div class="field"><label>Date de départ</label><input type="date" id="madm-dateFin" value="${prefFin || ''}"></div>
+        </div>
+        <div class="form-grid">
+          <div class="field"><label>Heure d'arrivée</label><input type="time" id="madm-heureArrivee" value="${prefArrivee || ''}"></div>
+          <div class="field"><label>Heure de départ</label><input type="time" id="madm-heureDepart" value="${prefDepart || ''}"></div>
+        </div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="document.getElementById('modalOverlayModifDatesAdmin').remove()">Annuler</button>
+          <button class="btn-sm primary" id="madm-save">Enregistrer et prévenir le membre</button>
+        </div>
+        <p id="madm-statut" style="font-size:0.85rem; color:var(--slate); margin-top:8px;"></p>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+  document.getElementById('madm-save').addEventListener('click', async () => {
+    const statutEl = document.getElementById('madm-statut');
+    const nouvDateDebut = document.getElementById('madm-dateDebut').value;
+    const nouvDateFin = document.getElementById('madm-dateFin').value;
+    const nouvHeureArrivee = document.getElementById('madm-heureArrivee').value;
+    const nouvHeureDepart = document.getElementById('madm-heureDepart').value;
+    if (!nouvDateDebut || !nouvDateFin) { statutEl.textContent = 'Merci de renseigner les deux dates.'; return; }
+    if (nouvDateFin < nouvDateDebut) { statutEl.textContent = 'La date de départ doit être après la date d\'arrivée.'; return; }
+
+    const maj = await appliquerNouvellesDatesDogSitting(id, nouvDateDebut, nouvDateFin, nouvHeureArrivee, nouvHeureDepart);
+    if (!maj) return;
+    if (demandeEnAttente) {
+      await updateDoc(doc(db, 'dogsitting', id), { demandeModifStatut: 'validee' });
+    }
+    await envoyerMessageModifDogSitting(r, maj, '📅 Katia a modifié les dates de votre réservation Dog Sitting.');
+    document.getElementById('modalOverlayModifDatesAdmin').remove();
+    chargerDogSittingAdmin();
+  });
+};
+
+window.supprimerDogSitting = async (id) => {
+  if (!confirm('Supprimer cette demande de Dog Sitting ?')) return;
+  await deleteDoc(doc(db, 'dogsitting', id));
+  await deleteDoc(doc(db, 'dogsitting_dates', id)).catch(() => {});
+  chargerDogSittingAdmin();
+};
+
+window.marquerDogSittingVuAdmin = async () => {
+  const nonVues = currentDogSitting.filter(r => r.vuParAdmin === false);
+  if (nonVues.length === 0) return;
+  await Promise.all(nonVues.map(r => updateDoc(doc(db, 'dogsitting', r.id), { vuParAdmin: true })));
+  nonVues.forEach(r => r.vuParAdmin = true);
+  document.getElementById('tabDogSittingBtn')?.classList.remove('has-unread');
+};
+
+// ==========================================================================
+// COMMANDES GROUPÉES (précommandes) — ex: commande groupée de croquettes.
+// Le membre précommande avant une date limite ; l'admin récupère le total
+// par article pour passer une seule commande au fournisseur, plus le détail
+// par membre pour facturer/répartir ensuite.
+// ==========================================================================
+let currentCampagnes = [];
+let campagnesAvecNouvellesPrecommandes = new Set();
+
+async function chargerCampagnesAdmin() {
+  const snap = await getDocs(collection(db, 'campagnes'));
+  currentCampagnes = [];
+  snap.forEach(d => currentCampagnes.push({ id: d.id, ...d.data() }));
+  currentCampagnes.sort((a, b) => (b.dateLimite || '').localeCompare(a.dateLimite || ''));
+
+  const precommandesToutes = await chargerPrecommandesCache();
+  campagnesAvecNouvellesPrecommandes = new Set();
+  precommandesToutes.forEach(p => { if (p.vu === false) campagnesAvecNouvellesPrecommandes.add(p.campagneId); });
+
+  renderCampagnesAdmin();
+}
+
+function renderCampagnesAdmin() {
+  const wrap = document.getElementById('listeCampagnes');
+  if (currentCampagnes.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucune commande groupée pour l\'instant.</div>';
+    return;
+  }
+  wrap.innerHTML = currentCampagnes.map(c => {
+    const dateLimiteLabel = c.dateLimite ? new Date(c.dateLimite + 'T00:00:00').toLocaleDateString('fr-BE') : '';
+    const badge = c.statut === 'cloturee' ? '<span class="badge badge-neutral">Clôturée</span>' : '<span class="badge badge-ok">Ouverte</span>';
+    const badgeNouveau = campagnesAvecNouvellesPrecommandes.has(c.id) ? ' <span class="badge badge-danger">Nouvelle(s) précommande(s)</span>' : '';
+    return `
+    <div class="data-row">
+      <div class="data-main">
+        <div class="data-title">${escapeHtml(c.titre)} ${badge}${badgeNouveau}</div>
+        <div class="data-sub">Date limite : ${dateLimiteLabel} · ${(c.articles||[]).length} article(s)</div>
+      </div>
+      <div class="data-actions">
+        <button class="btn-sm" onclick="window.voirPrecommandes('${c.id}')">Voir les précommandes</button>
+        <button class="btn-sm" onclick="window.ouvrirModalCampagne('${c.id}')">Modifier</button>
+        ${c.statut !== 'cloturee'
+          ? `<button class="btn-sm danger" onclick="window.cloturerCampagne('${c.id}')">Clôturer</button>`
+          : `<button class="btn-sm" onclick="window.rouvrirCampagne('${c.id}')">Rouvrir</button>`}
+        <button class="btn-sm danger" onclick="window.supprimerCampagne('${c.id}')">Supprimer</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('btnCreerCampagne').addEventListener('click', () => window.ouvrirModalCampagne(null));
+
+window.ouvrirModalCampagne = (campagneId) => {
+  const c = campagneId ? currentCampagnes.find(cc => cc.id === campagneId) : null;
+  const isEdit = !!c;
+  const articlesChoisisIds = new Set((c?.articles || []).map(a => a.articleId));
+
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box">
+        <h3>${isEdit ? 'Modifier la commande groupée' : 'Créer une commande groupée'}</h3>
+        <div class="field"><label>Titre</label><input id="cp-titre" spellcheck="true" lang="fr" placeholder="ex: Commande croquettes chien" value="${isEdit ? escapeAttr(c.titre) : ''}"></div>
+        <p style="font-size:0.8rem; color:var(--slate); margin:-8px 0 10px;">La correction orthographique du navigateur est activée sur ce champ — un mot souligné en rouge propose un clic droit pour le corriger.</p>
+        <div class="field"><label>Description (optionnel)</label><textarea id="cp-description" rows="2" spellcheck="true" lang="fr" style="resize:vertical;" placeholder="ex: Précisez la quantité souhaitée par sac.">${isEdit ? escapeHtml(c.description || '') : ''}</textarea></div>
+        <div class="field"><label>Date limite pour commander</label><input type="date" id="cp-dateLimite" value="${isEdit ? (c.dateLimite || '') : ''}"></div>
+        <div class="field"><label>Articles proposés</label>
+          <div class="membre-check-list">
+            ${currentArticlesBoutique.map(a => `
+              <label class="membre-check-row">
+                <input type="checkbox" class="cp-article-check" value="${a.id}" data-nom="${escapeAttr(a.nom)}" data-prix="${a.prix}" ${articlesChoisisIds.has(a.id) ? 'checked' : ''}>
+                <span>${escapeHtml(a.nom)} — ${Number(a.prix).toFixed(2)} € TTC</span>
+              </label>`).join('') || '<p style="padding:8px; color:var(--slate); font-size:0.85rem;">Crée d\'abord tes articles (ex: les sacs de nourriture) dans "Articles" ci-dessus.</p>'}
+          </div>
+        </div>
+        ${isEdit ? '<p style="font-size:0.8rem; color:var(--slate);">Modifier la liste d\'articles ne touche pas aux précommandes déjà passées par les membres.</p>' : ''}
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="window.fermerModal()">Annuler</button>
+          <button class="btn-sm primary" id="cp-save">${isEdit ? 'Enregistrer' : 'Créer'}</button>
+        </div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+
+  document.getElementById('cp-save').addEventListener('click', async () => {
+    const titre = document.getElementById('cp-titre').value.trim();
+    const dateLimite = document.getElementById('cp-dateLimite').value;
+    const description = document.getElementById('cp-description').value.trim();
+    const articlesChoisis = [...document.querySelectorAll('.cp-article-check:checked')].map(ch => ({
+      articleId: ch.value, nom: ch.dataset.nom, prix: parseFloat(ch.dataset.prix)
+    }));
+    if (!titre || !dateLimite || articlesChoisis.length === 0) {
+      alert('Merci de remplir le titre, la date limite, et de choisir au moins un article.');
+      return;
+    }
+
+    if (isEdit) {
+      await updateDoc(doc(db, 'campagnes', c.id), { titre, description, dateLimite, articles: articlesChoisis });
+      window.fermerModal();
+      chargerCampagnesAdmin();
+      return;
+    }
+
+    await addDoc(collection(db, 'campagnes'), {
+      titre, description, dateLimite, articles: articlesChoisis, statut: 'ouverte',
+      dateCreation: serverTimestamp()
+    });
+    window.fermerModal();
+    chargerCampagnesAdmin();
+
+    // Prépare un message prêt à envoyer à tous, que l'admin peut relire avant d'envoyer.
+    const dateLimiteLabel = new Date(dateLimite + 'T00:00:00').toLocaleDateString('fr-BE');
+    const listeArticles = articlesChoisis.map(a => `- ${a.nom} : ${a.prix.toFixed(2)} € TTC`).join('\n');
+    const messageAuto = `📦 ${titre}\n\n${description ? description + '\n\n' : ''}Voici les articles disponibles :\n${listeArticles}\n\nVous pouvez précommander directement depuis votre espace membre, onglet "Boutique", jusqu'au ${dateLimiteLabel}.`;
+    ouvrirModalMessageGroupe(messageAuto);
+  });
+};
+
+window.cloturerCampagne = async (id) => {
+  await updateDoc(doc(db, 'campagnes', id), { statut: 'cloturee' });
+  chargerCampagnesAdmin();
+};
+window.rouvrirCampagne = async (id) => {
+  await updateDoc(doc(db, 'campagnes', id), { statut: 'ouverte' });
+  chargerCampagnesAdmin();
+};
+window.supprimerCampagne = async (id) => {
+  if (!confirm('Supprimer cette commande groupée ? Les précommandes des membres seront aussi supprimées.')) return;
+  const precSnap = await getDocs(query(collection(db, 'precommandes'), where('campagneId', '==', id)));
+  await Promise.all(precSnap.docs.map(d => deleteDoc(d.ref)));
+  await deleteDoc(doc(db, 'campagnes', id));
+  chargerCampagnesAdmin();
+};
+
+window.voirPrecommandes = async (campagneId) => {
+  const campagne = currentCampagnes.find(c => c.id === campagneId);
+  const snap = await getDocs(query(collection(db, 'precommandes'), where('campagneId', '==', campagneId)));
+  const precommandes = [];
+  snap.forEach(d => precommandes.push({ id: d.id, ...d.data() }));
+
+  // Marque les précommandes de cette campagne comme vues (fait disparaître
+  // le point rouge sur l'onglet Boutique une fois consultées).
+  const aMarquer = precommandes.filter(p => p.vu === false);
+  if (aMarquer.length > 0) {
+    await Promise.all(aMarquer.map(p => updateDoc(doc(db, 'precommandes', p.id), { vu: true })));
+    invaliderCachePrecommandes();
+    chargerCampagnesAdmin();
+    chargerCommandesAdmin();
+  }
+
+  // Total par article, pour la commande fournisseur
+  const totauxParArticle = {};
+  precommandes.forEach(p => {
+    (p.lignes || []).forEach(l => {
+      if (!totauxParArticle[l.nom]) totauxParArticle[l.nom] = 0;
+      totauxParArticle[l.nom] += l.quantite;
+    });
+  });
+
+  const detailMembres = [...precommandes].sort((a, b) => {
+    const nomA = currentMembres.find(mm => mm.id === a.membreId)?.nomMaitre || '';
+    const nomB = currentMembres.find(mm => mm.id === b.membreId)?.nomMaitre || '';
+    return nomA.localeCompare(nomB, 'fr', { sensitivity: 'base' });
+  }).map(p => {
+    const m = currentMembres.find(mm => mm.id === p.membreId);
+    const detail = (p.lignes || []).map(l => `${l.quantite} × ${l.nom}`).join(', ');
+    return `<div class="data-row"><div class="data-main">
+      <div class="data-title">${escapeHtml(m?.nomMaitre || '?')}</div>
+      <div class="data-sub">${detail}</div>
+    </div></div>`;
+  }).join('') || '<div class="empty-state">Aucune précommande pour l\'instant.</div>';
+
+  const totauxHtml = Object.keys(totauxParArticle).length
+    ? Object.entries(totauxParArticle).map(([nom, qte]) => `<div class="data-row"><div class="data-main"><div class="data-title">${escapeHtml(nom)}</div></div><div class="data-actions"><span class="badge badge-ok">${qte} unité(s) au total</span></div></div>`).join('')
+    : '<div class="empty-state">Rien à commander pour l\'instant.</div>';
+
+  const html = `
+    <div class="modal-overlay" id="modalOverlay">
+      <div class="modal-box" style="max-width:560px;">
+        <h3>${escapeHtml(campagne?.titre || '')}</h3>
+        <h3 style="margin-top:14px;">Total à commander au fournisseur</h3>
+        <div class="data-list">${totauxHtml}</div>
+        ${Object.keys(totauxParArticle).length ? `<button class="btn-sm" id="btnPdfFournisseur" style="margin-top:10px;">📄 PDF pour le fournisseur (quantités uniquement)</button>` : ''}
+        <h3 style="margin-top:18px;">Détail par membre</h3>
+        <div class="data-list">${detailMembres}</div>
+        <div class="modal-actions"><button class="btn-sm" onclick="window.fermerModal()">Fermer</button></div>
+      </div>
+    </div>`;
+  document.getElementById('modalZone').innerHTML = html;
+  document.getElementById('btnPdfFournisseur')?.addEventListener('click', () => {
+    window.telechargerPdfFournisseur(campagne?.titre || '', totauxParArticle);
+  });
+};
+
+// Récap fournisseur : quantité totale par article, regroupée (jamais une
+// ligne par membre) — SANS prix, puisque le prix affiché aux membres est le
+// prix de vente et non le prix d'achat chez le fournisseur (Arion).
+window.telechargerPdfFournisseur = (titreCampagne, totauxParArticle) => {
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF();
+  let y = 20;
+
+  pdf.setFontSize(16); pdf.setFont(undefined, 'bold');
+  pdf.text(ENTREPRISE.nom, 15, y);
+  pdf.setFontSize(10); pdf.setFont(undefined, 'normal');
+  y += 6; pdf.text(ENTREPRISE.enseigne, 15, y);
+  y += 5; pdf.text(`${ENTREPRISE.email} — ${ENTREPRISE.tel}`, 15, y);
+
+  y += 14;
+  pdf.setFontSize(14); pdf.setFont(undefined, 'bold');
+  pdf.text('Commande fournisseur', 15, y);
+  pdf.setFontSize(10); pdf.setFont(undefined, 'normal');
+  y += 7; pdf.text(titreCampagne || '', 15, y);
+  y += 5; pdf.text(`Générée le ${new Date().toLocaleDateString('fr-BE')}`, 15, y);
+
+  y += 12;
+  pdf.setFillColor(27, 58, 92);
+  pdf.rect(15, y, 180, 8, 'F');
+  pdf.setTextColor(255, 255, 255); pdf.setFont(undefined, 'bold');
+  pdf.text('Article', 18, y + 5.5);
+  pdf.text('Quantité totale', 150, y + 5.5);
+  pdf.setTextColor(0, 0, 0); pdf.setFont(undefined, 'normal');
+  y += 8;
+
+  Object.entries(totauxParArticle).forEach(([nom, qte], i) => {
+    if (i % 2 === 1) { pdf.setFillColor(240, 240, 240); pdf.rect(15, y, 180, 8, 'F'); }
+    pdf.text(String(nom), 18, y + 5.5);
+    pdf.text(String(qte), 150, y + 5.5);
+    y += 8;
+  });
+
+  pdf.save(`Commande-fournisseur-${(titreCampagne || 'campagne').replace(/[^a-z0-9]+/gi, '-')}.pdf`);
+};
+
+// ==========================================================================
+// CONTENU DU SITE — permet à Katia de modifier les textes des pages
+// publiques (Accueil, Le Club, Activités, Katia) sans toucher au code.
+// Chaque champ a un identifiant unique (data-contenu-id dans le HTML) et un
+// texte par défaut (celui d'origine) affiché tant qu'aucune modification
+// n'a été enregistrée.
+// ==========================================================================
+const CHAMPS_CONTENU = [
+  { page: 'Accueil', champs: [
+    { id: 'accueil_eyebrow', label: 'Petit texte au-dessus du titre', defaut: "Centre d'éducation canine — Région d'Andenne" },
+    { id: 'accueil_titre', label: 'Titre principal', defaut: 'Une relation de confiance entre vous et votre chien, construite pas à pas.' },
+    { id: 'accueil_lead', label: 'Sous-titre', defaut: "Les Cabots de Fernelmont accompagnent maîtres et chiens avec des méthodes douces et respectueuses, autour de Katia, éducatrice canine depuis plus de 10 ans." },
+    { id: 'accueil_section2_titre', label: 'Titre section "Le club en un coup d\'œil"', defaut: 'Un club à taille humaine, pensé pour progresser ensemble' },
+    { id: 'accueil_section2_texte', label: 'Texte de cette section', defaut: "Chaque cours est pensé pour créer un vrai lien entre vous et votre chien — dans le respect de son rythme et du vôtre." },
+    { id: 'accueil_cta_titre', label: 'Titre bandeau final', defaut: 'Envie de rejoindre le club ?' },
+    { id: 'accueil_cta_texte', label: 'Texte bandeau final', defaut: 'Contactez-nous par téléphone ou par mail — nous répondons volontiers à toutes vos questions sur les cours et les inscriptions.' },
+  ]},
+  { page: 'Le Club', champs: [
+    { id: 'club_lead', label: 'Sous-titre', defaut: 'Un club canin familial, où chaque duo maître-chien avance à son rythme.' },
+    { id: 'club_philo_p1', label: 'Philosophie — 1er paragraphe', defaut: "Les Cabots de Fernelmont, c'est avant tout une approche douce et respectueuse du chien. Nous croyons qu'une bonne éducation canine se construit sur la confiance, la patience et la compréhension mutuelle — jamais sur la contrainte." },
+    { id: 'club_philo_p2', label: 'Philosophie — 2e paragraphe', defaut: 'Nos cours se donnent à Andenne, en petits groupes, pour permettre à Katia de suivre chaque chien et chaque maître de façon personnalisée.' },
+    { id: 'club_propose_texte', label: '"Ce que propose le club" — texte', defaut: "Au-delà des cours collectifs, le club propose également la vente d'accessoires, du toilettage et la garde de chiens à domicile pendant les vacances des maîtres." },
+    { id: 'club_citation', label: 'Citation mise en avant', defaut: "Chaque chien avance à son rythme — notre rôle est de l'accompagner, pas de le forcer." },
+  ]},
+  { page: 'Activités', champs: [
+    { id: 'activites_lead', label: 'Sous-titre', defaut: 'Cinq axes de travail pour progresser avec votre chien, à chaque étape de son développement.' },
+    { id: 'activite1_titre', label: 'Activité 1 — titre', defaut: 'Obéissance' },
+    { id: 'activite1_texte', label: 'Activité 1 — texte', defaut: 'Les bases essentielles pour un chien équilibré au quotidien : rappel, marche en laisse, positions et self-control, enseignés avec des méthodes douces.' },
+    { id: 'activite2_titre', label: 'Activité 2 — titre', defaut: 'Socialisation' },
+    { id: 'activite2_texte', label: 'Activité 2 — texte', defaut: "Des rencontres encadrées avec d'autres chiens et d'autres maîtres pour apprendre à votre compagnon à évoluer sereinement dans son environnement." },
+    { id: 'activite3_titre', label: 'Activité 3 — titre', defaut: 'Agility' },
+    { id: 'activite3_texte', label: 'Activité 3 — texte', defaut: 'Un parcours d\'obstacles ludique qui renforce la complicité entre le chien et son maître, tout en développant agilité et concentration.' },
+    { id: 'activite4_titre', label: 'Activité 4 — titre', defaut: 'Confiance au chien' },
+    { id: 'activite4_texte', label: 'Activité 4 — texte', defaut: "Un travail spécifique pour aider les chiens craintifs ou peu sûrs d'eux à gagner en assurance, à leur rythme et en douceur." },
+    { id: 'activite5_titre', label: 'Activité 5 — titre', defaut: 'Rapport chien-maître' },
+    { id: 'activite5_texte', label: 'Activité 5 — texte', defaut: 'Renforcer la communication et la complicité entre vous et votre chien, pour une relation basée sur la confiance mutuelle.' },
+  ]},
+  { page: 'Katia', champs: [
+    { id: 'katia_lead', label: 'Sous-titre', defaut: 'Fondatrice et éducatrice canine du club Les Cabots de Fernelmont.' },
+    { id: 'katia_bio_p1', label: 'Biographie — 1er paragraphe', defaut: "Depuis plus de 10 ans, Katia se consacre à l'éducation canine avec une conviction simple : chaque chien mérite d'être compris avant d'être corrigé. Fondatrice des Cabots de Fernelmont, elle a bâti le club autour de méthodes douces, respectueuses du rythme et de la sensibilité de chaque animal." },
+    { id: 'katia_bio_p2', label: 'Biographie — 2e paragraphe', defaut: 'Elle accompagne aujourd\'hui de nombreux duos maîtres-chiens à Andenne, en cours collectifs comme en séances individuelles, et propose également toilettage, conseils sur les accessoires et garde de chiens à domicile.' },
+    { id: 'katia_citation', label: 'Citation mise en avant', defaut: "Un chien qui comprend ce qu'on attend de lui est un chien qui a confiance." },
+    { id: 'katia_complices_texte', label: '"Ses trois complices" — texte', defaut: "Katia partage aussi son quotidien avec ses propres chiens — Olga, Pistache et Cookie — qui l'accompagnent parfois lors des cours." },
+  ]},
+];
+
+// Activités pouvant être masquées individuellement de la page publique
+// (checkbox "visible/invisible", indépendante du texte). Doc Firestore
+// contenu_site/activiteN_visible = { visible: bool } — absent = visible.
+const ACTIVITES_VISIBILITE = [
+  { n: 1, nom: 'Obéissance' },
+  { n: 2, nom: 'Socialisation' },
+  { n: 3, nom: 'Agility' },
+  { n: 4, nom: 'Confiance au chien' },
+  { n: 5, nom: 'Rapport chien-maître' },
+];
+
+async function chargerContenuAdmin() {
+  const wrap = document.getElementById('zoneContenu');
+  if (!wrap) return;
+  const snap = await getDocs(collection(db, 'contenu_site'));
+  const valeurs = {};
+  const visibilites = {};
+  snap.forEach(d => {
+    valeurs[d.id] = d.data().texte;
+    if (d.id.endsWith('_visible')) visibilites[d.id] = d.data().visible;
+  });
+
+  wrap.innerHTML = CHAMPS_CONTENU.map(section => `
+    <h3 style="margin-top:20px;">${escapeHtml(section.page)}</h3>
+    <button class="btn-sm" style="margin-bottom:10px;" onclick="window.reinitialiserContenu('${escapeAttr(section.page)}')">↺ Réinitialiser cette page aux textes par défaut</button>
+    ${section.page === 'Activités' ? `
+    <div style="background:var(--paper-warm); border-radius:6px; padding:10px 14px; margin-bottom:14px;">
+      <p style="font-size:0.85rem; color:var(--slate); margin-bottom:8px;">Décoche une activité pour la masquer entièrement de la page publique "Activités" (le texte reste enregistré, juste caché) :</p>
+      ${ACTIVITES_VISIBILITE.map(a => {
+        const docId = `activite${a.n}_visible`;
+        const visible = visibilites[docId] !== false;
+        return `<label class="membre-check-row" style="display:inline-flex; width:auto; margin:0 10px 6px 0;"><input type="checkbox" ${visible ? 'checked' : ''} onchange="window.sauverVisibiliteActivite(${a.n}, this.checked)"><span>Activité ${a.n} — ${escapeHtml(a.nom)}</span></label>`;
+      }).join('')}
+    </div>` : ''}
+    ${section.champs.map(c => `
+      <div class="field" style="margin-bottom:14px;">
+        <label>${escapeHtml(c.label)}</label>
+        <textarea id="ct-${c.id}" rows="2" style="width:100%; box-sizing:border-box; resize:vertical;">${escapeHtml(valeurs[c.id] ?? c.defaut)}</textarea>
+        <button class="btn-sm" style="margin-top:4px;" onclick="window.sauverContenu('${c.id}')">Enregistrer</button>
+        <span id="ct-statut-${c.id}" style="font-size:0.8rem; color:var(--slate); margin-left:8px;"></span>
+      </div>`).join('')}
+  `).join('');
+}
+
+window.sauverVisibiliteActivite = async (n, visible) => {
+  await setDoc(doc(db, 'contenu_site', `activite${n}_visible`), { visible });
+};
+
+window.reinitialiserContenu = async (page) => {
+  if (!confirm(`Remettre tous les textes de la page "${page}" à leur version par défaut ?`)) return;
+  const section = CHAMPS_CONTENU.find(s => s.page === page);
+  if (!section) return;
+  for (const c of section.champs) {
+    await setDoc(doc(db, 'contenu_site', c.id), { texte: c.defaut });
+  }
+  if (page === 'Activités') {
+    for (const a of ACTIVITES_VISIBILITE) {
+      await setDoc(doc(db, 'contenu_site', `activite${a.n}_visible`), { visible: true });
+    }
+  }
+  chargerContenuAdmin();
+};
+
+window.sauverContenu = async (champId) => {
+  const texte = document.getElementById(`ct-${champId}`).value;
+  const statutEl = document.getElementById(`ct-statut-${champId}`);
+  statutEl.textContent = 'Enregistrement...';
+  await setDoc(doc(db, 'contenu_site', champId), { texte });
+  statutEl.textContent = 'Enregistré ✓';
+  setTimeout(() => { statutEl.textContent = ''; }, 2500);
+};
+
+// ==========================================================================
+// RÈGLEMENT D'ORDRE INTÉRIEUR (ROI) — texte modifiable par l'admin, à lire
+// et approuver par chaque membre. Un vrai changement de version force tous
+// les membres à réapprouver.
+// ==========================================================================
+const ROI_TEXTE_PAR_DEFAUT = `ARTICLE 1 – Cotisation annuelle
+Toute personne désirant devenir membre devra s'acquitter de sa cotisation annuelle dès la fin de son cours d'accueil (gratuit). Cette cotisation annuelle est de 70€ (TVAC) et non remboursable.
+
+ARTICLE 2 – Cours et/ou cartes d'abonnements
+En plus de la cotisation, chaque maître/maîtresse devra s'acquitter du montant de son cours collectif selon le tarif en vigueur. Il y a la possibilité de prendre un abonnement (fortement recommandé) donnant droit à 10 séances de cours collectifs + 1 gratuite pour la somme de 70€ (TVAC).
+
+Pour l'inscription d'un nouveau membre, lors du premier cours d'accueil, il vous sera demandé de venir avec les documents suivants :
+- La « Fiche Signalétique » et la « Fiche de Renseignements » dûment complétées.
+- Le présent règlement d'ordre intérieur signé et accepté.
+- La présentation du carnet de santé du chien et/ou une copie pour le dossier d'adhésion.
+- Une copie de votre échéance de police d'assurance Responsabilité Civile.
+
+Le chien devra être muni d'un collier souple et d'une laisse de dressage assez longue et adaptée (de préférence en cuir).
+
+ARTICLE 3 – Les cours
+En cours individuel : au prix en vigueur, payable à la fin de la séance.
+En cours collectif d'obéissance : chiots ou adultes selon un horaire à définir. Le membre qui arrive en retard pourrait se voir refuser l'accès au cours, dans un souci d'organisation.
+
+ARTICLE 4 – Canal pour nous suivre
+Le club communique via les canaux qu'il détermine (Facebook, e-mail, ou cet espace membre) pour toute notification concernant les cours (inscription, sondage, modification, annulation, déplacement...).
+
+ARTICLE 5 – Suspension des cours
+Les cours peuvent être suspendus : les jours fériés, en cas d'intempéries, durant les mois les plus rudes de l'hiver, lors des vacances annuelles ou de fin d'année, lors des activités annuelles du club, ou pour tout autre cas non prévu dans cette liste. Toute modification vous sera communiquée à l'avance.
+
+ARTICLE 6 – Santé
+Tous les chiens devront être en ordre de vaccins sous peine d'être refusés au travail. Tout chien ayant un problème de santé contagieux sera refusé au travail tant qu'il n'est pas guéri. Toute chienne en chaleur n'est pas autorisée à travailler. Tout chien pouvant être considéré comme dangereux doit être muselé et fera l'objet d'un travail individuel jusqu'à l'accord de l'éducatrice pour passer en cours collectif.
+
+ARTICLE 7 – Responsabilité civile / Assurances
+Chaque membre doit disposer d'une assurance responsabilité civile (familiale) couvrant les dégâts corporels ou matériels que pourrait causer son chien. Le club décline toute responsabilité en cas d'accident survenu par le fait du chien ou de son maître. Les chiens restent sous l'entière responsabilité de leur maître, qu'ils soient en laisse ou en liberté.
+
+ARTICLE 8 – Interdictions
+Il est strictement interdit de brutaliser un chien, sous peine d'exclusion sans remboursement. Il est également interdit de venir au cours muni d'un collier étrangleur, semi-étrangleur ou à pics, sauf accord explicite de l'éducatrice. Les GSM doivent rester en silencieux pendant toute la durée du cours.
+
+ARTICLE 9 – Convivialité
+Tout membre nuisant à la bonne entente du club par son comportement, son agressivité ou le non-respect des méthodes mises en place pourra être exclu du club sans remboursement de sa cotisation.
+
+ARTICLE 9 BIS
+En cas de changement d'avis en cours d'année, ou de non-acceptation d'une modification du présent règlement, aucun remboursement de la cotisation ne sera effectué.
+
+ARTICLE 10 – Amendes
+Les GSM doivent être éteints ou en silencieux pendant les cours. Le non-respect de cette règle peut entraîner le renvoi du cours.
+
+ARTICLE 11 – Abonnement de cours
+Le club propose un abonnement de 10 leçons + 1 gratuite pour 70€.
+
+ARTICLE 12 – Modification du présent règlement
+Ce règlement peut être modifié à tout moment pour l'adapter aux besoins du club et aux normes en vigueur. Toute modification substantielle vous sera à nouveau soumise pour accord.
+
+Pour accord :
+En cochant la case et en validant depuis mon espace membre, je déclare avoir lu et approuvé le présent règlement d'ordre intérieur.`;
+
+async function chargerRoiAdmin() {
+  const doc_ = await getDoc(doc(db, 'reglement', 'roi'));
+  const version = doc_.exists() ? doc_.data().version : 1;
+  const texte = doc_.exists() ? doc_.data().texte : ROI_TEXTE_PAR_DEFAUT;
+  document.getElementById('roi-texte').value = texte;
+  document.getElementById('roi-versionActuelle').textContent = version;
+
+  const nonApprouves = currentMembres.filter(m => (m.reglementVersionApprouvee || 0) < version);
+  const wrap = document.getElementById('listeRoiNonApprouve');
+  if (nonApprouves.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Tous les membres ont approuvé la version actuelle. 🎉</div>';
+  } else {
+    wrap.innerHTML = nonApprouves.map(m => `
+      <div class="data-row"><div class="data-main"><div class="data-title">${escapeHtml(m.nomMaitre)}</div></div></div>`).join('');
+  }
+}
+
+document.getElementById('btnSauverRoiSansVersion').addEventListener('click', async () => {
+  const statutEl = document.getElementById('roi-statut');
+  statutEl.textContent = 'Enregistrement...';
+  const doc_ = await getDoc(doc(db, 'reglement', 'roi'));
+  const version = doc_.exists() ? doc_.data().version : 1;
+  await setDoc(doc(db, 'reglement', 'roi'), {
+    texte: document.getElementById('roi-texte').value, version, dateModification: serverTimestamp()
+  });
+  statutEl.textContent = 'Enregistré (version inchangée) ✓';
+  chargerRoiAdmin();
+});
+
+document.getElementById('btnPublierNouvelleVersionRoi').addEventListener('click', async () => {
+  if (!confirm('Publier une nouvelle version ? Tous les membres devront relire et réapprouver le règlement.')) return;
+  const statutEl = document.getElementById('roi-statut');
+  statutEl.textContent = 'Publication...';
+  const doc_ = await getDoc(doc(db, 'reglement', 'roi'));
+  const nouvelleVersion = (doc_.exists() ? doc_.data().version : 1) + 1;
+  await setDoc(doc(db, 'reglement', 'roi'), {
+    texte: document.getElementById('roi-texte').value, version: nouvelleVersion, dateModification: serverTimestamp()
+  });
+  statutEl.textContent = `Nouvelle version (${nouvelleVersion}) publiée — les membres devront réapprouver ✓`;
+  chargerRoiAdmin();
+});
+
+// ==========================================================================
+// FICHE DE RENSEIGNEMENTS — réponses anonymes agrégées (lecture seule,
+// aucun lien possible avec un membre précis).
+// ==========================================================================
+async function chargerEnquetesAnonymesAdmin() {
+  const wrap = document.getElementById('listeEnquetesAnonymes');
+  if (!wrap) return;
+  const snap = await getDocs(collection(db, 'enquetes_renseignements'));
+  const reponses = [];
+  snap.forEach(d => reponses.push(d.data()));
+
+  if (reponses.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucune réponse pour l\'instant.</div>';
+    return;
+  }
+
+  wrap.innerHTML = reponses.map((r, i) => `
+    <div class="data-row">
+      <div class="data-main">
+        <div class="data-title">${r.identifiant ? `${escapeHtml(r.identifiant)}${r.chienNom ? ' — ' + escapeHtml(r.chienNom) : ''}` : `Réponse anonyme n°${i + 1}`}</div>
+        <div class="data-sub">
+          Âge : ${escapeHtml(r.age || '—')} · Race : ${escapeHtml(r.race || '—')} (${escapeHtml(r.sexe || '—')})<br>
+          Élevage : ${escapeHtml(r.elevage || '—')} · Retrait à ${escapeHtml(String(r.ageRetrait || '—'))} semaines<br>
+          Vu régulièrement chez l'éleveur : ${escapeHtml(r.vuRegulierement || '—')} · Choisi soi-même : ${escapeHtml(r.choisiSoiMeme || '—')}<br>
+          ${r.criteres ? `Critères de choix : ${escapeHtml(r.criteres)}<br>` : ''}
+          Premier chien : ${escapeHtml(r.premierChien || '—')}
+          ${r.recherche ? `<br>Recherche longue : ${escapeHtml(r.recherche)}` : ''}
+          ${r.pourquoiSexe ? `<br>Pourquoi ce sexe : ${escapeHtml(r.pourquoiSexe)}` : ''}
+          ${r.enfants ? `<br>Enfants : ${escapeHtml(r.enfants)}` : ''}
+          ${r.connaissanceRace ? `<br>Connaissance de la race : ${escapeHtml(r.connaissanceRace)}` : ''}
+          ${r.raisonsChoix ? `<br>Raisons du choix : <em>${escapeHtml(r.raisonsChoix)}</em>` : ''}
+          ${r.premieresSemaines ? `<br>Premières semaines : <em>${escapeHtml(r.premieresSemaines)}</em>` : ''}
+        </div>
+      </div>
+    </div>`).join('');
+}
+
+// ==========================================================================
+// GESTION DES MOTS DE PASSE
+// ==========================================================================
+
+// Admin change SON PROPRE mot de passe (nécessite de retaper l'actuel).
+function ouvrirModalMonCompte(oblige) {
+  const html = `
+    <div class="modal-overlay" id="modalOverlay${oblige ? 'MdpOblige' : ''}">
+      <div class="modal-box">
+        <h3>🔒 ${oblige ? 'Changement de mot de passe requis' : 'Mon compte — changer mon mot de passe'}</h3>
+        ${oblige ? `<p style="color:var(--ink);">Pour la sécurité de tous, le club impose de changer son mot de passe chaque trimestre (1er janvier, 1er avril, 1er juillet, 1er octobre). Merci de définir un nouveau mot de passe pour continuer.</p>
+        <ol style="font-size:0.88rem; color:var(--slate); padding-left:20px; margin-bottom:14px;">
+          <li>Entrez votre mot de passe actuel</li>
+          <li>Choisissez un nouveau mot de passe (lettres/chiffres, min. 6 caractères)</li>
+          <li>Confirmez-le puis cliquez sur "Changer mon mot de passe"</li>
+        </ol>` : ''}
+        <div class="field"><label>Mot de passe actuel</label><input type="password" id="cpt-mdpActuel"></div>
+        <div class="field"><label>Nouveau mot de passe (min. 6 caractères)</label><input type="password" id="cpt-mdpNouveau"></div>
+        <div class="field"><label>Confirmer le nouveau mot de passe</label><input type="password" id="cpt-mdpConfirme"></div>
+        <div class="modal-actions">
+          ${oblige ? '' : '<button class="btn-sm" onclick="window.fermerModal()">Annuler</button>'}
+          <button class="btn-sm primary" id="cpt-mdp-save">Changer mon mot de passe</button>
+        </div>
+        <p id="cpt-mdp-statut" style="font-size:0.85rem; color:var(--slate); margin-top:8px;"></p>
+        ${oblige ? `<p style="font-size:0.8rem; color:var(--slate); margin-top:14px; padding-top:12px; border-top:1px solid #E3E7EB;">
+          ${superAdminActif
+            ? 'Mot de passe actuel oublié ? Aucun moyen de le récupérer depuis le site — va dans la Console Firebase (Authentication → Users) pour forcer un nouveau mot de passe sur ce compte.'
+            : 'Mot de passe actuel oublié ? <a href="https://wa.me/32497268303" target="_blank" rel="noopener">Contactez Hélène sur WhatsApp</a> — elle seule peut forcer un nouveau mot de passe sur ce compte.'}
+        </p>` : ''}
+      </div>
+    </div>`;
+  if (oblige) {
+    document.body.insertAdjacentHTML('beforeend', html);
+  } else {
+    document.getElementById('modalZone').innerHTML = html;
+  }
+
+  document.getElementById('cpt-mdp-save').addEventListener('click', async () => {
+    const statutEl = document.getElementById('cpt-mdp-statut');
+    const actuel = document.getElementById('cpt-mdpActuel').value;
+    const nouveau = document.getElementById('cpt-mdpNouveau').value;
+    const confirme = document.getElementById('cpt-mdpConfirme').value;
+
+    if (!actuel || !nouveau) { statutEl.textContent = 'Merci de remplir tous les champs.'; return; }
+    if (nouveau.length < 6) { statutEl.textContent = 'Le nouveau mot de passe doit faire au moins 6 caractères.'; return; }
+    if (!motDePasseValide(nouveau)) { statutEl.textContent = MESSAGE_MDP_INVALIDE; return; }
+    if (nouveau !== confirme) { statutEl.textContent = 'La confirmation ne correspond pas.'; return; }
+
+    statutEl.textContent = 'Changement en cours...';
+    try {
+      const credential = EmailAuthProvider.credential(auth.currentUser.email, actuel);
+      await reauthenticateWithCredential(auth.currentUser, credential);
+      await updatePassword(auth.currentUser, nouveau);
+      await updateDoc(doc(db, 'membres', auth.currentUser.uid), {
+        motDePasseInitial: nouveau, dateDernierChangementMdp: new Date().toISOString()
+      });
+      statutEl.textContent = 'Mot de passe changé avec succès ✓';
+      setTimeout(() => {
+        if (oblige) { document.getElementById('modalOverlayMdpOblige').remove(); }
+        else { window.fermerModal(); }
+        chargerMotsDePasseAdmin();
+      }, 1200);
+    } catch (err) {
+      statutEl.textContent = err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential'
+        ? 'Mot de passe actuel incorrect.'
+        : 'Erreur : ' + err.message;
+    }
+  });
+}
+
+document.getElementById('btnMonCompte').addEventListener('click', () => ouvrirModalMonCompte(false));
+
+// Trimestre en cours : le 1er janvier, avril, juillet et octobre. Si le
+// mot de passe n'a jamais été changé depuis la dernière de ces dates,
+// un changement est imposé à la connexion (voir plus bas dans
+// onAuthStateChanged).
+function dateLimiteMdpActuelle() {
+  const maintenant = new Date();
+  const annee = maintenant.getFullYear();
+  const bornes = [new Date(annee, 0, 1), new Date(annee, 3, 1), new Date(annee, 6, 1), new Date(annee, 9, 1)];
+  let derniere = new Date(annee - 1, 9, 1);
+  for (const b of bornes) { if (b <= maintenant) derniere = b; }
+  return derniere;
+}
+
+// Admin change le mot de passe RÉEL d'un membre (pas juste le champ
+// "référence") — utilise une session Firebase secondaire pour se connecter
+// au compte du membre (avec son mot de passe actuel connu) sans déconnecter
+// la session admin en cours.
+window.changerMotDePasseMembre = (membreId, identifiant, motDePasseActuel) => {
+  const html = `
+    <div class="modal-overlay" id="modalOverlayMdpMembre">
+      <div class="modal-box">
+        <h3>Changer le mot de passe de ${escapeHtml(identifiant || 'ce membre')}</h3>
+        ${!motDePasseActuel ? '<p style="color:#8A2E2E; font-size:0.85rem;">⚠️ Le mot de passe actuel de ce membre n\'est pas connu du système (champ vide) — le changement ne pourra pas fonctionner tant qu\'il n\'est pas renseigné dans le champ "Mot de passe (pour référence)" juste au-dessus, avec la vraie valeur actuelle.</p>' : ''}
+        <div class="field"><label>Nouveau mot de passe (min. 6 caractères)</label><input type="password" id="mdpm-nouveau"></div>
+        <div class="modal-actions">
+          <button class="btn-sm" onclick="document.getElementById('modalOverlayMdpMembre').remove()">Annuler</button>
+          <button class="btn-sm primary" id="mdpm-save" ${!motDePasseActuel ? 'disabled' : ''}>Changer le mot de passe</button>
+        </div>
+        <p id="mdpm-statut" style="font-size:0.85rem; color:var(--slate); margin-top:8px;"></p>
+      </div>
+    </div>`;
+  document.body.insertAdjacentHTML('beforeend', html);
+
+  document.getElementById('mdpm-save').addEventListener('click', async () => {
+    const statutEl = document.getElementById('mdpm-statut');
+    const nouveau = document.getElementById('mdpm-nouveau').value;
+    if (!nouveau || nouveau.length < 6) { statutEl.textContent = 'Le nouveau mot de passe doit faire au moins 6 caractères.'; return; }
+    if (!motDePasseValide(nouveau)) { statutEl.textContent = MESSAGE_MDP_INVALIDE; return; }
+
+    statutEl.textContent = 'Changement en cours...';
+    const email = identifiantVersEmail(identifiant);
+    const secondaryApp = initializeApp(auth.app.options, 'mdp-membre-' + Date.now());
+    const secondaryAuth = getAuthSecondary(secondaryApp);
+    try {
+      // Persistance en mémoire uniquement : cette session temporaire ne
+      // touche jamais le stockage du navigateur, donc ne peut jamais
+      // interférer avec ta propre session admin en cours.
+      await setPersistence(secondaryAuth, inMemoryPersistence);
+      await signInSecondary(secondaryAuth, email, motDePasseActuel);
+      await updatePasswordSecondary(secondaryAuth.currentUser, nouveau);
+      await updateDoc(doc(db, 'membres', membreId), { motDePasseInitial: nouveau, dateDernierChangementMdp: new Date().toISOString() });
+      await signOutSecondary(secondaryAuth);
+      await deleteApp(secondaryApp);
+      statutEl.textContent = 'Mot de passe changé avec succès ✓';
+      setTimeout(() => {
+        document.getElementById('modalOverlayMdpMembre')?.remove();
+        window.fermerModal();
+        chargerMembres();
+        chargerListeAdminsPourMdp();
+      }, 1200);
+    } catch (err) {
+      console.error('Erreur changement mot de passe :', err);
+      try { await deleteApp(secondaryApp); } catch (e2) { /* déjà supprimée ou jamais créée */ }
+      statutEl.textContent = `Erreur (${err.code || 'inconnue'}) : ${err.message || err}. ` +
+        (err.code === 'auth/invalid-credential' || err.code === 'auth/wrong-password'
+          ? 'Le mot de passe actuel enregistré ne correspond plus au vrai mot de passe du compte — recontacte la personne, mets à jour le champ "référence" avec la vraie valeur actuelle, puis réessaie.'
+          : 'Regarde la console du navigateur (F12) pour le détail technique complet si besoin.');
+    }
+  });
+};
+
+// ==========================================================================
+// MOTS DE PASSE — onglet exclusif au Super Admin (voir la détection à la
+// connexion). Vue consolidée de tous les membres avec leur identifiant et
+// leur vrai mot de passe de connexion actuel (toujours synchronisé, aucun
+// self-service de mot de passe n'existe côté membre — la seule façon dont
+// il change est via ce même panneau ou la création du compte).
+// ==========================================================================
+// ==========================================================================
+// MAINTENANCE — migration ponctuelle : activer les 3 accès (Cours/Dog
+// Sitting/Boutique) pour tous les membres déjà existants (chantier refonte
+// membres). Écrase la valeur actuelle de accesCours/accesDogSitting/
+// accesBoutique pour CHAQUE membre (role: 'membre'), y compris archivés —
+// action volontaire à la demande du Super Admin, pas une simple réparation de
+// champ manquant. Sans effet sur les nouveaux membres créés après coup
+// (ceux-ci démarrent avec les 3 accès décochés par défaut).
+// ==========================================================================
+document.getElementById('btnMigrationAcces')?.addEventListener('click', async () => {
+  if (!confirm("Donner l'accès Cours + Dog Sitting + Boutique à TOUS les membres existants (y compris archivés) ? Cette action écrase leurs accès actuels.")) return;
+  const btn = document.getElementById('btnMigrationAcces');
+  const zone = document.getElementById('migrationAccesResultat');
+  btn.disabled = true;
+  zone.textContent = 'Migration en cours...';
+  try {
+    const snap = await getDocs(query(collection(db, 'membres'), where('role', '==', 'membre')));
+    let compte = 0;
+    for (const d of snap.docs) {
+      await updateDoc(doc(db, 'membres', d.id), { accesCours: true, accesDogSitting: true, accesBoutique: true });
+      compte++;
+    }
+    zone.textContent = `Terminé : ${compte} membre(s) mis à jour avec les 3 accès activés.`;
+    chargerMembres();
+  } catch (err) {
+    zone.textContent = 'Erreur pendant la migration : ' + err.message;
+  }
+  btn.disabled = false;
+});
+
+document.getElementById('btnNettoyerPresences')?.addEventListener('click', async () => {
+  const dateLimite = document.getElementById('nettoyagePresencesDate').value;
+  const zone = document.getElementById('nettoyagePresencesResultat');
+  if (!dateLimite) { zone.textContent = 'Choisis une date.'; return; }
+  if (!confirm(`Supprimer toutes les présences/absences enregistrées avant le ${new Date(dateLimite + 'T00:00:00').toLocaleDateString('fr-BE')} ? Les cours déjà décomptés seront recrédités automatiquement.`)) return;
+
+  const btn = document.getElementById('btnNettoyerPresences');
+  btn.disabled = true;
+  zone.textContent = 'Synchronisation des décomptes en cours...';
+  try {
+    // Traite d'abord tout décompte automatique en attente, pour que
+    // "compteAbonnement" reflète bien la réalité de CHAQUE présence avant
+    // qu'on décide s'il faut la recréditer ou non (évite un recrédit
+    // manqué si un décompte se produisait juste au même moment).
+    await traiterAbsencesAutomatiques();
+
+    zone.textContent = 'Nettoyage en cours...';
+    const snap = await getDocs(query(collection(db, 'presences'), where('dateISO', '<', dateLimite)));
+    let supprimees = 0;
+    const aRecrediter = {};
+    for (const d of snap.docs) {
+      const p = d.data();
+      if (p.compteAbonnement === true && p.uid) {
+        aRecrediter[p.uid] = (aRecrediter[p.uid] || 0) + 1;
+        await desassocierPresenceAbonnement(p.uid, d.id);
+      }
+      await deleteDoc(doc(db, 'presences', d.id));
+      supprimees++;
+    }
+    // Incrément atomique Firestore par membre : jamais de valeur périmée,
+    // même si plusieurs présences du même membre sont recréditées d'un coup.
+    for (const uid of Object.keys(aRecrediter)) {
+      await updateDoc(doc(db, 'membres', uid), { coursRestants: increment(aRecrediter[uid]) });
+    }
+    zone.textContent = `Terminé : ${supprimees} présence(s) supprimée(s), ${Object.keys(aRecrediter).length} membre(s) recrédité(s) d'un ou plusieurs cours.`;
+    invaliderCachePresences();
+    chargerMembres();
+  } catch (err) {
+    zone.textContent = 'Erreur pendant le nettoyage : ' + err.message;
+  }
+  btn.disabled = false;
+});
+
+document.getElementById('btnRepararApercusMessages')?.addEventListener('click', async () => {
+  if (!confirm("Recalculer le dernier message affiché pour TOUTES les conversations ? Corrige les aperçus restés bloqués sur un message déjà supprimé avant le correctif — sans effet sur les vrais messages, juste sur l'aperçu.")) return;
+  const btn = document.getElementById('btnRepararApercusMessages');
+  const zone = document.getElementById('repararApercusResultat');
+  btn.disabled = true;
+  zone.textContent = 'Réparation en cours...';
+  try {
+    const snap = await getDocs(collection(db, 'conversations'));
+    let compte = 0;
+    for (const d of snap.docs) {
+      await recalculerDernierMessage(d.id);
+      compte++;
+    }
+    zone.textContent = `Terminé : ${compte} conversation(s) vérifiée(s) et corrigée(s) si besoin.`;
+    chargerConversations();
+  } catch (err) {
+    zone.textContent = 'Erreur pendant la réparation : ' + err.message;
+  }
+  btn.disabled = false;
+});
+
+document.getElementById('btnCreerCompteDemoHexelya')?.addEventListener('click', async () => {
+  const zone = document.getElementById('creerCompteDemoHexelyaResultat');
+  const btn = document.getElementById('btnCreerCompteDemoHexelya');
+  const dejaLa = currentMembres.some(m => m.identifiant === 'Hexelya') || currentMembresArchives.some(m => m.identifiant === 'Hexelya');
+  if (dejaLa) { zone.textContent = 'Le compte démo "Hexelya" existe déjà.'; return; }
+  if (!confirm('Créer le compte de démonstration "Hexelya" (identifiant Hexelya, mot de passe hexelya) ?')) return;
+  btn.disabled = true;
+  zone.textContent = 'Création en cours...';
+  const identifiant = 'Hexelya';
+  const mdp = 'hexelya';
+  const email = identifiantVersEmail(identifiant);
+  // Création via une instance Firebase secondaire pour ne pas déconnecter
+  // la session Super Admin en cours (même principe que pour un membre
+  // normal).
+  const secondaryApp = initializeApp(auth.app.options, 'secondaire-' + Date.now());
+  const secondaryAuth = getAuthSecondary(secondaryApp);
+  try {
+    await setPersistence(secondaryAuth, inMemoryPersistence);
+    const cred = await createUserWithEmailAndPassword(secondaryAuth, email, mdp);
+    await setDoc(doc(db, 'membres', cred.user.uid), {
+      nomMaitre: 'Hexelya (compte démo)',
+      gsm: '', email: '', adressePostale: '', dateAnniversaire: '',
+      chiens: [], identifiant, motDePasseInitial: mdp,
+      role: 'membre', archive: false,
+      accesCours: true, accesDogSitting: true, accesBoutique: true,
+      dateInscription: serverTimestamp()
+    });
+    await signOutSecondary(secondaryAuth);
+    await deleteApp(secondaryApp);
+    zone.textContent = 'Compte démo "Hexelya" créé avec succès.';
+    chargerMembres();
+  } catch (err) {
+    try { await deleteApp(secondaryApp); } catch (e2) { /* déjà supprimée ou jamais créée */ }
+    zone.textContent = "Erreur : " + (err.code === 'auth/email-already-in-use' ? 'cet identifiant existe déjà.' : err.message);
+  }
+  btn.disabled = false;
+});
+
+document.getElementById('btnRembourserCoursAnnules')?.addEventListener('click', async () => {
+  if (!confirm("Rechercher toutes les présences encore décomptées correspondant à un cours annulé, et rembourser chaque cours trouvé ? Aucun effet sur les présences dont le cours n'a pas été annulé.")) return;
+  const btn = document.getElementById('btnRembourserCoursAnnules');
+  const zone = document.getElementById('rembourserCoursAnnulesResultat');
+  btn.disabled = true;
+  zone.textContent = 'Recherche en cours...';
+  try {
+    const annulations = await chargerAnnulationsCache(true);
+    const toutesPresences = await chargerPresencesCache(true);
+    const aRembourser = toutesPresences.filter(p =>
+      p.compteAbonnement === true && annulations[`${p.groupeId}_${p.dateISO}`]);
+
+    if (aRembourser.length === 0) {
+      zone.textContent = 'Aucune présence mal décomptée trouvée — rien à rembourser.';
+      btn.disabled = false;
+      return;
+    }
+
+    const parMembre = {};
+    for (const p of aRembourser) {
+      parMembre[p.uid] = (parMembre[p.uid] || 0) + 1;
+      await updateDoc(doc(db, 'presences', p.id), { compteAbonnement: false });
+      await desassocierPresenceAbonnement(p.uid, p.id);
+    }
+    for (const uid of Object.keys(parMembre)) {
+      await updateDoc(doc(db, 'membres', uid), { coursRestants: increment(parMembre[uid]) });
+    }
+    invaliderCachePresences();
+    zone.textContent = `Terminé : ${aRembourser.length} cours remboursé(s) chez ${Object.keys(parMembre).length} membre(s).`;
+    chargerMembres();
+  } catch (err) {
+    zone.textContent = 'Erreur pendant la recherche : ' + err.message;
+  }
+  btn.disabled = false;
+});
+
+let currentAdminsPourMdp = [];
+
+async function chargerListeAdminsPourMdp() {
+  const snap = await getDocs(query(collection(db, 'membres'), where('role', '==', 'admin')));
+  currentAdminsPourMdp = [];
+  snap.forEach(d => currentAdminsPourMdp.push({ id: d.id, ...d.data() }));
+  chargerMotsDePasseAdmin();
+}
+
+function chargerMotsDePasseAdmin() {
+  const wrap = document.getElementById('listeMotsDePasse');
+  if (!wrap) return;
+
+  const terme = (document.getElementById('rechercheMdp')?.value || '').trim().toLowerCase();
+  let tous = [
+    ...currentAdminsPourMdp.map(m => ({ ...m, estAdminCompte: true })),
+    ...currentMembres.map(m => ({ ...m, estAdminCompte: false }))
+  ].sort((a, b) => (a.nomMaitre || '').localeCompare(b.nomMaitre || '', 'fr'));
+
+  if (terme) {
+    tous = tous.filter(m =>
+      (m.nomMaitre || '').toLowerCase().includes(terme) ||
+      (m.identifiant || '').toLowerCase().includes(terme)
+    );
+  }
+
+  if (tous.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucun compte trouvé.</div>';
+    return;
+  }
+
+  wrap.innerHTML = tous.map(m => {
+    const derniereConnexionLabel = m.derniereConnexion
+      ? new Date(m.derniereConnexion).toLocaleString('fr-BE', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : 'jamais connecté(e)';
+    const derniereActiviteLabel = m.derniereActivite
+      ? new Date(m.derniereActivite).toLocaleString('fr-BE', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : 'aucune activité connue';
+    return `
+    <div class="data-row">
+      <div class="data-main">
+        <div class="data-title">${escapeHtml(m.nomMaitre || '?')} ${m.estAdminCompte ? '<span class="badge badge-ok">Admin</span>' : ''}</div>
+        <div class="data-sub">Identifiant : <strong>${escapeHtml(m.identifiant || '—')}</strong>${m.motDePasseInitial ? ` · Mot de passe : <strong>${escapeHtml(m.motDePasseInitial)}</strong>` : ' · <span class="badge badge-neutral">mot de passe inconnu</span>'}</div>
+        <div class="data-sub">Dernière connexion (avec mot de passe tapé) : ${derniereConnexionLabel}</div>
+        <div class="data-sub">Dernière activité sur le site (session déjà ouverte incluse) : ${derniereActiviteLabel}</div>
+      </div>
+      <div class="data-actions">
+        <button class="btn-sm" onclick="window.changerMotDePasseMembre('${m.id}', '${escapeAttr(m.identifiant)}', '${escapeAttr(m.motDePasseInitial||'')}')" ${!m.motDePasseInitial ? 'disabled title="Mot de passe actuel inconnu — impossible de le changer depuis ici tant qu\'il n\'est pas connu (voir Firebase Console pour un compte totalement perdu)."' : ''}>Changer</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('rechercheMdp')?.addEventListener('input', () => chargerMotsDePasseAdmin());
+
+document.getElementById('btnExporterMdpExcel')?.addEventListener('click', () => {
+  const terme = (document.getElementById('rechercheMdp')?.value || '').trim().toLowerCase();
+  let tous = [
+    ...currentAdminsPourMdp.map(m => ({ ...m, estAdminCompte: true })),
+    ...currentMembres.map(m => ({ ...m, estAdminCompte: false }))
+  ].sort((a, b) => (a.nomMaitre || '').localeCompare(b.nomMaitre || '', 'fr'));
+
+  if (terme) {
+    tous = tous.filter(m =>
+      (m.nomMaitre || '').toLowerCase().includes(terme) ||
+      (m.identifiant || '').toLowerCase().includes(terme)
+    );
+  }
+
+  const lignes = tous.map(m => ({
+    'Nom': m.nomMaitre || '',
+    'Compte': m.estAdminCompte ? 'Admin' : 'Membre',
+    'Identifiant': m.identifiant || '',
+    'Mot de passe': m.motDePasseInitial || '(inconnu)',
+    'E-mail': m.email || '',
+    'GSM': m.gsm || '',
+    'Dernière connexion': m.derniereConnexion ? new Date(m.derniereConnexion).toLocaleString('fr-BE') : 'jamais connecté(e)'
+  }));
+
+  const feuille = XLSX.utils.json_to_sheet(lignes);
+  feuille['!cols'] = [{ wch: 24 }, { wch: 8 }, { wch: 18 }, { wch: 16 }, { wch: 28 }, { wch: 16 }, { wch: 20 }];
+  const classeur = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(classeur, feuille, 'Identifiants');
+  XLSX.writeFile(classeur, `Liste-distribution-membres-${dateISOLocale(new Date())}.xlsx`);
+});
+
+// ==========================================================================
+// EXPORT ODOO — génère un CSV prêt à importer dans Odoo (Comptabilité →
+// Clients → Factures → Importer des enregistrements). Une ligne par ligne
+// de facture ; les lignes d'une même facture partagent le même "id" externe
+// (convention standard d'import Odoo pour les champs one2many).
+// Les prix stockés côté club sont TTC : on recalcule le prix unitaire HT
+// pour laisser Odoo appliquer lui-même la TVA via le code de taxe standard,
+// évitant toute double comptabilisation.
+// ==========================================================================
+function echapperCsv(valeur) {
+  const s = String(valeur ?? '');
+  if (s.includes(';') || s.includes('"') || s.includes('\n')) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
+function genererLignesCsvOdoo(documents, typeMouvement) {
+  const entetes = ['id', 'move_type', 'partner_id/name', 'partner_id/street', 'partner_id/email', 'partner_id/phone',
+    'invoice_date', 'invoice_date_due', 'ref', 'invoice_line_ids/name', 'invoice_line_ids/quantity',
+    'invoice_line_ids/price_unit', 'invoice_line_ids/tax_ids',
+    'Prix HTVA (référence)', 'TVA 21% (référence)', 'Contrôle HTVA+TVA=TTC'];
+
+  const lignesCsv = [entetes.join(';')];
+
+  documents.forEach(docu => {
+    const membre = currentMembres.find(m => m.id === docu.membreId) || currentMembresArchives.find(m => m.id === docu.membreId);
+    const idExterne = 'CABOTS_' + docu.numero.replace(/[^a-zA-Z0-9]/g, '_');
+
+    (docu.lignes || []).forEach((ligne, i) => {
+      const prixTTC = ligne.prixUnitaireTTC;
+      // HTVA = TTC / 1.21, arrondi à 2 décimales.
+      const prixUnitaireHT = Math.round((prixTTC / 1.21) * 100) / 100;
+      // TVA dérivée par soustraction (jamais recalculée indépendamment) :
+      // garantit HTVA + TVA = TTC à l'euro-cent près, sans écart d'arrondi.
+      const tva = Math.round((prixTTC - prixUnitaireHT) * 100) / 100;
+      const controle = Math.round((prixUnitaireHT + tva) * 100) / 100 === Math.round(prixTTC * 100) / 100 ? 'OK' : '⚠️ ÉCART';
+
+      const premiereLigne = i === 0;
+      lignesCsv.push([
+        idExterne,
+        typeMouvement,
+        premiereLigne ? echapperCsv(membre?.nomMaitre || 'Client inconnu') : '',
+        premiereLigne ? echapperCsv(membre?.adressePostale || '') : '',
+        premiereLigne ? echapperCsv(membre?.email || '') : '',
+        premiereLigne ? echapperCsv(membre?.gsm || '') : '',
+        premiereLigne ? docu.dateEmission : '',
+        premiereLigne ? docu.dateEmission : '',
+        premiereLigne ? echapperCsv(docu.numero + (docu.factureOrigineNumero ? ' (annule ' + docu.factureOrigineNumero + ')' : '')) : '',
+        echapperCsv(ligne.description),
+        ligne.quantite,
+        prixUnitaireHT.toFixed(2),
+        'TVA 21%',
+        prixUnitaireHT.toFixed(2),
+        tva.toFixed(2),
+        controle
+      ].join(';'));
+    });
+  });
+
+  return lignesCsv.join('\n');
+}
+
+function telechargerCsv(contenu, nomFichier) {
+  const blob = new Blob(['\uFEFF' + contenu], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = nomFichier;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+document.getElementById('btnExporterOdoo').addEventListener('click', async () => {
+  const statutEl = document.getElementById('odoo-statut');
+  const dateDebut = document.getElementById('odoo-dateDebut').value;
+  const dateFin = document.getElementById('odoo-dateFin').value;
+
+  statutEl.textContent = 'Préparation de l\'export...';
+  const snap = await getDocs(collection(db, 'factures'));
+  let factures = [];
+  snap.forEach(d => factures.push({ id: d.id, ...d.data() }));
+  if (dateDebut) factures = factures.filter(f => f.dateEmission >= dateDebut);
+  if (dateFin) factures = factures.filter(f => f.dateEmission <= dateFin);
+  factures.sort((a, b) => (a.dateEmission || '').localeCompare(b.dateEmission || ''));
+
+  if (factures.length === 0) {
+    statutEl.textContent = 'Aucune facture trouvée sur cette période.';
+    return;
+  }
+
+  const csv = genererLignesCsvOdoo(factures, 'out_invoice');
+  telechargerCsv(csv, `Export_Odoo_Factures_${dateDebut || 'debut'}_${dateFin || 'fin'}.csv`);
+  statutEl.textContent = `${factures.length} facture(s) exportée(s) ✓ — teste d'abord l'import avec 1 ou 2 factures avant de tout importer d'un coup.`;
+});
+
+document.getElementById('btnExporterOdooNC').addEventListener('click', async () => {
+  const statutEl = document.getElementById('odoo-statut');
+  const dateDebut = document.getElementById('odoo-dateDebut').value;
+  const dateFin = document.getElementById('odoo-dateFin').value;
+
+  statutEl.textContent = 'Préparation de l\'export...';
+  const snap = await getDocs(collection(db, 'notes_credit'));
+  let nc = [];
+  snap.forEach(d => nc.push({ id: d.id, ...d.data() }));
+  if (dateDebut) nc = nc.filter(n => n.dateEmission >= dateDebut);
+  if (dateFin) nc = nc.filter(n => n.dateEmission <= dateFin);
+  nc.sort((a, b) => (a.dateEmission || '').localeCompare(b.dateEmission || ''));
+
+  if (nc.length === 0) {
+    statutEl.textContent = 'Aucune note de crédit trouvée sur cette période.';
+    return;
+  }
+
+  const csv = genererLignesCsvOdoo(nc, 'out_refund');
+  telechargerCsv(csv, `Export_Odoo_NotesCredit_${dateDebut || 'debut'}_${dateFin || 'fin'}.csv`);
+  statutEl.textContent = `${nc.length} note(s) de crédit exportée(s) ✓`;
+});
+
+// ==========================================================================
+// DEMANDES D'ANNULATION TARDIVE — un membre a déjà validé sa présence mais
+// demande à annuler avec justificatif. Si l'admin valide, le cours est
+// remboursé (s'il avait déjà été décompté) et ne compte plus. Si refusée,
+// le cours reste décompté normalement, comme si la demande n'avait jamais
+// été faite.
+// ==========================================================================
+let currentDemandesInfo = [];
+
+// Point rouge sur l'onglet "Membres" : combine plusieurs sources
+// indépendantes (demandes d'info + livre d'or) sans que l'une n'efface
+// le signal de l'autre, même si leurs chargements se terminent dans un
+// ordre imprévisible.
+let etatsPointRougeMembres = { demandesInfo: false, livreOr: false, suppression: false };
+function majPointRougeMembres() {
+  const actif = etatsPointRougeMembres.demandesInfo || etatsPointRougeMembres.livreOr || etatsPointRougeMembres.suppression;
+  document.getElementById('tabMembresBtn')?.classList.toggle('has-unread', actif);
+}
+
+async function chargerDemandesInfo() {
+  const wrap = document.getElementById('listeDemandesInfo');
+  if (!wrap) return;
+  const snap = await getDocs(collection(db, 'demandes_info'));
+  const demandes = [];
+  snap.forEach(d => demandes.push({ id: d.id, ...d.data() }));
+  currentDemandesInfo = demandes;
+  demandes.sort((a, b) => (b.dateEnvoi?.seconds || 0) - (a.dateEnvoi?.seconds || 0));
+
+  const nbNonLues = demandes.filter(d => !d.lu).length;
+  etatsPointRougeMembres.demandesInfo = nbNonLues > 0;
+  majPointRougeMembres();
+  document.getElementById('titreDemandesInfo')?.classList.toggle('has-unread', nbNonLues > 0);
+
+  if (demandes.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucune demande reçue pour l\'instant.</div>';
+    return;
+  }
+
+  wrap.innerHTML = demandes.map(d => {
+    const dateLabel = d.dateEnvoi?.seconds
+      ? new Date(d.dateEnvoi.seconds * 1000).toLocaleString('fr-BE', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : '';
+    return `
+    <div class="data-row" style="${!d.lu ? 'background:#FBEFDA;' : ''}">
+      <div class="data-main">
+        <div class="data-title">${!d.lu ? '<span class="badge badge-danger">Nouveau</span> ' : ''}${escapeHtml(d.prenom || '')} ${escapeHtml(d.nom || '')}</div>
+        <div class="data-sub">${d.gsm ? `<a href="tel:${escapeAttr(d.gsm)}">${escapeHtml(d.gsm)}</a>` : ''}${d.email ? ` · <a href="mailto:${escapeAttr(d.email)}">${escapeHtml(d.email)}</a>` : ''}</div>
+        <div class="data-sub">${escapeHtml(d.ville || '')}${d.raceChien ? ' · ' + escapeHtml(d.raceChien) : ''}${d.ageChien ? ' · ' + escapeHtml(d.ageChien) : ''}${d.sterilise ? ' · Stérilisé/castré : ' + (d.sterilise === 'oui' ? 'Oui' : 'Non') : ''}</div>
+        <div class="data-sub" style="white-space:pre-wrap;">${escapeHtml(d.demande || '')}</div>
+        <div class="data-sub" style="font-style:italic;">${dateLabel}</div>
+      </div>
+      <div class="data-actions">
+        ${!d.lu ? `<button class="btn-sm" onclick="window.marquerDemandeInfoLue('${d.id}')">Marquer comme lue</button>` : ''}
+        <button class="btn-sm primary" onclick="window.convertirDemandeEnMembre('${d.id}')">Convertir en fiche membre</button>
+        <button class="btn-sm danger" onclick="window.supprimerDemandeInfo('${d.id}')">Supprimer</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+window.marquerDemandeInfoLue = async (id) => {
+  await updateDoc(doc(db, 'demandes_info', id), { lu: true });
+  chargerDemandesInfo();
+};
+
+window.supprimerDemandeInfo = async (id) => {
+  if (!confirm('Supprimer cette demande ?')) return;
+  await deleteDoc(doc(db, 'demandes_info', id));
+  chargerDemandesInfo();
+};
+
+window.convertirDemandeEnMembre = (id) => {
+  const demande = currentDemandesInfo.find(d => d.id === id);
+  if (!demande) return;
+  ouvrirModalMembre(null, demande);
+};
+
+async function chargerLivreOrAdmin() {
+  const wrap = document.getElementById('listeLivreOr');
+  if (!wrap) return;
+  const snap = await getDocs(collection(db, 'livre_or'));
+  const messages = [];
+  snap.forEach(d => messages.push({ id: d.id, ...d.data() }));
+  messages.sort((a, b) => (b.dateEnvoi?.seconds || 0) - (a.dateEnvoi?.seconds || 0));
+
+  const nbEnAttente = messages.filter(m => !m.approuve).length;
+  etatsPointRougeMembres.livreOr = nbEnAttente > 0;
+  majPointRougeMembres();
+  document.getElementById('titreLivreOr')?.classList.toggle('has-unread', nbEnAttente > 0);
+
+  if (messages.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucun message pour l\'instant.</div>';
+    return;
+  }
+
+  wrap.innerHTML = messages.map(m => {
+    const dateLabel = m.dateEnvoi?.seconds
+      ? new Date(m.dateEnvoi.seconds * 1000).toLocaleString('fr-BE', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+      : '';
+    return `
+    <div class="data-row" style="${!m.approuve ? 'background:#FBEFDA;' : ''}">
+      <div class="data-main">
+        <div class="data-title">${!m.approuve ? '<span class="badge badge-danger">En attente</span> ' : '<span class="badge badge-ok">Publié</span> '}${escapeHtml(m.prenom || '')} ${escapeHtml(m.nom || '')}</div>
+        ${m.message ? `<div class="data-sub" style="white-space:pre-wrap;">${escapeHtml(m.message)}</div>` : ''}
+        <div class="data-sub" style="font-style:italic;">${dateLabel}</div>
+      </div>
+      <div class="data-actions">
+        ${!m.approuve ? `<button class="btn-sm primary" onclick="window.approuverMessageLivreOr('${m.id}')">Publier</button>` : `<button class="btn-sm" onclick="window.retirerMessageLivreOr('${m.id}')">Retirer</button>`}
+        <button class="btn-sm danger" onclick="window.supprimerMessageLivreOr('${m.id}')">Supprimer</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderDemandesSuppressionAdmin() {
+  const wrap = document.getElementById('listeDemandesSuppression');
+  if (!wrap) return;
+  const demandes = currentMembres.filter(m => m.demandeSuppression);
+
+  etatsPointRougeMembres.suppression = demandes.length > 0;
+  majPointRougeMembres();
+  document.getElementById('titreDemandesSuppression')?.classList.toggle('has-unread', demandes.length > 0);
+
+  if (demandes.length === 0) {
+    wrap.innerHTML = '<div class="empty-state">Aucune demande de suppression en cours.</div>';
+    return;
+  }
+  wrap.innerHTML = demandes.map(m => {
+    const dateLabel = m.dateDemandeSuppression ? new Date(m.dateDemandeSuppression).toLocaleDateString('fr-BE') : '';
+    return `
+    <div class="data-row" style="background:#FBEFDA;">
+      <div class="data-main">
+        <div class="data-title">${escapeHtml(m.nomMaitre)}</div>
+        <div class="data-sub">Demandé le ${dateLabel}</div>
+        <div class="data-sub" style="white-space:pre-wrap;">Motif : ${escapeHtml(m.motifSuppression || '')}</div>
+      </div>
+      <div class="data-actions">
+        <button class="btn-sm danger" onclick="window.validerSuppressionCompte('${m.id}')">Valider (archiver le compte)</button>
+        <button class="btn-sm" onclick="window.refuserSuppressionCompte('${m.id}')">Refuser</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+window.validerSuppressionCompte = async (id) => {
+  if (!confirm("Archiver ce compte suite à sa demande de suppression ? Il ne pourra plus se connecter, mais ses données (historique, paiements...) restent conservées.")) return;
+  await updateDoc(doc(db, 'membres', id), {
+    archive: true, demandeSuppression: false
+  });
+  chargerMembres().then(() => {
+    renderDemandesSuppressionAdmin();
+    chargerConversations(); chargerAnniversaires(); chargerCotisationsARenouveler(); chargerAbonnementsARenouveler(); chargerVaccinsARappeler();
+  });
+};
+
+window.refuserSuppressionCompte = async (id) => {
+  if (!confirm('Refuser cette demande de suppression ? Le membre garde son compte actif.')) return;
+  await updateDoc(doc(db, 'membres', id), { demandeSuppression: false });
+  chargerMembres().then(() => renderDemandesSuppressionAdmin());
+};
+
+window.approuverMessageLivreOr = async (id) => {
+  await updateDoc(doc(db, 'livre_or', id), { approuve: true });
+  chargerLivreOrAdmin();
+};
+
+window.retirerMessageLivreOr = async (id) => {
+  await updateDoc(doc(db, 'livre_or', id), { approuve: false });
+  chargerLivreOrAdmin();
+};
+
+window.supprimerMessageLivreOr = async (id) => {
+  if (!confirm('Supprimer ce message définitivement ?')) return;
+  await deleteDoc(doc(db, 'livre_or', id));
+  chargerLivreOrAdmin();
+};
+
+async function chargerDemandesAnnulation(forcer = false) {
+  const bloc = document.getElementById('blocDemandesAnnulation');
+  const wrap = document.getElementById('listeDemandesAnnulation');
+  if (!wrap) return;
+
+  const toutes = await chargerPresencesCache(forcer);
+  const demandes = toutes.filter(p => p.demandeAnnulationStatut === 'attente');
+
+  if (demandes.length === 0) {
+    bloc.style.display = 'none';
+    return;
+  }
+  bloc.style.display = '';
+
+  demandes.sort((a, b) => (a.dateISO || '').localeCompare(b.dateISO || ''));
+
+  wrap.innerHTML = demandes.map(d => {
+    const m = currentMembres.find(mm => mm.id === d.uid);
+    const groupe = currentGroupes.find(g => g.id === d.groupeId);
+    const dateLabel = new Date(d.dateISO + 'T00:00:00').toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' });
+    return `
+    <div class="data-row">
+      <div class="data-main">
+        <div class="data-title">${escapeHtml(m?.nomMaitre || '?')} — ${escapeHtml(groupe?.nom || '')}</div>
+        <div class="data-sub">${capitalize(dateLabel)}</div>
+        <div class="data-sub">Motif : <em>${escapeHtml(d.demandeAnnulationMotif || '')}</em></div>
+      </div>
+      <div class="data-actions">
+        <button class="btn-sm primary" onclick="window.validerAnnulationTardive('${d.id}')">Valider (ne compte pas)</button>
+        <button class="btn-sm danger" onclick="window.refuserAnnulationTardive('${d.id}')">Refuser (reste décompté)</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+window.validerAnnulationTardive = async (presenceId) => {
+  const presDoc = await getDoc(doc(db, 'presences', presenceId));
+  const p = presDoc.data();
+
+  // Si le cours avait déjà été décompté de l'abonnement, on rembourse
+  // (incrément atomique Firestore, jamais de valeur périmée).
+  if (p.compteAbonnement) {
+    await updateDoc(doc(db, 'membres', p.uid), { coursRestants: increment(1) });
+    await desassocierPresenceAbonnement(p.uid, presenceId);
+  }
+
+  await updateDoc(doc(db, 'presences', presenceId), {
+    statut: 'absent',
+    compteAbonnement: false,
+    demandeAnnulationStatut: 'validee'
+  });
+  invaliderCachePresences();
+
+  chargerMembres();
+  chargerDemandesAnnulation();
+};
+
+window.refuserAnnulationTardive = async (presenceId) => {
+  await updateDoc(doc(db, 'presences', presenceId), { demandeAnnulationStatut: 'refusee' });
+  invaliderCachePresences();
+  chargerDemandesAnnulation();
+};

@@ -1,0 +1,902 @@
+/* Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V04-001 */
+/* © 2026 Hélène Laruelle. Tous droits réservés. Voir LICENSE.txt. */
+
+/* ==========================================================================
+   Les Cabots de Fernelmont — Charte graphique
+   Classique & professionnelle : bleu nuit + gris ardoise + touche laiton
+   ========================================================================== */
+
+:root {
+  --navy: #1B3A5C;
+  --navy-dark: #12283F;
+  --slate: #5B6B79;
+  --slate-light: #8B99A5;
+  --paper: #F5F6F8;
+  --paper-warm: #EFEDE7;
+  --white: #FFFFFF;
+  --brass: #A8813C;
+  --brass-light: #C9A46B;
+  --ink: #1E2530;
+
+  --font-display: "Fraunces", Georgia, "Times New Roman", serif;
+  --font-body: "Source Sans 3", "Segoe UI", Arial, sans-serif;
+
+  --radius: 6px;
+  --shadow-card: 0 12px 30px -14px rgba(18, 40, 63, 0.35);
+  --shadow-soft: 0 2px 10px rgba(18, 40, 63, 0.08);
+  --max-width: 1120px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  font-family: var(--font-body);
+  color: var(--ink);
+  background: var(--paper);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+img { max-width: 100%; display: block; }
+
+a { color: inherit; }
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  color: var(--navy-dark);
+  margin: 0 0 0.5em 0;
+  line-height: 1.15;
+  font-weight: 600;
+}
+
+p { margin: 0 0 1em 0; }
+
+.container {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+a:focus-visible,
+button:focus-visible {
+  outline: 3px solid var(--brass);
+  outline-offset: 2px;
+}
+
+/* ---------- Header / Navigation ---------- */
+
+.site-header {
+  background: var(--navy);
+  color: var(--white);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  box-shadow: var(--shadow-soft);
+}
+
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px;
+  max-width: var(--max-width);
+  margin: 0 auto;
+  gap: 20px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-decoration: none;
+  color: var(--white);
+}
+
+.brand-logo {
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  background: var(--white);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  overflow: hidden;
+  border: 2px solid var(--brass-light);
+  padding: 4px;
+}
+
+.brand-logo img { width: 100%; height: 100%; object-fit: contain; }
+
+.brand-logo .placeholder-mark {
+  font-family: var(--font-display);
+  font-weight: 700;
+  color: var(--navy);
+  font-size: 1.3rem;
+}
+
+.brand-text .brand-name {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  display: block;
+}
+
+.brand-text .brand-tagline {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--brass-light);
+  display: block;
+  margin-top: 2px;
+}
+
+nav.main-nav ul {
+  list-style: none;
+  display: flex;
+  justify-content: center;
+  gap: 4px 6px;
+  margin: 0;
+  padding: 0;
+  flex-wrap: wrap;
+}
+
+/* Élément invisible pleine largeur qui force le retour à la ligne après le
+   5e lien — 2 lignes fixes de 5 puis 4, centrées, plutôt qu'un retour à la
+   ligne imprévisible qui dépend de la largeur disponible. */
+nav.main-nav .nav-break {
+  flex-basis: 100%;
+  width: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+}
+
+nav.main-nav a {
+  text-decoration: none;
+  color: var(--white);
+  font-size: 0.94rem;
+  padding: 8px 14px;
+  border-radius: 999px;
+  transition: background 0.2s ease, color 0.2s ease;
+  display: inline-block;
+}
+
+nav.main-nav a:hover { background: rgba(255,255,255,0.12); }
+
+nav.main-nav a.active {
+  background: var(--brass);
+  color: var(--navy-dark);
+  font-weight: 600;
+}
+
+.nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: none;
+  border: 1px solid rgba(255,255,255,0.4);
+  color: var(--white);
+  border-radius: var(--radius);
+  padding: 0;
+  flex: none;
+  cursor: pointer;
+}
+
+.nav-toggle .bars {
+  position: relative;
+  width: 18px;
+  height: 2px;
+  background: var(--white);
+}
+.nav-toggle .bars::before,
+.nav-toggle .bars::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  width: 18px;
+  height: 2px;
+  background: var(--white);
+}
+.nav-toggle .bars::before { top: -6px; }
+.nav-toggle .bars::after { top: 6px; }
+
+nav.main-nav {
+  margin-left: auto;
+}
+
+/* En dessous de 700px (vrai mobile), le menu 2 lignes ne tient plus
+   confortablement : bascule en hamburger classique. Au-dessus, 2 lignes
+   fixes de 5 puis 4 liens, centrées (voir .nav-break dans le HTML). */
+@media (max-width: 700px) {
+  .header-inner { flex-wrap: wrap; }
+  nav.main-nav { margin-left: 0; }
+  .nav-toggle { display: flex; }
+  nav.main-nav {
+    width: 100%;
+    display: none;
+    background: var(--navy-dark);
+    border-radius: var(--radius);
+    margin-top: 12px;
+    padding: 8px;
+  }
+  nav.main-nav.open { display: block; }
+  nav.main-nav ul { flex-direction: column; gap: 2px; }
+  nav.main-nav a { display: block; }
+}
+
+/* ---------- Hero ---------- */
+
+.hero {
+  background: linear-gradient(160deg, var(--navy) 0%, var(--navy-dark) 100%);
+  color: var(--white);
+  padding: 72px 0 88px;
+  position: relative;
+  overflow: hidden;
+}
+
+.hero::after {
+  content: "";
+  position: absolute;
+  right: -80px;
+  bottom: -120px;
+  width: 360px;
+  height: 360px;
+  border: 1px solid rgba(201, 164, 107, 0.25);
+  border-radius: 50%;
+}
+
+.hero-inner {
+  max-width: var(--max-width);
+  margin: 0 auto;
+  padding: 0 24px;
+  position: relative;
+  z-index: 1;
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.78rem;
+  color: var(--brass-light);
+  font-weight: 600;
+  margin-bottom: 14px;
+  display: block;
+}
+
+.hero h1 {
+  color: var(--white);
+  font-size: clamp(2.1rem, 4.2vw, 3.2rem);
+  max-width: 18ch;
+}
+
+.hero .lead {
+  color: #D9E1E8;
+  font-size: 1.15rem;
+  max-width: 52ch;
+  margin-bottom: 28px;
+}
+
+.page-hero {
+  background: linear-gradient(160deg, var(--navy) 0%, var(--navy-dark) 100%);
+  color: var(--white);
+  padding: 52px 0 64px;
+}
+
+.page-hero h1 { color: var(--white); font-size: clamp(1.9rem, 3.6vw, 2.6rem); }
+.page-hero .lead { color: #D9E1E8; max-width: 60ch; margin-bottom: 0; }
+
+/* ---------- Buttons ---------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 22px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.98rem;
+  border: 1px solid transparent;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.btn:hover { transform: translateY(-1px); }
+
+.btn-primary {
+  background: var(--brass);
+  color: var(--navy-dark);
+}
+.btn-primary:hover { box-shadow: 0 8px 18px -6px rgba(168,129,60,0.55); }
+
+.btn-outline {
+  background: transparent;
+  color: var(--white);
+  border-color: rgba(255,255,255,0.55);
+}
+.btn-outline:hover { background: rgba(255,255,255,0.1); }
+
+.btn-row { display: flex; gap: 14px; flex-wrap: wrap; }
+
+/* ---------- Sections ---------- */
+
+section { padding: 64px 0; }
+
+.section-alt { background: var(--white); }
+
+.section-title-row { max-width: 62ch; margin-bottom: 40px; }
+
+.section-title-row .eyebrow { color: var(--brass); }
+.section-title-row h2 { color: var(--navy-dark); font-size: clamp(1.6rem, 3vw, 2.1rem); }
+
+/* Quick-link cards on homepage */
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 22px;
+}
+
+.link-card {
+  background: var(--white);
+  border: 1px solid #E3E7EB;
+  border-top: 3px solid var(--brass);
+  border-radius: var(--radius);
+  padding: 26px 24px;
+  text-decoration: none;
+  color: var(--ink);
+  box-shadow: var(--shadow-soft);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  display: block;
+}
+
+.link-card:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-card);
+}
+
+.link-card h3 { font-size: 1.15rem; margin-bottom: 8px; color: var(--navy); }
+.link-card p { margin: 0; color: var(--slate); font-size: 0.95rem; }
+.link-card .card-arrow { color: var(--brass); font-weight: 700; margin-top: 12px; display: inline-block; }
+
+/* Activity list */
+
+.activity-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 24px;
+}
+
+.activity-card {
+  background: var(--white);
+  border-radius: var(--radius);
+  padding: 28px 24px;
+  box-shadow: var(--shadow-soft);
+  border: 1px solid #E3E7EB;
+}
+
+.activity-card .num {
+  font-family: var(--font-display);
+  color: var(--brass-light);
+  font-size: 0.85rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 10px;
+  display: block;
+}
+
+.activity-card h3 { color: var(--navy); font-size: 1.2rem; }
+.activity-card p { color: var(--slate); font-size: 0.96rem; margin: 0; }
+
+/* ---------- Business-card contact block (élément signature) ---------- */
+
+.contact-card {
+  background: var(--white);
+  border-radius: 10px;
+  box-shadow: var(--shadow-card);
+  padding: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  max-width: 640px;
+}
+
+.contact-card .cc-side {
+  background: var(--navy);
+  padding: 30px 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.contact-card .cc-side .placeholder-mark {
+  font-family: var(--font-display);
+  color: var(--brass-light);
+  font-size: 2rem;
+  border: 2px solid var(--brass-light);
+  border-radius: 50%;
+  width: 72px;
+  height: 72px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.contact-card .cc-side img {
+  width: 72px;
+  height: 72px;
+  object-fit: contain;
+  border-radius: 50%;
+  background: var(--white);
+  padding: 6px;
+  border: 2px solid var(--brass-light);
+}
+
+.contact-card .cc-body { padding: 26px 28px; }
+
+.contact-card h3 {
+  font-size: 1.05rem;
+  color: var(--navy-dark);
+  margin-bottom: 4px;
+}
+
+.contact-card .cc-role {
+  color: var(--brass);
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 700;
+  margin-bottom: 16px;
+}
+
+.contact-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.contact-list li { display: flex; align-items: baseline; gap: 8px; font-size: 0.95rem; }
+
+.contact-list .label {
+  color: var(--slate-light);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  width: 60px;
+  flex: none;
+}
+
+.contact-list a {
+  color: var(--navy);
+  text-decoration: none;
+  font-weight: 600;
+  border-bottom: 1px solid transparent;
+}
+.contact-list a:hover { border-bottom-color: var(--brass); }
+
+@media (max-width: 520px) {
+  .contact-card { grid-template-columns: 1fr; }
+  .contact-card .cc-side { padding: 22px; }
+}
+
+/* ---------- Info blocks ---------- */
+
+.info-block { margin-bottom: 40px; }
+.info-block:last-child { margin-bottom: 0; }
+.info-block h2 { font-size: 1.5rem; color: var(--navy-dark); }
+.info-block p { color: var(--ink); max-width: 68ch; }
+
+.two-col {
+  display: grid;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: 44px;
+  align-items: start;
+}
+
+@media (max-width: 780px) {
+  .two-col { grid-template-columns: 1fr; }
+}
+
+.portrait-frame {
+  background: var(--white);
+  border-radius: var(--radius);
+  padding: 10px;
+  box-shadow: var(--shadow-soft);
+  border: 1px solid #E3E7EB;
+}
+
+.portrait-frame img { border-radius: 4px; }
+
+.portrait-placeholder {
+  aspect-ratio: 4/5;
+  background: var(--paper-warm);
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--slate-light);
+  font-family: var(--font-display);
+  font-size: 1rem;
+  text-align: center;
+  padding: 20px;
+}
+
+.portrait-frame img.portrait-photo {
+  width: 100%;
+  aspect-ratio: 4/5;
+  object-fit: cover;
+  object-position: top center;
+  border-radius: 4px;
+}
+
+.tag-list {
+  list-style: none;
+  padding: 0;
+  margin: 18px 0 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.tag-list li {
+  background: var(--paper-warm);
+  color: var(--navy-dark);
+  font-size: 0.85rem;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid #E3DFD3;
+}
+
+/* Élément invisible pleine largeur qui force un retour à la ligne dans une
+   liste flex (ex: 3 bulles puis 2, plutôt qu'un retour à la ligne qui
+   dépend de la largeur disponible). */
+.tag-list .tag-break {
+  flex-basis: 100%;
+  width: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+blockquote.pull-quote {
+  border-left: 3px solid var(--brass);
+  margin: 28px 0;
+  padding: 4px 0 4px 22px;
+  font-family: var(--font-display);
+  font-size: 1.2rem;
+  color: var(--navy-dark);
+  font-style: italic;
+}
+
+/* ---------- Footer ---------- */
+
+.site-footer {
+  background: var(--navy-dark);
+  color: #C4CDD5;
+  padding: 44px 0 26px;
+  font-size: 0.9rem;
+}
+
+.footer-grid {
+  display: grid;
+  grid-template-columns: 1.3fr 1fr 1fr;
+  gap: 32px;
+  margin-bottom: 28px;
+}
+
+@media (max-width: 700px) {
+  .footer-grid { grid-template-columns: 1fr; }
+}
+
+.site-footer h4 {
+  color: var(--white);
+  font-size: 0.95rem;
+  margin-bottom: 14px;
+}
+
+.site-footer a {
+  color: #C4CDD5;
+  text-decoration: none;
+}
+.site-footer a:hover { color: var(--brass-light); }
+
+.site-footer ul { list-style: none; margin: 0; padding: 0; }
+.site-footer li { margin-bottom: 8px; }
+
+.footer-bottom {
+  border-top: 1px solid rgba(255,255,255,0.12);
+  padding-top: 18px;
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 0.82rem;
+  color: #8A97A2;
+}
+.footer-bottom a { color: #8A97A2; text-decoration: underline; }
+.footer-bottom a:hover { color: #FFFFFF; }
+
+/* ---------- Utility ---------- */
+
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+}
+
+.cta-band {
+  background: var(--paper-warm);
+  border-top: 1px solid #E3DFD3;
+  border-bottom: 1px solid #E3DFD3;
+  text-align: center;
+}
+.cta-band h2 { margin-bottom: 10px; }
+.cta-band p { max-width: 56ch; margin: 0 auto 26px; color: var(--slate); }
+
+/* Logo personnel discret mais visible, bas droite, sur toutes les pages
+   publiques — pas de nom ni d'infobulle au survol, juste le visuel. */
+.badge-hl-link {
+  position: fixed;
+  bottom: 16px;
+  right: 16px;
+  z-index: 40;
+  display: block;
+}
+.badge-hl {
+  width: 64px;
+  height: auto;
+  opacity: 0.9;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+  filter: drop-shadow(0 2px 6px rgba(0,0,0,0.2));
+  display: block;
+}
+.badge-hl-link:hover .badge-hl { opacity: 1; transform: scale(1.06); }
+@media (max-width: 600px) {
+  .badge-hl { width: 48px; }
+}
+
+/* Formulaire public "Demande d'information" (page Nous contacter) */
+.contact-form-card {
+  background: var(--white);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  padding: 32px;
+  margin-top: 40px;
+}
+.contact-form-card h2 { font-size: 1.5rem; color: var(--navy-dark); margin-top: 0; }
+.contact-form-card #cfBody > p { color: var(--slate); margin-bottom: 24px; }
+
+.cf-toggle {
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  user-select: none;
+}
+.cf-toggle-arrow {
+  font-size: 0.7em;
+  color: var(--brass);
+  transition: transform 0.2s ease;
+  flex-shrink: 0;
+}
+.cf-toggle-arrow.cf-toggle-arrow-fermee { transform: rotate(-90deg); }
+.cf-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px 20px;
+}
+.cf-field { margin-bottom: 16px; }
+.cf-field.cf-full { grid-column: 1 / -1; }
+.cf-field label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.92rem;
+  color: var(--navy-dark);
+  margin-bottom: 6px;
+}
+.cf-field input,
+.cf-field select,
+.cf-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid #D4DAE0;
+  border-radius: 4px;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+  color: var(--ink);
+}
+.cf-field textarea { resize: vertical; min-height: 100px; }
+.cf-note {
+  font-size: 0.82rem;
+  color: var(--slate-light);
+  margin: 4px 0 18px;
+}
+.cf-statut {
+  font-size: 0.9rem;
+  margin-top: 12px;
+}
+.cf-statut.ok { color: #2F6B4F; }
+.cf-statut.err { color: #B3432B; }
+
+/* Bannière promo boutique (revendeur Arion / Trixie) — page de connexion
+   et pages publiques. */
+.boutique-promo {
+  max-width: 480px;
+  margin: 0 auto;
+  background: linear-gradient(135deg, var(--navy) 0%, var(--navy-dark) 100%);
+  color: var(--white);
+  border-radius: var(--radius);
+  padding: 22px 26px;
+  text-align: center;
+  box-shadow: var(--shadow-card);
+}
+.boutique-promo .bp-eyebrow {
+  font-family: var(--font-body);
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--brass-light);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.boutique-promo h3 {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  margin: 0 0 8px;
+  color: var(--white);
+}
+.boutique-promo p {
+  font-size: 0.9rem;
+  color: rgba(255,255,255,0.88);
+  margin: 0 0 14px;
+}
+.boutique-promo .bp-note {
+  font-size: 0.85rem;
+  font-style: italic;
+  color: var(--brass-light);
+  border-top: 1px solid rgba(255,255,255,0.18);
+  padding-top: 12px;
+  margin: -4px 0 16px;
+}
+.boutique-promo .btn {
+  background: var(--brass);
+  color: var(--white);
+  border: none;
+}
+.boutique-promo .btn:hover { background: var(--brass-light); }
+
+/* Version pleine largeur pour insertion entre sections de contenu public. */
+.boutique-promo.boutique-promo-large {
+  max-width: 100%;
+  margin: 0;
+}
+
+/* Section "Nos marques" (Arion / Trixie) — page d'accueil */
+.marques-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+  margin-top: 28px;
+}
+@media (max-width: 700px) {
+  .marques-grid { grid-template-columns: 1fr; }
+}
+.marque-card {
+  background: var(--white);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  padding: 26px;
+  text-align: center;
+}
+.marque-card .marque-logo {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+.marque-card .marque-logo img {
+  max-height: 100%;
+  max-width: 180px;
+  object-fit: contain;
+}
+.marque-card h3 { font-size: 1.1rem; margin-bottom: 8px; color: var(--navy-dark); }
+.marque-card p { font-size: 0.9rem; color: var(--slate); margin: 0; }
+
+/* Page publique "Partenaires de confiance" — liste de lignes horizontales,
+   empilées, avec détail dépliable au clic. */
+.partenaires-liste {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.partenaire-row {
+  background: var(--white);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  padding: 18px 20px;
+  display: flex;
+  align-items: flex-start;
+  gap: 18px;
+  cursor: pointer;
+  transition: box-shadow 0.2s ease;
+}
+.partenaire-row:hover { box-shadow: var(--shadow-card); }
+.partenaire-row-photo {
+  width: 84px;
+  height: 84px;
+  flex: none;
+  padding: 8px;
+  box-sizing: border-box;
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--paper-warm);
+}
+.partenaire-row-photo img { width: 100%; height: 100%; object-fit: contain; display: block; }
+.partenaire-row-body { flex: 1; min-width: 0; }
+.partenaire-row-body h3 { font-size: 1.05rem; color: var(--navy-dark); margin: 0 0 4px; }
+.partenaire-apercu { font-size: 0.92rem; color: var(--ink); margin: 0; }
+.partenaire-lien-plus {
+  display: inline-block;
+  font-size: 0.82rem;
+  color: var(--brass);
+  font-weight: 600;
+  margin-top: 6px;
+}
+.partenaire-row-detail {
+  display: none;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #E3E7EB;
+}
+.partenaire-row-detail.ouvert { display: block; }
+.partenaire-adresse { font-size: 0.85rem; color: var(--slate); margin: 0 0 8px; }
+.partenaire-desc { font-size: 0.9rem; color: var(--ink); margin: 0 0 10px; white-space: pre-wrap; }
+.partenaire-fleche {
+  flex: none;
+  color: var(--slate-light);
+  font-size: 0.8rem;
+  margin-top: 4px;
+  transition: transform 0.2s ease;
+}
+.partenaire-fleche.ouvert { transform: rotate(180deg); }
+@media (max-width: 560px) {
+  .partenaire-row-photo { width: 60px; height: 60px; }
+}
+
+/* Bouton "Click-to-WhatsApp" dans le bandeau du haut — ouvre directement
+   une conversation WhatsApp avec le vrai numéro de Katia. */
+.whatsapp-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #25D366;
+  flex: none;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+}
+.whatsapp-btn:hover { transform: scale(1.08); }
+.whatsapp-btn svg { width: 22px; height: 22px; fill: #fff; }
