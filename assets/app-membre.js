@@ -1,4 +1,4 @@
-// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V01-137
+// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V04-001
 // © 2026 Hélène Laruelle. Tous droits réservés.
 // Ce code ne peut être utilisé, copié ou modifié sans autorisation
 // écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt.
@@ -99,7 +99,15 @@ const TAUX_ACOMPTE_DOGSITTING_MEMBRE = 0.30;
 
 let membreData = null;
 let membreUid = null;
-let groupeData = null;
+let groupesData = [];
+
+// Un chien peut suivre plusieurs groupes (ex: 2 cours/semaine). Rétrocompatible
+// avec les fiches qui n'ont que l'ancien champ groupeId (membre créé avant
+// l'introduction du champ groupeIds).
+function groupeIdsDuMembre(m) {
+  if (Array.isArray(m?.groupeIds)) return m.groupeIds.filter(Boolean);
+  return m?.groupeId ? [m.groupeId] : [];
+}
 
 onAuthStateChanged(auth, async (user) => {
   if (!user) { window.location.href = 'connexion.html'; return; }
@@ -227,23 +235,24 @@ onAuthStateChanged(auth, async (user) => {
 
   afficherAccueil();
 
-  if (membreData.groupeId) {
-    const gDoc = await getDoc(doc(db, 'groupes', membreData.groupeId));
-    if (gDoc.exists()) {
-      groupeData = { id: gDoc.id, ...gDoc.data() };
-      afficherGroupe();
-      // Protégé par try/catch : cette fonction est l'init la plus "lourde"
-      // de la page (plusieurs lectures Firestore + écritures d'absences
-      // automatiques) — avant ce correctif, le moindre souci ici (réseau,
-      // permissions...) faisait planter cet appel `await` non protégé,
-      // ce qui interrompait TOUT le reste de l'initialisation de l'espace
-      // membre (onglets, abonnement, bannières, etc.), puisque rien
-      // n'englobe onAuthStateChanged dans un try/catch global.
-      try {
-        await afficherProchainsCours();
-      } catch (err) {
-        console.error('Erreur lors du chargement de "Mes prochains cours" :', err);
-      }
+  const idsGroupesMembre = groupeIdsDuMembre(membreData);
+  if (idsGroupesMembre.length > 0) {
+    const docsGroupes = await Promise.all(idsGroupesMembre.map(id => getDoc(doc(db, 'groupes', id))));
+    groupesData = docsGroupes.filter(d => d.exists()).map(d => ({ id: d.id, ...d.data() }));
+  }
+  if (groupesData.length > 0) {
+    afficherGroupe();
+    // Protégé par try/catch : cette fonction est l'init la plus "lourde"
+    // de la page (plusieurs lectures Firestore + écritures d'absences
+    // automatiques) — avant ce correctif, le moindre souci ici (réseau,
+    // permissions...) faisait planter cet appel `await` non protégé,
+    // ce qui interrompait TOUT le reste de l'initialisation de l'espace
+    // membre (onglets, abonnement, bannières, etc.), puisque rien
+    // n'englobe onAuthStateChanged dans un try/catch global.
+    try {
+      await afficherProchainsCours();
+    } catch (err) {
+      console.error('Erreur lors du chargement de "Mes prochains cours" :', err);
     }
   } else {
     // Pas (encore) de groupe hebdo précis assigné : les panneaux "Mon
@@ -526,13 +535,13 @@ window.repondreCotisation = async (reponse) => {
 };
 
 function afficherGroupe() {
-  document.getElementById('zoneGroupe').innerHTML = `
+  document.getElementById('zoneGroupe').innerHTML = groupesData.map(g => `
     <div class="data-row">
       <div class="data-main">
-        <div class="data-title">${escapeHtml(groupeData.nom)}</div>
-        <div class="data-sub">Jour et horaire : ${JOURS_MAJ[groupeData.jour]}, ${groupeData.heureDebut}–${groupeData.heureFin}</div>
+        <div class="data-title">${escapeHtml(g.nom)}</div>
+        <div class="data-sub">Jour et horaire : ${JOURS_MAJ[g.jour]}, ${g.heureDebut}–${g.heureFin}</div>
       </div>
-    </div>`;
+    </div>`).join('');
 }
 
 function prochainesOccurrences(jourGroupe, nombre) {
@@ -548,7 +557,6 @@ function prochainesOccurrences(jourGroupe, nombre) {
 }
 
 async function afficherProchainsCours() {
-  const dates = prochainesOccurrences(groupeData.jour, 2);
   const annulSnap = await getDocs(collection(db, 'annulations'));
   const annulations = {};
   annulSnap.forEach(d => { annulations[d.id] = d.data(); });
@@ -567,19 +575,27 @@ async function afficherProchainsCours() {
 
   const wrap = document.getElementById('zoneCours');
 
-  // Si un cours a été déplacé vers une autre date (pluie, chaleur...), on
-  // affiche directement la nouvelle date à la place de l'ancienne — la
-  // date d'origine est gardée juste pour l'indiquer au membre.
-  const occurrencesEffectives = dates.map(d => {
-    const dateISO = dateISOLocale(d);
-    const ex = exceptionsHoraire[`${groupeData.id}_${dateISO}`];
-    if (ex && ex.nouvelleDateISO && ex.nouvelleDateISO !== dateISO) {
-      return { date: new Date(ex.nouvelleDateISO + 'T00:00:00'), dateISOOriginal: dateISO };
-    }
-    return { date: d, dateISOOriginal: null };
-  });
+  // Un chien peut suivre plusieurs groupes : on calcule les prochaines
+  // occurrences de CHAQUE groupe, puis on fusionne et on trie par date
+  // avant l'affichage, pour obtenir une liste unique "Mes prochains cours"
+  // mélangeant tous les groupes du membre.
+  const lignesAvecDate = [];
+  for (const groupeData of groupesData) {
+    const dates = prochainesOccurrences(groupeData.jour, 2);
 
-  const lignes = await Promise.all(occurrencesEffectives.map(async ({ date: d, dateISOOriginal }) => {
+    // Si un cours a été déplacé vers une autre date (pluie, chaleur...), on
+    // affiche directement la nouvelle date à la place de l'ancienne — la
+    // date d'origine est gardée juste pour l'indiquer au membre.
+    const occurrencesEffectives = dates.map(d => {
+      const dateISO = dateISOLocale(d);
+      const ex = exceptionsHoraire[`${groupeData.id}_${dateISO}`];
+      if (ex && ex.nouvelleDateISO && ex.nouvelleDateISO !== dateISO) {
+        return { date: new Date(ex.nouvelleDateISO + 'T00:00:00'), dateISOOriginal: dateISO };
+      }
+      return { date: d, dateISOOriginal: null };
+    });
+
+    const lignesDuGroupe = await Promise.all(occurrencesEffectives.map(async ({ date: d, dateISOOriginal }) => {
     const dateISO = dateISOLocale(d);
     const dateLabel = d.toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' });
     const cleAnnul = `${groupeData.id}_${dateISO}`;
@@ -597,13 +613,13 @@ async function afficherProchainsCours() {
     const deplaceBadge = dateISOOriginal ? `<span class="badge badge-warn">🔀 Déplacé depuis le ${new Date(dateISOOriginal + 'T00:00:00').toLocaleDateString('fr-BE', { day: 'numeric', month: 'long' })}</span>` : '';
 
     if (annule) {
-      return `
+      return { date: d, html: `
       <div class="data-row">
         <div class="data-main">
-          <div class="data-title">${capitalize(dateLabel)} — ${heureDebutEffective}</div>
+          <div class="data-title">${capitalize(dateLabel)} — ${heureDebutEffective}${groupesData.length > 1 ? ` (${escapeHtml(groupeData.nom)})` : ''}</div>
           <div class="data-sub"><span class="badge badge-danger">Cours annulé — ${escapeHtml(annule.motif)}</span> ${meteoBadge}</div>
         </div>
-      </div>`;
+      </div>` };
     }
 
     let statutHtml;
@@ -619,7 +635,7 @@ async function afficherProchainsCours() {
           // Plus de 24h avant le cours : changement d'avis totalement libre,
           // sans justificatif ni validation admin.
           statutHtml = `<span class="badge badge-ok">Présence confirmée</span>
-            <button class="btn-sm" style="margin-top:6px; display:block;" onclick="window.repondrePresence('${dateISO}','absent')">Changer pour absent</button>
+            <button class="btn-sm" style="margin-top:6px; display:block;" onclick="window.repondrePresence('${dateISO}','absent','${groupeData.id}')">Changer pour absent</button>
             <p style="font-size:0.76rem; color:var(--slate-light); margin-top:4px;">Vous pouvez encore changer d'avis librement jusqu'à 24h avant le cours.</p>`;
         } else if (presence.demandeAnnulationStatut === 'attente') {
           statutHtml = `<span class="badge badge-warn">Présence confirmée</span><br>
@@ -629,7 +645,7 @@ async function afficherProchainsCours() {
             <span style="font-size:0.78rem; color:var(--slate); display:block; margin-top:4px;">Votre demande d'annulation a été refusée par Katia — ce cours compte dans votre abonnement.</span>`;
         } else if (encoreTemps) {
           statutHtml = `<span class="badge badge-ok">Présence confirmée</span>
-            <button class="btn-sm" style="margin-top:6px; display:block;" onclick="window.ouvrirDemandeAnnulation('${dateISO}')">Annuler ma présence (avec justificatif)</button>
+            <button class="btn-sm" style="margin-top:6px; display:block;" onclick="window.ouvrirDemandeAnnulation('${dateISO}','${groupeData.id}')">Annuler ma présence (avec justificatif)</button>
             <p style="font-size:0.76rem; color:var(--slate-light); margin-top:4px;">Possible jusqu'à 1h avant le cours. Katia doit valider pour que le cours ne compte pas dans votre abonnement.</p>`;
         } else {
           statutHtml = '<span class="badge badge-ok">Présence confirmée</span>';
@@ -640,7 +656,7 @@ async function afficherProchainsCours() {
         // Absence signalée volontairement, mais on est encore à plus de 24h
         // du cours : le membre peut librement revenir sur sa décision.
         statutHtml = `<span class="badge badge-neutral">Absence signalée</span>
-          <button class="btn-sm primary" style="margin-top:6px; display:block;" onclick="window.repondrePresence('${dateISO}','present')">Changer pour présent</button>
+          <button class="btn-sm primary" style="margin-top:6px; display:block;" onclick="window.repondrePresence('${dateISO}','present','${groupeData.id}')">Changer pour présent</button>
           <p style="font-size:0.76rem; color:var(--slate-light); margin-top:4px;">Vous pouvez encore changer d'avis librement jusqu'à 24h avant le cours.</p>`;
       } else {
         statutHtml = '<span class="badge badge-neutral">Absence signalée</span>';
@@ -672,23 +688,30 @@ async function afficherProchainsCours() {
     } else {
       statutHtml = `
         <div class="presence-btns">
-          <button class="btn-sm primary" onclick="window.repondrePresence('${dateISO}','present')">Je serai présent</button>
-          <button class="btn-sm" onclick="window.repondrePresence('${dateISO}','absent')">Je serai absent</button>
+          <button class="btn-sm primary" onclick="window.repondrePresence('${dateISO}','present','${groupeData.id}')">Je serai présent</button>
+          <button class="btn-sm" onclick="window.repondrePresence('${dateISO}','absent','${groupeData.id}')">Je serai absent</button>
         </div>
         <p style="font-size:0.76rem; color:var(--slate-light); margin-top:4px;">À confirmer au plus tard 24h avant le cours.</p>`;
     }
 
-    return `
+    return { date: d, html: `
     <div class="data-row">
       <div class="data-main">
-        <div class="data-title">${capitalize(dateLabel)} — ${heureDebutEffective}</div>
+        <div class="data-title">${capitalize(dateLabel)} — ${heureDebutEffective}${groupesData.length > 1 ? ` (${escapeHtml(groupeData.nom)})` : ''}</div>
         <div class="data-sub">${meteoBadge} ${confirmeBadge} ${deplaceBadge}${!deplaceBadge && exceptionH ? `<span class="badge badge-warn">⏰ Horaire exceptionnel (habituellement ${groupeData.heureDebut}–${groupeData.heureFin})</span>` : ''}</div>
         ${exceptionH ? `<p style="font-size:0.8rem; color:var(--slate); font-style:italic; margin-top:4px;">Motif : ${escapeHtml(exceptionH.motif)}</p>` : ''}
         ${alerte ? `<div class="banner-alert" style="margin-top:8px; padding:8px 12px;">⚠️ ${alerte.texte}, une annulation est possible.</div>` : ''}
         ${statutHtml}
       </div>
-    </div>`;
-  }));
+    </div>` };
+    }));
+
+    lignesAvecDate.push(...lignesDuGroupe);
+  }
+
+  const lignes = lignesAvecDate
+    .sort((a, b) => a.date.getTime() - b.date.getTime())
+    .map(l => l.html);
 
   // Cours exceptionnels dans un AUTRE groupe (ajoutés par Katia depuis
   // "Membres" d'un cours) : sans ça, le membre ne voyait ce changement que
@@ -696,8 +719,9 @@ async function afficherProchainsCours() {
   // cours à venir — on les affiche donc ici aussi, en plus des cours de son
   // groupe habituel.
   const aujourdhuiPourExceptions = dateISOLocale(new Date());
+  const idsGroupesHabituels = groupesData.map(g => g.id);
   const presencesExceptionnelles = Object.values(presences).filter(p =>
-    p.exceptionnel && p.groupeId !== groupeData.id && p.dateISO >= aujourdhuiPourExceptions
+    p.exceptionnel && !idsGroupesHabituels.includes(p.groupeId) && p.dateISO >= aujourdhuiPourExceptions
   );
   const lignesExceptionnelles = await Promise.all(presencesExceptionnelles.map(async (p) => {
     const gDoc = await getDoc(doc(db, 'groupes', p.groupeId));
@@ -731,12 +755,12 @@ async function afficherProchainsCours() {
   wrap.innerHTML = lignes.join('') + lignesExceptionnelles.join('');
 }
 
-window.repondrePresence = async (dateISO, statut) => {
+window.repondrePresence = async (dateISO, statut, groupeId) => {
   if (statut === 'present' && (membreData.coursRestants ?? 0) <= 0) {
     alert('Votre abonnement est épuisé. Contactez Katia pour le renouveler avant de vous inscrire à un cours.');
     return;
   }
-  const cle = `${groupeData.id}_${dateISO}_${membreUid}`;
+  const cle = `${groupeId}_${dateISO}_${membreUid}`;
   try {
     // merge:true (et non un setDoc classique qui réécrit tout le document) :
     // si ce cours a déjà été décompté entre-temps côté admin
@@ -746,7 +770,7 @@ window.repondrePresence = async (dateISO, statut) => {
     // l'écriture, laissant le changement d'avis du membre sans effet
     // visible. Avec merge:true, seuls les champs listés ici sont touchés.
     await setDoc(doc(db, 'presences', cle), {
-      groupeId: groupeData.id, uid: membreUid, dateISO, statut,
+      groupeId, uid: membreUid, dateISO, statut,
       repondu: new Date().toISOString()
     }, { merge: true });
   } catch (err) {
@@ -835,7 +859,7 @@ async function chargerServicesMembre() {
 // ==========================================================================
 async function estInviteAuRdv(rdv) {
   if (!rdv.destinataires || rdv.destinataires.type === 'tous') return { invite: true, dateAjout: null };
-  if (rdv.destinataires.type === 'groupe') return { invite: rdv.destinataires.groupeId === membreData.groupeId, dateAjout: null };
+  if (rdv.destinataires.type === 'groupe') return { invite: groupeIdsDuMembre(membreData).includes(rdv.destinataires.groupeId), dateAjout: null };
   if (rdv.destinataires.type === 'individuel') {
     // Vérifie SA PROPRE invitation via un marqueur dédié (rdv_cibles) —
     // jamais une liste partagée des autres membres invités.
@@ -2411,7 +2435,7 @@ function chargerEnqueteAnonyme() {
 // avant le cours, avec justificatif obligatoire. Katia doit valider pour
 // que le cours ne soit pas décompté de l'abonnement.
 // ==========================================================================
-window.ouvrirDemandeAnnulation = (dateISO) => {
+window.ouvrirDemandeAnnulation = (dateISO, groupeId) => {
   const html = `
     <div class="modal-overlay" id="modalOverlayAnnulPresence">
       <div class="modal-box">
@@ -2432,7 +2456,7 @@ window.ouvrirDemandeAnnulation = (dateISO) => {
     const motif = document.getElementById('annulpres-motif').value.trim();
     if (!motif) { statutEl.textContent = 'Merci d\'indiquer un motif.'; return; }
 
-    const clePres = `${groupeData.id}_${dateISO}_${membreUid}`;
+    const clePres = `${groupeId}_${dateISO}_${membreUid}`;
     try {
       await updateDoc(doc(db, 'presences', clePres), {
         demandeAnnulationMotif: motif,

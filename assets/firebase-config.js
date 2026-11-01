@@ -1,4 +1,4 @@
-// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V01-137
+// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V04-001
 // © 2026 Hélène Laruelle. Tous droits réservés.
 // Ce code ne peut être utilisé, copié ou modifié sans autorisation
 // écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt.
@@ -21,7 +21,7 @@ import {
   getFirestore,
   doc, getDoc, getDocFromServer, setDoc, updateDoc, deleteDoc, increment,
   collection, collectionGroup, addDoc, getDocs, query, where, orderBy,
-  serverTimestamp, onSnapshot
+  serverTimestamp, onSnapshot, runTransaction
 } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore.js";
 
 const firebaseConfig = {
@@ -42,7 +42,7 @@ export {
   updatePassword, reauthenticateWithCredential, EmailAuthProvider,
   doc, getDoc, getDocFromServer, setDoc, updateDoc, deleteDoc, increment,
   collection, collectionGroup, addDoc, getDocs, query, where, orderBy,
-  serverTimestamp, onSnapshot
+  serverTimestamp, onSnapshot, runTransaction
 };
 
 // Les identifiants membres/admin ne sont pas de vraies adresses e-mail.

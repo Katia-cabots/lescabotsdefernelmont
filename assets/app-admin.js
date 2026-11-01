@@ -1,4 +1,4 @@
-// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V01-137
+// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V04-001
 // © 2026 Hélène Laruelle. Tous droits réservés.
 // Ce code ne peut être utilisé, copié ou modifié sans autorisation
 // écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt.
@@ -8,7 +8,7 @@ import {
   auth, db, onAuthStateChanged, signOut,
   doc, getDoc, getDocAvecReessai, setDoc, updateDoc, deleteDoc, increment,
   collection, collectionGroup, addDoc, getDocs, query, where,
-  serverTimestamp, identifiantVersEmail
+  serverTimestamp, identifiantVersEmail, runTransaction
 } from "./firebase-config.js";
 import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
 import { VERSION_SITE } from "./version.js";
@@ -360,6 +360,15 @@ onAuthStateChanged(auth, async (user) => {
     if (mois === 3 && jour === 23) { // 3 = avril — Journée internationale du livre
       document.getElementById('banniere23AvrilLivreAdmin')?.classList.remove('hidden');
     }
+    if (mois === 10 && jour === 5) { // 10 = novembre — Fraise Love
+      document.getElementById('banniere5NovembreAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 6 && jour === 31) { // 6 = juillet — Wesh la flemme !
+      document.getElementById('banniere31JuilletAdmin')?.classList.remove('hidden');
+    }
+    if (mois === 2 && jour === 25) { // 2 = mars — Journée mondiale de la gaufre
+      document.getElementById('banniere25MarsGaufresAdmin')?.classList.remove('hidden');
+    }
     if (mois === 7 && jour === 1) { // 7 = août
       document.getElementById('banniere1AoutAdmin')?.classList.remove('hidden');
     }
@@ -482,6 +491,21 @@ onAuthStateChanged(auth, async (user) => {
     troisiemeLundiOctobre.setDate(troisiemeLundiOctobre.getDate() + 14);
     if (mois === troisiemeLundiOctobre.getMonth() && jour === troisiemeLundiOctobre.getDate()) {
       document.getElementById('banniere3eLundiOctobreAdmin')?.classList.remove('hidden');
+    }
+
+    if (mois === 2 && jour === 8) { // 2 = mars — Journée internationale des droits des femmes
+      document.getElementById('banniere8MarsAdmin')?.classList.remove('hidden');
+    }
+
+    // 2e dimanche du mois de février ("Mariage") — calculé chaque année :
+    // premier dimanche de février + 7 jours.
+    const premierFevrier = new Date(annee, 1, 1); // 1 = février (0-indexé)
+    const premierDimancheFevrier = new Date(premierFevrier);
+    premierDimancheFevrier.setDate(1 + ((7 - premierFevrier.getDay()) % 7));
+    const deuxiemeDimancheFevrier = new Date(premierDimancheFevrier);
+    deuxiemeDimancheFevrier.setDate(deuxiemeDimancheFevrier.getDate() + 7);
+    if (mois === deuxiemeDimancheFevrier.getMonth() && jour === deuxiemeDimancheFevrier.getDate()) {
+      document.getElementById('banniere2eDimancheFevrierAdmin')?.classList.remove('hidden');
     }
 
     // Bannière par défaut : si aucune bannière "date" ci-dessus ne s'est
@@ -617,7 +641,6 @@ async function chargerGroupes() {
   currentGroupes = [];
   snap.forEach(d => currentGroupes.push({ id: d.id, ...d.data() }));
   renderGroupes();
-  remplirSelectGroupes();
 }
 
 function renderGroupes() {
@@ -627,7 +650,7 @@ function renderGroupes() {
     return;
   }
   wrap.innerHTML = currentGroupes.map(g => {
-    const nbMembres = currentMembres.filter(m => m.groupeId === g.id).length;
+    const nbMembres = currentMembres.filter(m => groupesDuMembre(m).includes(g.id)).length;
     return `
     <div class="data-row">
       <div class="data-main">
@@ -642,7 +665,7 @@ function renderGroupes() {
     </div>`;
   }).join('');
 
-  const totalInscrits = currentGroupes.reduce((s, g) => s + currentMembres.filter(m => m.groupeId === g.id).length, 0);
+  const totalInscrits = currentGroupes.reduce((s, g) => s + currentMembres.filter(m => groupesDuMembre(m).includes(g.id)).length, 0);
   const totalPlaces = currentGroupes.reduce((s, g) => s + (g.participantsMax || 0), 0);
   const placesLibres = totalPlaces - totalInscrits;
   wrap.innerHTML += `
@@ -658,7 +681,7 @@ document.getElementById('btnAjouterGroupe').addEventListener('click', () => ouvr
 
 window.voirMembresGroupe = (groupeId) => {
   const groupe = currentGroupes.find(g => g.id === groupeId);
-  const membresDuGroupe = currentMembres.filter(m => m.groupeId === groupeId);
+  const membresDuGroupe = currentMembres.filter(m => groupesDuMembre(m).includes(groupeId));
 
   const html = `
     <div class="modal-overlay" id="modalOverlay">
@@ -806,12 +829,6 @@ function ouvrirModalGroupe(groupe) {
 
 window.fermerModal = () => { document.getElementById('modalZone').innerHTML = ''; };
 
-function remplirSelectGroupes() {
-  const sel = document.getElementById('mm-groupe');
-  if (!sel) return;
-  sel.innerHTML = '<option value="">— Aucun groupe par défaut —</option>' +
-    currentGroupes.map(g => `<option value="${g.id}">${escapeHtml(g.nom)} (${JOURS_MAJ[g.jour]} ${g.heureDebut})</option>`).join('');
-}
 
 // ==========================================================================
 // MEMBRES
@@ -844,6 +861,23 @@ function nomsChiensActifs(membre) {
   return actifs.map(c => c.nom).filter(Boolean).join(', ');
 }
 
+// Un membre peut désormais appartenir à PLUSIEURS groupes à la fois (ex: un
+// chien qui vient 2x/semaine dans 2 groupes différents) — "groupeIds" (tableau)
+// remplace l'ancien "groupeId" (un seul groupe). Cette fonction centralise la
+// lecture pour que tout le site continue de fonctionner, y compris pour les
+// membres déjà existants qui n'ont encore que l'ancien champ "groupeId" (pas
+// besoin de migration : le repli ci-dessous suffit).
+function groupesDuMembre(membre) {
+  if (Array.isArray(membre?.groupeIds)) return membre.groupeIds.filter(Boolean);
+  return membre?.groupeId ? [membre.groupeId] : [];
+}
+function nomsGroupesDuMembre(membre) {
+  return groupesDuMembre(membre)
+    .map(id => currentGroupes.find(g => g.id === id)?.nom)
+    .filter(Boolean)
+    .join(', ');
+}
+
 function renderMembres() {
   const wrap = document.getElementById('listeMembres');
   if (currentMembres.length === 0) {
@@ -860,7 +894,7 @@ function renderMembres() {
     return;
   }
   wrap.innerHTML = membresAffiches.map(m => {
-    const groupe = currentGroupes.find(g => g.id === m.groupeId);
+    const nomsGroupes = nomsGroupesDuMembre(m);
     // Migration en douceur : tant que le bouton de migration n'a pas été
     // cliqué, un membre existant sans champ accesCours/accesBoutique est
     // considéré comme y ayant accès (comportement historique).
@@ -882,7 +916,7 @@ function renderMembres() {
       <div class="data-main">
         <div class="data-title">${escapeHtml(m.nomMaitre)}${nomsChiensActifs(m) ? ' — ' + escapeHtml(nomsChiensActifs(m)) : ''}</div>
         <div class="data-sub">${chips}</div>
-        <div class="data-sub">${aAccesCours ? (groupe ? escapeHtml(groupe.nom) : 'Sans groupe') + ' · ' : ''}${badgeAbo} ${badgeCotis}</div>
+        <div class="data-sub">${aAccesCours ? (nomsGroupes ? escapeHtml(nomsGroupes) : 'Sans groupe') + ' · ' : ''}${badgeAbo} ${badgeCotis}</div>
         <div class="data-sub">${m.gsm ? `<a href="tel:${escapeAttr(m.gsm)}">${escapeHtml(m.gsm)}</a>` : ''} ${m.email ? `· <a href="mailto:${escapeAttr(m.email)}">${escapeHtml(m.email)}</a>` : ''}</div>
         <div class="data-sub">Identifiant : <strong>${escapeHtml(m.identifiant || '—')}</strong>${m.motDePasseInitial ? ` · Mot de passe : <strong>${escapeHtml(m.motDePasseInitial)}</strong>` : ''}</div>
       </div>
@@ -966,7 +1000,7 @@ function ouvrirModalImportMembres() {
           gsm: '', dateAnniversaire: '',
           chiens: [],
           accesCours: true, accesDogSitting: false, accesBoutique: false,
-          groupeId: groupe ? groupe.id : null,
+          groupeIds: groupe ? [groupe.id] : [],
           coursRestants: 11, abonnementPaye: false, cotisationPayee: false,
           dateInscription: serverTimestamp()
         });
@@ -985,8 +1019,21 @@ function ouvrirModalImportMembres() {
   });
 }
 
-window.editerMembre = (id) => {
-  const m = currentMembres.find(x => x.id === id);
+window.editerMembre = async (id) => {
+  // Relit la fiche directement depuis Firestore au lieu de se fier à
+  // currentMembres (chargé une fois à la connexion, puis plus rafraîchi en
+  // continu) : "Cours restants" en particulier peut avoir changé entre-temps
+  // (décompte automatique) sans que ce cache local le sache — ouvrir la
+  // fiche avec une valeur à jour évite d'afficher un chiffre déjà périmé.
+  let m = currentMembres.find(x => x.id === id);
+  try {
+    const snap = await getDoc(doc(db, 'membres', id));
+    if (snap.exists()) m = { id, ...snap.data() };
+  } catch (err) {
+    console.error('Erreur lors du rechargement de la fiche membre :', err);
+    // best-effort : on ouvre quand même avec la version en cache si le
+    // rechargement échoue (réseau...), plutôt que de bloquer l'admin.
+  }
   ouvrirModalMembre(m);
 };
 
@@ -1044,6 +1091,15 @@ function ouvrirModalMembre(membre, prefill) {
   const accesCoursDefaut = isEdit ? (membre.accesCours !== undefined ? !!membre.accesCours : true) : false;
   const accesDogSittingDefaut = isEdit ? !!membre.accesDogSitting : false;
   const accesBoutiqueDefaut = isEdit ? (membre.accesBoutique !== undefined ? !!membre.accesBoutique : true) : false;
+  // Valeur de "Cours restants" telle qu'affichée à l'OUVERTURE de cette
+  // fiche — comparée à la valeur saisie au moment d'enregistrer, pour ne
+  // jamais réécrire ce compteur si l'admin n'y a pas touché (voir plus bas,
+  // dans "mm-save").
+  const coursRestantsInitial = isEdit ? (membre.coursRestants ?? 11) : null;
+  // Groupe(s) déjà suivis par ce membre — un chien peut appartenir à
+  // plusieurs groupes (ex: 2 cours/semaine). Rétrocompatible avec les
+  // fiches qui n'ont que l'ancien champ groupeId (voir groupesDuMembre).
+  const groupesInitiaux = isEdit ? groupesDuMembre(membre) : [];
   const html = `
     <div class="modal-overlay" id="modalOverlay">
       <div class="modal-box" style="max-width:560px;">
@@ -1128,7 +1184,15 @@ function ouvrirModalMembre(membre, prefill) {
         <div class="mm-groupeCours">
         <h3 class="bloc-titre" style="margin-top:18px;">Groupe &amp; abonnement <span class="bloc-fleche">▾</span></h3>
         <div class="bloc-contenu">
-        <div class="field"><label>Groupe par défaut</label><select id="mm-groupe"></select></div>
+        <div class="field"><label>Groupe(s) — un chien peut suivre plusieurs groupes (ex: 2x/semaine)</label>
+          <div class="mm-groupes-liste">
+            ${currentGroupes.length === 0 ? '<p style="font-size:0.8rem; color:var(--slate);">Aucun groupe créé pour l\'instant.</p>' : currentGroupes.map(g => `
+              <label class="membre-check-row" style="display:flex; align-items:center; gap:6px; font-weight:400;">
+                <input type="checkbox" class="mm-groupe-check" value="${g.id}" ${groupesInitiaux.includes(g.id) ? 'checked' : ''}>
+                <span>${escapeHtml(g.nom)} (${JOURS_MAJ[g.jour]} ${g.heureDebut})</span>
+              </label>`).join('')}
+          </div>
+        </div>
         <div class="form-grid">
           <div class="field"><label>Cours restants (abonnement)</label><input type="number" id="mm-coursRestants" value="${isEdit ? (membre.coursRestants ?? 11) : 11}"></div>
           <div class="field"><label>Abonnement payé</label>
@@ -1191,8 +1255,6 @@ function ouvrirModalMembre(membre, prefill) {
     </div>`;
   document.getElementById('modalZone').innerHTML = html;
   activerBlocsRepliables(document.getElementById('modalZone'));
-  remplirSelectGroupes();
-  if (isEdit && membre.groupeId) document.getElementById('mm-groupe').value = membre.groupeId;
   if (isEdit) { chargerHistoriquePaiements(membre.id); chargerHistoriquePresencesAdmin(membre.id); chargerAbonnementsAdmin(membre.id); }
   if (isEdit) {
     document.getElementById('mm-btnChangerMdp')?.addEventListener('click', () => window.changerMotDePasseMembre(membre.id, membre.identifiant, membre.motDePasseInitial));
@@ -1244,8 +1306,9 @@ function ouvrirModalMembre(membre, prefill) {
       accesCours: document.getElementById('mm-accesCours').checked,
       accesDogSitting: document.getElementById('mm-accesDogSitting').checked,
       accesBoutique: document.getElementById('mm-accesBoutique').checked,
-      groupeId: document.getElementById('mm-accesCours').checked ? (document.getElementById('mm-groupe').value || null) : null,
-      coursRestants: document.getElementById('mm-accesCours').checked ? (parseInt(document.getElementById('mm-coursRestants').value, 10) || 0) : 0,
+      groupeIds: document.getElementById('mm-accesCours').checked
+        ? Array.from(document.querySelectorAll('.mm-groupe-check:checked')).map(cb => cb.value)
+        : [],
       abonnementPaye: document.getElementById('mm-accesCours').checked ? document.getElementById('mm-aboPaye').value === 'oui' : false,
       cotisationPayee: document.getElementById('mm-accesCours').checked ? document.getElementById('mm-cotisPaye').value === 'oui' : false,
       cotisationDateEcheance: document.getElementById('mm-accesCours').checked ? document.getElementById('mm-cotisEcheance').value : ''
@@ -1262,6 +1325,29 @@ function ouvrirModalMembre(membre, prefill) {
     if (isEdit) {
       data.motDePasseInitial = document.getElementById('mm-mdpRef').value.trim();
     }
+
+    // "Cours restants" : AVANT ce correctif, ce champ était réécrit à
+    // CHAQUE enregistrement de la fiche — même pour corriger juste une
+    // adresse ou un vaccin — avec la valeur affichée au moment de
+    // l'OUVERTURE du formulaire. Si un décompte automatique avait eu lieu
+    // entre-temps (ex: présence traitée pendant que la fiche était restée
+    // ouverte, ou fiche ouverte à partir d'une liste chargée plus tôt dans
+    // la journée), ce décompte réel était silencieusement écrasé par
+    // l'ancienne valeur affichée — ramenant parfois le compteur à une
+    // valeur plus haute (jusqu'à 11) que la réalité. On n'écrit donc ce
+    // champ que si l'admin a RÉELLEMENT changé la valeur affichée (ou
+    // vient de décocher/cocher l'accès aux cours) — jamais "en passant".
+    const coursRestantsSaisi = parseInt(document.getElementById('mm-coursRestants').value, 10) || 0;
+    if (!document.getElementById('mm-accesCours').checked) {
+      data.coursRestants = 0; // accès retiré : remise à zéro volontaire
+    } else if (!isEdit) {
+      data.coursRestants = coursRestantsSaisi; // nouveau membre : toujours écrit
+    } else if (coursRestantsSaisi !== coursRestantsInitial || !accesCoursDefaut) {
+      data.coursRestants = coursRestantsSaisi; // valeur modifiée, ou accès qu'on vient de réactiver
+    }
+    // sinon : champ volontairement absent de "data" → updateDoc ne le touche pas,
+    // le vrai décompte en base (potentiellement plus récent) est préservé.
+
     if (!data.nomMaitre) { alert('Merci d\'indiquer le nom du maître.'); btnSave.disabled = false; btnSave.textContent = 'Enregistrer'; return; }
 
     if (isEdit) {
@@ -1783,6 +1869,12 @@ window.editerPresenceAdmin = (presenceId, membreId, statutActuel) => {
   document.body.insertAdjacentHTML('beforeend', html);
 
   document.getElementById('pr-save').addEventListener('click', async () => {
+    // Empêche un double-clic d'appliquer l'ajustement du compteur deux fois
+    // (la lecture puis l'écriture ci-dessous ne sont pas dans une seule
+    // opération atomique).
+    const btnSave = document.getElementById('pr-save');
+    if (btnSave.disabled) return;
+    btnSave.disabled = true;
     const nouveauStatut = document.getElementById('pr-statut').value;
     const presSnap = await getDoc(doc(db, 'presences', presenceId));
     if (!presSnap.exists()) { document.getElementById('modalOverlayPresence').remove(); return; }
@@ -1968,7 +2060,7 @@ async function chargerCeSoir() {
     const exceptionPropre = exceptionsHoraire[cle];
     const exceptionH = exceptionInjectee || exceptionPropre;
     const deplaceAilleurs = exceptionPropre && exceptionPropre.nouvelleDateISO && exceptionPropre.nouvelleDateISO !== dateISO;
-    const nbMembres = currentMembres.filter(m => m.groupeId === g.id).length;
+    const nbMembres = currentMembres.filter(m => groupesDuMembre(m).includes(g.id)).length;
     const presencesJour = presencesParCle[cle] || { present: 0, absent: 0 };
     const pasAssez = !annule && !deplaceAilleurs && presencesJour.present < MIN_PARTICIPANTS;
     let m = null;
@@ -2056,7 +2148,7 @@ window.voirMembresCours = async (groupeId, dateISO) => {
   // a été annulé et il vient à celui-ci à la place) — sans ce deuxième
   // critère, un membre ajouté exceptionnellement disparaîtrait de cette
   // liste à la prochaine ouverture de la fenêtre.
-  const membresDuGroupe = currentMembres.filter(m => m.groupeId === groupeId || reponses[m.id]);
+  const membresDuGroupe = currentMembres.filter(m => groupesDuMembre(m).includes(groupeId) || reponses[m.id]);
 
   // Si ce cours précis a été annulé, les réponses "Présent" enregistrées
   // avant l'annulation restent affichées telles quelles ci-dessous (trace
@@ -2069,15 +2161,15 @@ window.voirMembresCours = async (groupeId, dateISO) => {
 
   const lignes = membresDuGroupe.map(m => {
     const r = reponses[m.id];
-    const estExceptionnel = m.groupeId !== groupeId;
-    const groupeHabituel = estExceptionnel ? currentGroupes.find(g => g.id === m.groupeId) : null;
+    const estExceptionnel = !groupesDuMembre(m).includes(groupeId);
+    const nomsGroupesHabituels = estExceptionnel ? nomsGroupesDuMembre(m) : '';
     let badge;
     if (!r) badge = '<span class="badge badge-neutral">N\'a pas encore répondu</span>';
     else if (r.statut === 'present') badge = '<span class="badge badge-ok">Présent</span>';
     else if (r.statut === 'absent-auto') badge = '<span class="badge badge-warn">Absent — non répondu (décompté)</span>';
     else if (r.statut === 'absent-justifie') badge = '<span class="badge badge-neutral">Absent justifié (non décompté)</span>';
     else badge = '<span class="badge badge-neutral">Absent (signalé)</span>';
-    if (estExceptionnel) badge += ` <span class="badge badge-neutral">🔁 Exceptionnellement ici (habituellement ${escapeHtml(groupeHabituel?.nom || '')})</span>`;
+    if (estExceptionnel) badge += ` <span class="badge badge-neutral">🔁 Exceptionnellement ici (habituellement ${escapeHtml(nomsGroupesHabituels)})</span>`;
     return `
       <div class="data-row">
         <div class="data-main">
@@ -2123,7 +2215,7 @@ window.ouvrirAjoutExceptionnel = async (groupeId, dateISO) => {
   presSnap.forEach(d => dejaIds.add(d.data().uid));
 
   const candidats = currentMembres
-    .filter(m => m.groupeId !== groupeId && !dejaIds.has(m.id))
+    .filter(m => !groupesDuMembre(m).includes(groupeId) && !dejaIds.has(m.id))
     .sort((a, b) => (a.nomMaitre || '').localeCompare(b.nomMaitre || '', 'fr', { sensitivity: 'base' }));
 
   if (candidats.length === 0) {
@@ -2181,7 +2273,7 @@ window.confirmerAjoutExceptionnel = async (groupeId, dateISO, uid) => {
 window.ajouterMembreExceptionnel = async (groupeId, dateISO, uid) => {
   const groupe = currentGroupes.find(g => g.id === groupeId);
   const m = currentMembres.find(x => x.id === uid);
-  const groupeHabituel = m ? currentGroupes.find(g => g.id === m.groupeId) : null;
+  const nomsGroupesHabituels = m ? nomsGroupesDuMembre(m) : '';
   const dateLabel = new Date(dateISO + 'T00:00:00').toLocaleDateString('fr-BE', { weekday: 'long', day: 'numeric', month: 'long' });
 
   await setDoc(doc(db, 'presences', `${groupeId}_${dateISO}_${uid}`), {
@@ -2190,12 +2282,12 @@ window.ajouterMembreExceptionnel = async (groupeId, dateISO, uid) => {
     compteAbonnement: false,
     marqueParAdmin: true,
     exceptionnel: true,
-    groupeHabituelId: m ? m.groupeId : null
+    groupeHabituelId: m ? (groupesDuMembre(m)[0] || null) : null
   });
   invaliderCachePresences();
   await traiterAbsencesAutomatiques(); // décompte immédiatement l'abonnement, comme pour toute présence marquée par l'admin
 
-  const texte = `📅 Changement exceptionnel : vous avez été ajouté(e) au cours "${groupe ? groupe.nom : ''}" du ${dateLabel}${groupeHabituel ? ` (à la place de votre cours habituel "${groupeHabituel.nom}")` : ''} par Katia. Ce cours compte dans votre abonnement.`;
+  const texte = `📅 Changement exceptionnel : vous avez été ajouté(e) au cours "${groupe ? groupe.nom : ''}" du ${dateLabel}${nomsGroupesHabituels ? ` (à la place de votre cours habituel "${nomsGroupesHabituels}")` : ''} par Katia. Ce cours compte dans votre abonnement.`;
   await addDoc(collection(db, 'conversations', uid, 'messages'), {
     texte, expediteur: 'admin', dateEnvoi: new Date().toISOString(), lu: false
   });
@@ -2367,7 +2459,7 @@ window.ouvrirModalChangementHoraire = (groupeId, dateISO) => {
     const texteAuto = dateChangee
       ? `🔀 Changement exceptionnel : votre cours du ${dateLabel} (${escapeHtml(groupe?.nom || '')}) est reporté au ${nouvelleDateLabel} de ${nouvelleHeureDebut} à ${nouvelleHeureFin} — motif : ${motif}. La récurrence habituelle du groupe n'est pas modifiée.`
       : `⏰ Changement d'horaire exceptionnel : votre cours du ${dateLabel} (${escapeHtml(groupe?.nom || '')}) aura lieu de ${nouvelleHeureDebut} à ${nouvelleHeureFin} au lieu de ${groupe?.heureDebut}–${groupe?.heureFin} — motif : ${motif}. La récurrence habituelle du groupe n'est pas modifiée.`;
-    const membresGroupe = currentMembres.filter(m => m.groupeId === groupeId);
+    const membresGroupe = currentMembres.filter(m => groupesDuMembre(m).includes(groupeId));
     await Promise.all(membresGroupe.map(async (m) => {
       await addDoc(collection(db, 'conversations', m.id, 'messages'), {
         texte: texteAuto, expediteur: 'admin', dateEnvoi: new Date().toISOString(), lu: false
@@ -2615,7 +2707,16 @@ async function chargerRdv() {
     const reponses = reponsesParRdv[rdv.id] || [];
     const presents = reponses.filter(r => r.statut === 'present');
     const totalPersonnes = presents.reduce((s, r) => s + (r.nombrePersonnes || 1), 0);
-    const totalDu = presents.reduce((s, r) => s + (r.montant || 0), 0);
+    // Montant dû RECALCULÉ ici à partir du prix actuel du RDV (rdv.prixParPersonne /
+    // rdv.unitePrix), et non lu depuis "r.montant" — ce champ est écrit par le
+    // membre lui-même au moment de sa réponse (voir firestore.rules : rien n'y
+    // vérifie qu'il correspond réellement au prix x la quantité), donc jamais
+    // fiable à 100% comme base d'un montant à encaisser. Les quantités
+    // (nombrePersonnes/quantiteUnite) restent déclaratives comme partout
+    // ailleurs sur le site, seul le calcul de l'argent dû est repris ici.
+    const montantDu = r => (rdv.prixParPersonne ? rdv.prixParPersonne * (r.nombrePersonnes || 1) : 0)
+      + (rdv.unitePrix ? rdv.unitePrix * (r.quantiteUnite || 0) : 0);
+    const totalDu = presents.reduce((s, r) => s + montantDu(r), 0);
     const payes = presents.filter(r => r.paye).length;
     const valides = presents.filter(r => r.paiementValide).length;
     const dateLabel = rdv.date ? new Date(rdv.date + 'T00:00:00').toLocaleDateString('fr-BE', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
@@ -2631,7 +2732,7 @@ async function chargerRdv() {
         <div class="data-main">
           <div class="data-title">${escapeHtml(m?.nomMaitre || '?')}${m && nomsChiensActifs(m) ? ' — ' + escapeHtml(nomsChiensActifs(m)) : ''} ${r.nombrePersonnes > 1 ? `(${r.nombrePersonnes} pers.)` : ''}${rdv.uniteNom && r.quantiteUnite ? ` — ${r.quantiteUnite} ${escapeHtml(rdv.uniteNom)}${r.quantiteUnite > 1 ? 's' : ''}` : ''}</div>
           <div class="data-sub">
-            ${(rdv.prixParPersonne || rdv.unitePrix) ? `${Number(r.montant||0).toFixed(2)} € dû` : ''}
+            ${(rdv.prixParPersonne || rdv.unitePrix) ? `${montantDu(r).toFixed(2)} € dû` : ''}
             ${r.paye ? '<span class="badge badge-ok">A indiqué avoir payé</span>' : '<span class="badge badge-neutral">Pas encore payé</span>'}
             ${r.paiementValide ? '<span class="badge badge-ok">Paiement validé</span>' : ''}
           </div>
@@ -2929,7 +3030,7 @@ async function envoyerMessageAdmin(uid) {
 
 document.getElementById('rechercheMessage').addEventListener('input', () => chargerConversations());
 async function envoyerMessageATousMembres(texte, cible = 'tous') {
-  const destinataires = cible === 'tous' ? currentMembres : currentMembres.filter(m => m.groupeId === cible);
+  const destinataires = cible === 'tous' ? currentMembres : currentMembres.filter(m => groupesDuMembre(m).includes(cible));
   const maintenant = new Date().toISOString();
   await Promise.all(destinataires.map(async (m) => {
     await addDoc(collection(db, 'conversations', m.id, 'messages'), {
@@ -3490,6 +3591,12 @@ async function chargerCotisationsARenouveler() {
 
   if (concernesEcheance.length === 0 && concernesSansDate.length === 0) { zone.innerHTML = ''; return; }
 
+  // Montant lu depuis le service "Cotisation annuelle" (onglet Services), pas
+  // une valeur figée dans le code : si Katia change ce prix, ce rappel doit
+  // suivre automatiquement plutôt que d'afficher un ancien montant.
+  const serviceCotisation = currentServices.find(s => s.nom === 'Cotisation annuelle');
+  const prixCotisationActuel = typeof serviceCotisation?.prix === 'number' ? serviceCotisation.prix : 70;
+
   let html = '';
   if (concernesEcheance.length > 0) {
     html += `
@@ -3498,7 +3605,7 @@ async function chargerCotisationsARenouveler() {
       ${concernesEcheance.map(m => {
         const echeance = new Date(m.cotisationDateEcheance + 'T00:00:00');
         const enRetard = echeance < aujourdhui;
-        const reponse = m.cotisationRenouvellement === 'oui' ? ' (a dit oui — facture 70€ TTC possible)'
+        const reponse = m.cotisationRenouvellement === 'oui' ? ` (a dit oui — facture ${prixCotisationActuel.toFixed(2)}€ TTC possible)`
           : m.cotisationRenouvellement === 'non' ? ' (a dit non)' : ' (pas encore répondu)';
         return `${escapeHtml(m.nomMaitre)}${enRetard ? ' — échue' : ''}${reponse}`;
       }).join('<br>')}
@@ -3636,7 +3743,7 @@ async function detecterAbsencesNonRepondues() {
     const delaiDepasse = maintenant >= new Date(heureCours.getTime() - 24 * 60 * 60 * 1000);
     if (!delaiDepasse) return;
 
-    currentMembres.filter(m => m.groupeId === g.id).forEach(m => {
+    currentMembres.filter(m => groupesDuMembre(m).includes(g.id)).forEach(m => {
       try {
         // On ne pénalise jamais un membre pour un cours qui a eu lieu
         // avant sa date d'inscription au club.
@@ -3791,10 +3898,28 @@ async function traiterAbsencesAutomatiques() {
       // crée toujours le document d'annulation EN PREMIER, avant toute
       // autre écriture — cette vérification juste avant le décompte est
       // donc fiable quel que soit l'ordre d'exécution entre les deux.
-      const annulationDoc = await getDoc(doc(db, 'annulations', `${p.groupeId}_${p.dateISO}`));
-      if (annulationDoc.exists()) continue;
-      await updateDoc(doc(db, 'membres', p.uid), { coursRestants: increment(-1) }).catch(() => {});
-      await updateDoc(doc(db, 'presences', p.id), { compteAbonnement: true });
+      //
+      // "transaction" (et non deux updateDoc séparés comme avant) : Katia
+      // et le Super Admin peuvent être connectés en même temps, chacun
+      // déclenchant cette même fonction à sa propre connexion. Avec deux
+      // écritures séparées (-1 cours, PUIS compteAbonnement:true), les deux
+      // sessions pouvaient lire "pas encore décompté" avant que l'une des
+      // deux ait fini d'écrire — et décompter le MÊME cours deux fois chez
+      // le membre. La transaction lit et écrit le statut "décompté" de
+      // façon atomique : Firestore garantit qu'une seule des deux sessions
+      // peut gagner cette course, l'autre est automatiquement rejouée et
+      // voit alors "déjà décompté" — plus aucun double décompte possible.
+      let dejaTraite = false;
+      await runTransaction(db, async (tx) => {
+        const annulationRef = doc(db, 'annulations', `${p.groupeId}_${p.dateISO}`);
+        const presenceRef = doc(db, 'presences', p.id);
+        const [annulationSnap, presenceSnap] = await Promise.all([tx.get(annulationRef), tx.get(presenceRef)]);
+        if (annulationSnap.exists()) { dejaTraite = true; return; } // cours annulé entre-temps
+        if (!presenceSnap.exists() || presenceSnap.data().compteAbonnement) { dejaTraite = true; return; } // déjà traité (par cette session ou une autre)
+        tx.update(doc(db, 'membres', p.uid), { coursRestants: increment(-1) });
+        tx.update(presenceRef, { compteAbonnement: true });
+      });
+      if (dejaTraite) continue;
       const entree = presencesCache.find(x => x.id === p.id);
       if (entree) entree.compteAbonnement = true;
       await remplirProchaineCaseAbonnement(p.uid, p.dateISO, p.statut, p.id);
@@ -4048,11 +4173,13 @@ window.supprimerCommande = async (commandeId) => {
 window.validerCommande = async (commandeId) => {
   const commande = (await getDoc(doc(db, 'commandes', commandeId))).data();
   for (const ligne of commande.lignes || []) {
-    const article = currentArticlesBoutique.find(a => a.id === ligne.articleId);
-    if (article) {
-      const nouveauStock = Math.max(0, article.stock - ligne.quantite);
-      await updateDoc(doc(db, 'articles_boutique', ligne.articleId), { stock: nouveauStock });
-    }
+    // Décompte atomique (increment), jamais "stock actuel du cache - quantité"
+    // réécrit en valeur absolue : si deux commandes du même article sont
+    // validées coup sur coup (ou si la liste des articles en mémoire n'a pas
+    // été rechargée depuis un moment), l'ancienne méthode pouvait repartir
+    // d'un stock déjà périmé et écraser un décompte entre-temps — exactement
+    // le même type de bug que celui corrigé sur "Cours restants".
+    await updateDoc(doc(db, 'articles_boutique', ligne.articleId), { stock: increment(-ligne.quantite) }).catch(() => {});
   }
   await updateDoc(doc(db, 'commandes', commandeId), { statut: 'validee', dateValidation: serverTimestamp() });
   chargerBoutiqueAdmin();
@@ -5285,18 +5412,26 @@ window.appliquerReductionDogSitting = async (id) => {
   const r = currentDogSitting.find(x => x.id === id);
   if (!r) return;
   const inputEl = document.getElementById(`ds-reduc-${id}`);
-  const reductionDemiNuits = Math.max(0, parseInt(inputEl.value, 10) || 0);
-  const tarifNuit = r.tarifNuit ?? 0;
-  const nbNuits = r.nbNuits ?? 0;
-  const nouveauTotal = Math.max(0, tarifNuit * nbNuits - reductionDemiNuits * 0.5 * tarifNuit);
-  const data = { reductionDemiNuits, total: Number(nouveauTotal.toFixed(2)) };
+  const reductionSaisie = Math.max(0, parseInt(inputEl.value, 10) || 0);
+  // Passe par calculerTotalDogSittingAdmin (comme "Recalculer le tarif" et
+  // "Recalculer tout") au lieu de recalculer ici à la main : ce bouton
+  // recalculait le total SANS plafonner la réduction à la durée du séjour,
+  // ce qui pouvait reproduire silencieusement le bug du total à 0,00 € déjà
+  // corrigé ailleurs (réduction saisie ici supérieure au nombre de nuits).
+  const { tarifNuit, nbNuits, reductionDemiNuits, total, reductionLimitee } =
+    await calculerTotalDogSittingAdmin({ ...r, reductionDemiNuits: reductionSaisie }, r.dateDebut, r.dateFin, r.heureArrivee, r.heureDepart);
+  const data = { tarifNuit, nbNuits, reductionDemiNuits, total };
   // Si un acompte de 30% était déjà calculé sur l'ancien total, on le
-  // recalcule aussi pour rester cohérent avec le nouveau total.
-  if (r.acompte != null) {
-    data.acompte = Number((nouveauTotal * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
+  // recalcule aussi pour rester cohérent avec le nouveau total (sauf s'il a
+  // été fixé manuellement, même règle que partout ailleurs).
+  if (r.acompte != null && !r.acompteFixeManuellement) {
+    data.acompte = Number((total * TAUX_ACOMPTE_DOGSITTING).toFixed(2));
   }
   await updateDoc(doc(db, 'dogsitting', id), data);
   chargerDogSittingAdmin();
+  if (reductionLimitee) {
+    alert(`La réduction saisie (${reductionSaisie / 2} nuit(s)) dépassait la durée du séjour (${nbNuits} nuit(s)) — elle a été limitée à ${nbNuits} nuit(s) et le total a été recalculé en conséquence (${total.toFixed(2)} €).`);
+  }
 };
 
 document.getElementById('btnRecalculerDogSitting')?.addEventListener('click', async () => {
