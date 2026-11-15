@@ -1,4 +1,4 @@
-/* Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V04-001 */
+/* Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V08-001 */
 /* © 2026 Hélène Laruelle. Tous droits réservés. Voir LICENSE.txt. */
 
 /* ==========================================================================
@@ -650,6 +650,34 @@ blockquote.pull-quote {
 }
 .cta-band h2 { margin-bottom: 10px; }
 .cta-band p { max-width: 56ch; margin: 0 auto 26px; color: var(--slate); }
+
+.faq-section { padding-top: 10px; }
+.faq-section h2 { margin: 6px 0 24px; }
+.faq-list { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+.faq-item {
+  background: var(--paper-warm);
+  border: 1px solid #E3DFD3;
+  border-radius: 12px;
+  padding: 14px 18px;
+}
+.faq-item summary {
+  cursor: pointer;
+  font-weight: 600;
+  list-style: none;
+  position: relative;
+  padding-right: 28px;
+}
+.faq-item summary::-webkit-details-marker { display: none; }
+.faq-item summary::after {
+  content: "+";
+  position: absolute;
+  right: 0;
+  top: 0;
+  font-weight: 400;
+  font-size: 1.2rem;
+}
+.faq-item[open] summary::after { content: "–"; }
+.faq-item p { margin: 12px 0 0; color: var(--slate); }
 
 /* Logo personnel discret mais visible, bas droite, sur toutes les pages
    publiques — pas de nom ni d'infobulle au survol, juste le visuel. */

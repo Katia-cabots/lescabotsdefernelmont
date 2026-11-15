@@ -1,4 +1,4 @@
-<!-- Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V04-001 -->
+<!-- Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V08-001 -->
 <!-- © 2026 Hélène Laruelle. Tous droits réservés. Ce code ne peut être utilisé, copié ou modifié sans autorisation écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt. Contenu du site sous la responsabilité de Katia Renard (LES BEAUX CABOTS SRL). -->
 <!DOCTYPE html>
 <html lang="fr">
@@ -15,8 +15,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:wght@500;600;700&family=Source+Sans+3:wght@400;600;700&family=Great+Vibes&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="assets/style.css?v=V04-001">
-<link rel="stylesheet" href="assets/app.css?v=V04-001">
+<link rel="stylesheet" href="assets/style.css?v=V08-001">
+<link rel="stylesheet" href="assets/app.css?v=V08-001">
 </head>
 <body class="app-body">
 
@@ -26,6 +26,22 @@
     <button class="btn-sm" id="btnMonCompte" style="background:transparent; border-color:rgba(255,255,255,0.4); color:#fff;">🔑 Mon compte</button>
     <button class="btn-sm" id="logoutBtn" style="background:transparent; border-color:rgba(255,255,255,0.4); color:#fff;">Déconnexion</button>
     <a class="app-home-link" href="index.html" title="Retour au site" aria-label="Retour au site">⌂</a>
+  </div>
+</div>
+
+<!-- Compte à rebours avant le 18 novembre (anniversaire de Katia) : texte
+     calculé en JS, pas de photo par jour à fournir ici (contrairement au 14
+     octobre). La bannière "Joyeux Anniversaire" ci-dessous ne s'affiche
+     qu'à partir du jour J lui-même. -->
+<div id="banniereAnniversaireKatiaCompte" class="hidden">
+  <div class="anniv-fond">
+    <div class="anniv-ligne-fraises">🍓 💖 ✨ 🍓 💕 ✨ 🍓 💖 🍓</div>
+    <div class="anniv-contenu">
+      <div class="anniv-titre">Bientôt ton anniversaire !</div>
+      <div class="anniv-surnom" id="anniversaireKatiaJoursRestants"></div>
+      <div class="anniv-message">Je t'aime !!!! 🍓💕</div>
+    </div>
+    <div class="anniv-ligne-fraises">🍓 💕 ✨ 🍓 💖 ✨ 🍓 💕 🍓</div>
   </div>
 </div>
 
@@ -641,7 +657,7 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script type="module" src="assets/app-admin.js?v=V04-001"></script>
+<script type="module" src="assets/app-admin.js?v=V08-001"></script>
 <div id="versionTagCoin" style="position:fixed; bottom:10px; right:14px; font-size:0.72rem; color:var(--slate-light); opacity:0.55; z-index:30; pointer-events:none; background:var(--white); padding:2px 6px; border-radius:4px;"></div>
 </body>
 </html>
