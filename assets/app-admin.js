@@ -1,4 +1,4 @@
-// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V04-001
+// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V08-001
 // © 2026 Hélène Laruelle. Tous droits réservés.
 // Ce code ne peut être utilisé, copié ou modifié sans autorisation
 // écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt.
@@ -226,7 +226,18 @@ onAuthStateChanged(auth, async (user) => {
     const aujourdhui = new Date();
     const mois = aujourdhui.getMonth(); // 10 = novembre (0-indexé)
     const jour = aujourdhui.getDate();
-    if (mois === 10 && jour >= 15 && jour <= 21) {
+    // AVANT ce correctif, toute la fenêtre 15→21 novembre affichait direct-
+    // ement la grande bannière "Joyeux Anniversaire" — y compris les 3 jours
+    // AVANT le vrai jour (le 18), ce qui n'avait pas de sens. Désormais :
+    // compte à rebours textuel du 15 au 17, bannière "Joyeux Anniversaire"
+    // à partir du 18 (jour J) jusqu'au 21 inclus.
+    if (mois === 10 && jour >= 15 && jour <= 17) {
+      const joursRestants = 18 - jour;
+      const elJours = document.getElementById('anniversaireKatiaJoursRestants');
+      if (elJours) elJours.textContent = `Plus que ${joursRestants} jour${joursRestants > 1 ? 's' : ''} ! 🎂`;
+      document.getElementById('banniereAnniversaireKatiaCompte')?.classList.remove('hidden');
+    }
+    if (mois === 10 && jour >= 18 && jour <= 21) {
       document.getElementById('banniereAnniversaireKatia')?.classList.remove('hidden');
     }
 
@@ -2123,16 +2134,37 @@ document.getElementById('btnSemaineSuivante')?.addEventListener('click', () => {
 });
 
 window.marquerPresenceManuelle = async (groupeId, dateISO, uid, statut) => {
-  await setDoc(doc(db, 'presences', `${groupeId}_${dateISO}_${uid}`), {
+  const presenceId = `${groupeId}_${dateISO}_${uid}`;
+  // Lit l'état réel précédent (même logique que editerPresenceAdmin, utilisée
+  // depuis l'historique) pour ajuster coursRestants dans le bon sens — y
+  // compris le remboursement si ce cours avait déjà été décompté — avant
+  // d'écrire le nouveau statut. Sans ça, repasser un cours déjà décompté en
+  // "non décompté" ne recréditait jamais l'abonnement du membre.
+  const presSnap = await getDoc(doc(db, 'presences', presenceId));
+  const decompteAvant = presSnap.exists() && presSnap.data().compteAbonnement === true;
+  const decompteApres = presenceEstDecomptee(statut);
+
+  if (decompteAvant !== decompteApres) {
+    await updateDoc(doc(db, 'membres', uid), { coursRestants: increment(decompteApres ? -1 : 1) });
+  }
+
+  await setDoc(doc(db, 'presences', presenceId), {
     groupeId, uid, dateISO, statut,
     repondu: new Date().toISOString(),
-    compteAbonnement: false,
+    compteAbonnement: decompteApres,
     marqueParAdmin: true
   });
   invaliderCachePresences();
-  await traiterAbsencesAutomatiques(); // décompte l'abonnement immédiatement, comme pour une réponse normale
+
+  if (decompteApres) {
+    await mettreAJourCaseAbonnement(uid, presenceId, statut === 'present' ? 'P' : 'NR');
+  } else {
+    await desassocierPresenceAbonnement(uid, presenceId);
+  }
+
   window.voirMembresCours(groupeId, dateISO); // rafraîchit la fenêtre avec le nouveau statut
   chargerCeSoir(); // rafraîchit aussi le total de présents affiché derrière la fenêtre
+  renderMembres();
 };
 
 window.voirMembresCours = async (groupeId, dateISO) => {
