@@ -1,4 +1,4 @@
-// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V08-001
+// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V09-002
 // © 2026 Hélène Laruelle. Tous droits réservés.
 // Ce code ne peut être utilisé, copié ou modifié sans autorisation
 // écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt.
@@ -262,10 +262,10 @@ onAuthStateChanged(auth, async (user) => {
           // (fixe, elle ne change jamais), et "Un an de plus..." ne cite
           // aucun chiffre précis.
           const annee = aujourdhui.getFullYear();
-          img.src = (annee === 2026) ? 'assets/anniv-14oct-2026.jpg' : 'assets/anniv-14oct-generique.jpg';
+          img.src = (annee === 2026) ? 'assets/008-anniv-14oct-2026.jpg' : 'assets/008-anniv-14oct-generique.jpg';
         } else {
           const joursRestants = 14 - jour;
-          img.src = `assets/anniv-compte-J${joursRestants}.jpg`;
+          img.src = `assets/049-anniv-compte-J${joursRestants}.jpg`;
         }
       }
       document.getElementById('banniereAnniversaireOctobre')?.classList.remove('hidden');
@@ -302,7 +302,7 @@ onAuthStateChanged(auth, async (user) => {
     const moisFichier14 = ['janvier', null, 'mars', 'avril', 'mai', 'juin', 'juillet', 'aout', 'septembre', null, 'novembre', 'decembre'];
     if (jour === 14 && moisFichier14[mois]) {
       const imgMois = document.getElementById('imgBanniere14Mois');
-      if (imgMois) imgMois.src = `assets/anniv-14-${moisFichier14[mois]}-admin.jpg`;
+      if (imgMois) imgMois.src = `assets/006-anniv-14-${moisFichier14[mois]}-admin.jpg`;
       document.getElementById('banniere14MoisAdmin')?.classList.remove('hidden');
     }
 
@@ -352,7 +352,7 @@ onAuthStateChanged(auth, async (user) => {
     const feteMeres = dateFeteDesMeres[anneeCourante];
     if (feteMeres && mois === feteMeres[0] && jour === feteMeres[1]) {
       const imgMeres = document.getElementById('imgBanniereFeteDesMeres');
-      if (imgMeres) imgMeres.src = `assets/anniv-fetedesmeres-${anneeCourante}-admin.jpg`;
+      if (imgMeres) imgMeres.src = `assets/052-anniv-fetedesmeres-${anneeCourante}-admin.jpg`;
       document.getElementById('banniereFeteDesMeresAdmin')?.classList.remove('hidden');
     }
 

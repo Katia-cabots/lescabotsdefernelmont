@@ -1,4 +1,4 @@
-// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V08-001
+// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V09-002
 // © 2026 Hélène Laruelle. Tous droits réservés.
 // Ce code ne peut être utilisé, copié ou modifié sans autorisation
 // écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt.
@@ -2246,7 +2246,7 @@ function activerEcouteNotifications() {
     if (snap.exists() && snap.data().nonLuMembre) {
       new Notification('Les Beaux Cabots', {
         body: '💬 Nouveau message de Katia !',
-        icon: 'assets/logo.png'
+        icon: 'assets/083-logo.png'
       });
     }
   });
@@ -2261,7 +2261,7 @@ function activerEcouteNotifications() {
     if (dernierNbArticlesConnu !== null && snap.size > dernierNbArticlesConnu) {
       new Notification('Les Beaux Cabots', {
         body: '📰 Un nouvel article a été publié sur le blog du club !',
-        icon: 'assets/logo.png'
+        icon: 'assets/083-logo.png'
       });
     }
     dernierNbArticlesConnu = snap.size;
