@@ -1,4 +1,4 @@
-/* Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V08-001 */
+/* Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V09-002 */
 /* © 2026 Hélène Laruelle. Tous droits réservés. Voir LICENSE.txt. */
 
 /* ==========================================================================
@@ -678,6 +678,50 @@ blockquote.pull-quote {
 }
 .faq-item[open] summary::after { content: "–"; }
 .faq-item p { margin: 12px 0 0; color: var(--slate); }
+
+/* Blog public (articles référencement) : grille de teasers sur la page
+   "Infos canines" + mise en page des pages d'article individuelles. */
+.blog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 22px;
+}
+.blog-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--white);
+  border: 1px solid #E3DFD3;
+  border-radius: 14px;
+  padding: 24px;
+  text-decoration: none;
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.blog-card:hover { transform: translateY(-3px); box-shadow: 0 10px 24px rgba(27,58,92,0.12); }
+.blog-card h2 { font-size: 1.15rem; color: var(--navy); margin-bottom: 10px; }
+.blog-card p { color: var(--slate); margin: 0; flex: 1; }
+.blog-card .card-arrow { color: var(--brass); font-weight: 700; margin-top: 14px; display: inline-block; }
+
+.article-body {
+  max-width: 700px;
+  margin: 0 auto;
+  color: var(--ink);
+}
+.article-body h2 { color: var(--navy); margin: 34px 0 14px; font-size: 1.4rem; }
+.article-body h2:first-child { margin-top: 0; }
+.article-body p { margin: 0 0 16px; line-height: 1.7; }
+.article-body ul, .article-body ol { margin: 0 0 18px; padding-left: 22px; line-height: 1.7; }
+.article-body li { margin-bottom: 8px; }
+.article-nav {
+  max-width: 700px;
+  margin: 36px auto 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.article-nav a { color: var(--brass); font-weight: 600; text-decoration: none; }
+.article-nav a:hover { text-decoration: underline; }
 
 /* Logo personnel discret mais visible, bas droite, sur toutes les pages
    publiques — pas de nom ni d'infobulle au survol, juste le visuel. */
