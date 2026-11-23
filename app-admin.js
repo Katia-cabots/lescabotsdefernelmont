@@ -1,4 +1,4 @@
-// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V09-005
+// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V09-010
 // © 2026 Hélène Laruelle. Tous droits réservés.
 // Ce code ne peut être utilisé, copié ou modifié sans autorisation
 // écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt.
@@ -1012,7 +1012,7 @@ function ouvrirModalImportMembres() {
           chiens: [],
           accesCours: true, accesDogSitting: false, accesBoutique: false,
           groupeIds: groupe ? [groupe.id] : [],
-          coursRestants: 11, abonnementPaye: false, cotisationPayee: false,
+          coursRestants: 12, abonnementPaye: false, cotisationPayee: false,
           dateInscription: serverTimestamp()
         });
         await signOutSecondary(secondaryAuth);
@@ -1205,7 +1205,7 @@ function ouvrirModalMembre(membre, prefill) {
           </div>
         </div>
         <div class="form-grid">
-          <div class="field"><label>Cours restants (abonnement)</label><input type="number" id="mm-coursRestants" value="${isEdit ? (membre.coursRestants ?? 11) : 11}"></div>
+          <div class="field"><label>Cours restants (abonnement)</label><input type="number" id="mm-coursRestants" value="${isEdit ? (membre.coursRestants ?? 11) : 12}"></div>
           <div class="field"><label>Abonnement payé</label>
             <select id="mm-aboPaye">
               <option value="oui" ${isEdit && membre.abonnementPaye ? 'selected':''}>Oui</option>
@@ -1249,7 +1249,7 @@ function ouvrirModalMembre(membre, prefill) {
         </div>
 
         <div class="mm-groupeCours">
-        <h3 class="bloc-titre replie" style="margin-top:18px;">Carte d'abonnement (10 + 1 gratuit) <span class="bloc-fleche">▾</span></h3>
+        <h3 class="bloc-titre replie" style="margin-top:18px;">Carte d'abonnement <span class="bloc-fleche">▾</span></h3>
         <div class="bloc-contenu replie">
         <p style="font-size:0.8rem; color:var(--slate);">Reprend l'ancienne carte papier — chaque cycle de 11 cours, avec ses dates. Se remplit automatiquement pour l'abonnement en cours ; éditable à la main (utile notamment pour les anciens abonnements non suivis par le site).</p>
         <button class="btn-sm" type="button" onclick="window.ouvrirNouvelAbonnement('${membre.id}')">+ Nouvel abonnement</button>
@@ -1623,17 +1623,24 @@ function presenceEstDecomptee(statut) {
 }
 
 // ==========================================================================
-// CARTE D'ABONNEMENT (10 + 1 gratuit) — reprend l'ancienne carte papier que
-// les membres avaient avant le site : chaque cycle d'abonnement (11 cours)
-// est un document dans la collection "abonnements", avec ses 11 "cases"
-// (date + statut P/NR). Les cases se remplissent automatiquement au fur et
-// à mesure (voir remplirProchaineCaseAbonnement, appelée depuis
-// traiterAbsencesAutomatiques), mais restent éditables à la main depuis
-// l'admin — indispensable pour les anciens abonnements jamais trackés sur
-// le site (le tout premier abonnement d'un membre, par exemple).
-const NB_SEANCES_ABONNEMENT = 11; // 10 cours + 1 gratuit
-function seancesVides() {
-  return Array.from({ length: NB_SEANCES_ABONNEMENT }, () => ({ dateISO: null, statut: null, presenceId: null }));
+// CARTE D'ABONNEMENT — reprend l'ancienne carte papier que les membres
+// avaient avant le site : chaque cycle d'abonnement est un document dans
+// la collection "abonnements", avec ses "cases" (date + statut P/NR). Les
+// cases se remplissent automatiquement au fur et à mesure (voir
+// remplirProchaineCaseAbonnement, appelée depuis traiterAbsencesAutomatiques),
+// mais restent éditables à la main depuis l'admin — indispensable pour les
+// anciens abonnements jamais trackés sur le site.
+//
+// L'abonnement n°1 de chaque membre (son tout premier) comporte un cours
+// d'essai gratuit en plus, en début de cycle : 12 cases (1 essai + 10
+// payants + 1 gratuit en fin de cycle). Tous les abonnements suivants
+// (renouvellements) restent au format classique : 11 cases (10 payants +
+// 1 gratuit).
+function nbSeancesAbonnement(numero) {
+  return numero === 1 ? 12 : 11;
+}
+function seancesVides(numero) {
+  return Array.from({ length: nbSeancesAbonnement(numero) }, () => ({ dateISO: null, statut: null, presenceId: null }));
 }
 
 async function chargerAbonnementsAdmin(membreId) {
@@ -1664,7 +1671,7 @@ async function chargerAbonnementsAdmin(membreId) {
     <div class="data-row">
       <div class="data-main">
         <div class="data-title">Abonnement n°${c.numero} ${c.actif ? '<span class="badge badge-ok">En cours</span>' : ''}</div>
-        <div class="data-sub">${remplies}/${NB_SEANCES_ABONNEMENT} case(s) remplie(s) — ${escapeHtml(periode)}${c.manuel ? ' · <span class="badge badge-neutral">Saisi à la main</span>' : ''}</div>
+        <div class="data-sub">${remplies}/${nbSeancesAbonnement(c.numero)} case(s) remplie(s) — ${escapeHtml(periode)}${c.manuel ? ' · <span class="badge badge-neutral">Saisi à la main</span>' : ''}</div>
       </div>
       <div class="data-actions">
         <button class="btn-sm" onclick="window.ouvrirEditionAbonnement('${membreId}','${c.numero}')">Voir / éditer</button>
@@ -1682,13 +1689,14 @@ window.ouvrirNouvelAbonnement = async (membreId) => {
   const html = `
     <div class="modal-overlay" id="modalOverlayNouvelAbo">
       <div class="modal-box">
-        <h3>Nouvel abonnement (10 + 1 gratuit)</h3>
+        <h3>Nouvel abonnement</h3>
         <div class="field"><label>Numéro de cet abonnement</label><input type="number" id="na-numero" value="${prochainNumero}" min="1"></div>
         <label style="display:flex; align-items:flex-start; gap:8px; font-size:0.85rem; margin:10px 0;">
           <input type="checkbox" id="na-historique" style="margin-top:3px;">
           <span>Il s'agit d'un abonnement déjà terminé (historique à compléter à la main) — ne pas le marquer comme abonnement en cours, ni toucher au compteur de cours restants actuel.</span>
         </label>
-        <p style="font-size:0.8rem; color:var(--slate);">Sans la case cochée : ce nouvel abonnement devient l'abonnement "en cours" (les prochains cours remplissent automatiquement ses cases), le compteur "Cours restants" repasse à 11 et "Abonnement payé" passe à Oui.</p>
+        <p style="font-size:0.8rem; color:var(--slate);" id="na-apercu"></p>
+        <p style="font-size:0.8rem; color:var(--slate);">Sans la case cochée : ce nouvel abonnement devient l'abonnement "en cours" (les prochains cours remplissent automatiquement ses cases), et "Abonnement payé" passe à Oui.</p>
         <div class="modal-actions">
           <button class="btn-sm" type="button" onclick="document.getElementById('modalOverlayNouvelAbo').remove()">Annuler</button>
           <button class="btn-sm primary" type="button" id="na-save">Créer</button>
@@ -1696,6 +1704,16 @@ window.ouvrirNouvelAbonnement = async (membreId) => {
       </div>
     </div>`;
   document.body.insertAdjacentHTML('beforeend', html);
+
+  const majApercu = () => {
+    const n = parseInt(document.getElementById('na-numero').value, 10) || prochainNumero;
+    const total = nbSeancesAbonnement(n);
+    document.getElementById('na-apercu').textContent = n === 1
+      ? `Abonnement n°1 : formule avec essai — ${total} cours (1 cours d'essai gratuit, 10 payants, 1 gratuit). Le compteur "Cours restants" repassera à ${total}.`
+      : `Formule classique — ${total} cours (10 payants + 1 gratuit). Le compteur "Cours restants" repassera à ${total}.`;
+  };
+  document.getElementById('na-numero').addEventListener('input', majApercu);
+  majApercu();
 
   document.getElementById('na-save').addEventListener('click', async () => {
     const btnCreer = document.getElementById('na-save');
@@ -1715,12 +1733,13 @@ window.ouvrirNouvelAbonnement = async (membreId) => {
       await setDoc(doc(db, 'abonnements', `${membreId}_${numero}`), {
         membreId, numero, actif: !historique, manuel: historique,
         dateCreation: new Date().toISOString(),
-        seances: seancesVides()
+        seances: seancesVides(numero)
       });
 
       if (!historique) {
-        await updateDoc(doc(db, 'membres', membreId), { coursRestants: 11, abonnementPaye: true });
-        if (document.getElementById('mm-coursRestants')) document.getElementById('mm-coursRestants').value = 11;
+        const totalNouveau = nbSeancesAbonnement(numero);
+        await updateDoc(doc(db, 'membres', membreId), { coursRestants: totalNouveau, abonnementPaye: true });
+        if (document.getElementById('mm-coursRestants')) document.getElementById('mm-coursRestants').value = totalNouveau;
         if (document.getElementById('mm-aboPaye')) document.getElementById('mm-aboPaye').value = 'oui';
       }
 
@@ -1740,11 +1759,13 @@ window.ouvrirEditionAbonnement = async (membreId, numero) => {
   const snap = await getDoc(doc(db, 'abonnements', docId));
   if (!snap.exists()) return;
   const cycle = snap.data();
-  const seances = Array.isArray(cycle.seances) && cycle.seances.length === NB_SEANCES_ABONNEMENT ? cycle.seances : seancesVides();
+  const numeroInt = parseInt(numero, 10);
+  const totalSeances = nbSeancesAbonnement(numeroInt);
+  const seances = Array.isArray(cycle.seances) && cycle.seances.length === totalSeances ? cycle.seances : seancesVides(numeroInt);
 
   const lignes = seances.map((s, i) => `
     <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr; align-items:end; margin-bottom:8px;">
-      <div class="field" style="margin:0;"><label>${i === NB_SEANCES_ABONNEMENT - 1 ? 'Séance 11 (gratuite)' : `Séance ${i + 1}`}</label></div>
+      <div class="field" style="margin:0;"><label>${numeroInt === 1 && i === 0 ? 'Séance 1 (essai gratuit)' : (i === totalSeances - 1 ? `Séance ${totalSeances} (gratuite)` : `Séance ${i + 1}`)}</label></div>
       <div class="field" style="margin:0;"><input type="date" id="car-date-${i}" value="${s?.dateISO || ''}"></div>
       <div class="field" style="margin:0;">
         <select id="car-statut-${i}">
@@ -1800,14 +1821,14 @@ window.supprimerAbonnementAdmin = async (membreId, numero) => {
 // l'abonnement (compteAbonnement passe à true) : va remplir automatiquement
 // la prochaine case libre de l'abonnement EN COURS du membre. Best-effort :
 // si aucun cycle actif n'est suivi pour ce membre (ex: jamais créé), ou si
-// les 11 cases sont déjà pleines, ne fait simplement rien — ça ne doit
+// toutes les cases sont déjà pleines, ne fait simplement rien — ça ne doit
 // jamais bloquer le vrai décompte de l'abonnement, qui reste coursRestants.
 async function remplirProchaineCaseAbonnement(membreId, dateISO, statutPresence, presenceId) {
   try {
     const snap = await getDocs(query(collection(db, 'abonnements'), where('membreId', '==', membreId), where('actif', '==', true)));
     if (snap.empty) return;
     const cycleDoc = snap.docs[0];
-    const seances = Array.isArray(cycleDoc.data().seances) ? [...cycleDoc.data().seances] : seancesVides();
+    const seances = Array.isArray(cycleDoc.data().seances) ? [...cycleDoc.data().seances] : seancesVides(cycleDoc.data().numero);
     const indexLibre = seances.findIndex(s => !s || !s.dateISO);
     if (indexLibre === -1) return;
     seances[indexLibre] = { dateISO, statut: statutPresence === 'present' ? 'P' : 'NR', presenceId };
@@ -2547,7 +2568,7 @@ function texteAvecLiens(str) {
 // SERVICES (remplace l'ancien "Tarifs" — catégories libres, prix ou texte)
 // ==========================================================================
 const SERVICES_PAR_DEFAUT = [
-  { categorie: 'Éducation canine', nom: 'Cours collectif', prix: 70, prixTexte: '', unite: 'les 11 cours (10 + 1 gratuit)', conditions: '', prixFutur: null, dateFutur: '' },
+  { categorie: 'Éducation canine', nom: 'Cours collectif', prix: 70, prixTexte: '', unite: 'les 11 cours (10 + 1 gratuit) — 12 cours pour le 1er abonnement (dont 1 essai gratuit)', conditions: '', prixFutur: null, dateFutur: '' },
   { categorie: 'Éducation canine', nom: 'Cours individuel', prix: 8, prixTexte: '', unite: 'par cours', conditions: '', prixFutur: null, dateFutur: '' },
   { categorie: 'Éducation canine', nom: 'Cotisation annuelle', prix: 70, prixTexte: '', unite: 'par an', conditions: '', prixFutur: 75, dateFutur: '2027-01-01' },
   { categorie: 'Éducation canine', nom: 'Séance de comportement individuelle', prix: 60, prixTexte: '', unite: 'par heure', conditions: '', prixFutur: null, dateFutur: '' },

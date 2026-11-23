@@ -1,4 +1,4 @@
-// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V09-005
+// Projet : Les Cabots de Fernelmont (cabots-de-fernelmont-901ee) — V09-010
 // © 2026 Hélène Laruelle. Tous droits réservés.
 // Ce code ne peut être utilisé, copié ou modifié sans autorisation
 // écrite d'Hélène Laruelle — voir LICENSE.txt à la racine du dépôt.
@@ -1658,12 +1658,16 @@ async function chargerHistoriquePresencesMembre() {
 }
 
 // ==========================================================================
-// CARTE D'ABONNEMENT (10 + 1 gratuit) — reprend l'ancienne carte papier.
-// Chaque cycle de 11 cours est un document "abonnements" géré par Katia
-// (auto-rempli au fil des cours pour l'abonnement en cours, ou à la main
-// pour les anciens abonnements non suivis par le site).
+// CARTE D'ABONNEMENT — reprend l'ancienne carte papier. Chaque cycle est un
+// document "abonnements" géré par Katia (auto-rempli au fil des cours pour
+// l'abonnement en cours, ou à la main pour les anciens abonnements non
+// suivis par le site). L'abonnement n°1 de chaque membre comporte un cours
+// d'essai gratuit en plus (12 cases : 1 essai + 10 payants + 1 gratuit) ;
+// les suivants restent au format classique (11 cases : 10 + 1 gratuit).
 // ==========================================================================
-const NB_SEANCES_ABONNEMENT_MEMBRE = 11;
+function nbSeancesAbonnementMembre(numero) {
+  return numero === 1 ? 12 : 11;
+}
 let abonnementsMembreCache = [];
 
 async function chargerCarteAbonnementMembre() {
@@ -1700,21 +1704,27 @@ function afficherCarteAbonnement() {
   const cycle = abonnementsMembreCache.find(c => c.numero === numero);
   if (!cycle) { zone.innerHTML = ''; return; }
 
-  const seances = Array.isArray(cycle.seances) && cycle.seances.length === NB_SEANCES_ABONNEMENT_MEMBRE
-    ? cycle.seances : Array.from({ length: NB_SEANCES_ABONNEMENT_MEMBRE }, () => null);
+  const total = nbSeancesAbonnementMembre(cycle.numero);
+  const seances = Array.isArray(cycle.seances) && cycle.seances.length === total
+    ? cycle.seances : Array.from({ length: total }, () => null);
 
   const stamps = seances.map((s, i) => {
-    const estGratuite = i === NB_SEANCES_ABONNEMENT_MEMBRE - 1;
+    const estGratuite = i === total - 1;
+    const estEssai = cycle.numero === 1 && i === 0;
     const classes = ['stamp'];
     let icone = '';
     let dateHtml = '';
     if (estGratuite) classes.push('gratuit');
+    if (estEssai) classes.push('essai');
     if (s && s.dateISO && s.statut === 'P') { classes.push('rempli-p'); icone = '✅'; dateHtml = `<div class="stamp-date">${s.dateISO}</div>`; }
     else if (s && s.dateISO && s.statut === 'NR') { classes.push('rempli-nr'); icone = '⏱️'; dateHtml = `<div class="stamp-date">${s.dateISO}</div>`; }
-    else { if (estGratuite) classes.push('vide'); icone = estGratuite ? '🎁' : ''; }
+    else {
+      if (estGratuite) { classes.push('vide'); icone = '🎁'; }
+      else if (estEssai) { classes.push('vide'); icone = '✨'; }
+    }
     return `
     <div class="${classes.join(' ')}">
-      <div class="stamp-num">${estGratuite ? 'Gratuit' : i + 1}</div>
+      <div class="stamp-num">${estEssai ? 'Essai' : estGratuite ? 'Gratuit' : i + 1}</div>
       ${icone ? `<div class="stamp-icone">${icone}</div>` : ''}
       ${dateHtml}
     </div>`;
@@ -1726,10 +1736,11 @@ function afficherCarteAbonnement() {
         <h3>🐾 Les Cabots de Fernelmont</h3>
         <span class="carte-abonnement-statut">Abonnement n°${cycle.numero}${cycle.actif ? ' — en cours' : ' — terminé'}</span>
       </div>
-      <div class="carte-stamps">${stamps}</div>
+      <div class="carte-stamps" style="--stamps-total:${total};">${stamps}</div>
       <div class="carte-abonnement-legende">
         <span>✅ Présent (P)</span>
         <span>⏱️ Non répondu (NR)</span>
+        ${cycle.numero === 1 ? '<span>✨ Cours d\'essai</span>' : ''}
         <span>🎁 Cours gratuit</span>
       </div>
     </div>`;
